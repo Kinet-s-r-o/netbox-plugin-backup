@@ -1,0 +1,98 @@
+services:
+  # Point every NetBox process at the image which contains the installed plugin.
+  netbox:
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.4.0}
+    volumes:
+      - netbox-config-backup-data:/var/lib/netbox-config-backup
+
+  netbox-worker:
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.4.0}
+    volumes:
+      - netbox-config-backup-data:/var/lib/netbox-config-backup
+
+  config-backup-worker:
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.4.0}
+    depends_on:
+      netbox:
+        condition: service_healthy
+    env_file: ./env/netbox.env
+    user: "netbox:root"
+    command:
+      - /opt/netbox/venv/bin/python
+      - /opt/netbox/netbox/manage.py
+      - rqworker
+      - netbox_config_backup.backup
+    restart: unless-stopped
+    volumes:
+      - ./configuration:/etc/netbox/config:z,ro
+      - netbox-config-backup-data:/var/lib/netbox-config-backup
+
+  config-backup-receiver:
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.4.0}
+    depends_on:
+      netbox:
+        condition: service_healthy
+    env_file: ./env/netbox.env
+    user: "netbox:root"
+    command:
+      - /opt/netbox/venv/bin/python
+      - /opt/netbox/netbox/manage.py
+      - config_backup_receiver
+      - --profile
+      - ${CONFIG_BACKUP_RECEIVER_PROFILE:-default}
+      - --wait
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - /opt/netbox/venv/bin/python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 2022), 3).close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    ports:
+      - "${CONFIG_BACKUP_RECEIVER_PORT:-2022}:2022"
+    volumes:
+      - ./configuration:/etc/netbox/config:z,ro
+      - netbox-config-backup-data:/var/lib/netbox-config-backup
+
+  # Optional plaintext FTP receiver required only by first-generation SIAE
+  # ALFOplus WebLCT. Keep it on an isolated management network and start it
+  # explicitly with: docker compose --profile legacy-alfoplus up -d
+  config-backup-legacy-ftp-receiver:
+    profiles: ["legacy-alfoplus"]
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.4.0}
+    depends_on:
+      netbox:
+        condition: service_healthy
+    env_file: ./env/netbox.env
+    user: "netbox:root"
+    command:
+      - /opt/netbox/venv/bin/python
+      - /opt/netbox/netbox/manage.py
+      - config_backup_receiver
+      - --profile
+      - ${CONFIG_BACKUP_LEGACY_FTP_PROFILE:-legacy-alfoplus}
+      - --wait
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - /opt/netbox/venv/bin/python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 2121), 3).close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    ports:
+      - "${CONFIG_BACKUP_LEGACY_FTP_PORT:-21}:2121"
+      - "${CONFIG_BACKUP_LEGACY_FTP_PASSIVE_START:-30000}-${CONFIG_BACKUP_LEGACY_FTP_PASSIVE_END:-30009}:30000-30009"
+    volumes:
+      - ./configuration:/etc/netbox/config:z,ro
+      - netbox-config-backup-data:/var/lib/netbox-config-backup
+
+volumes:
+  netbox-config-backup-data:

@@ -1,0 +1,199 @@
+{% extends 'base/layout.html' %}
+{% load helpers %}
+
+{% block title %}Config Backup Examples{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h1>Example configuration</h1>
+    <p class="text-secondary mb-0">
+      A coherent reference setup for every item under Configuration. The examples are not
+      assigned to any backup target and cannot contact a real device.
+    </p>
+  </div>
+  {% if can_create_examples %}
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">
+      <i class="mdi mdi-flask-outline"></i>
+      {% if examples %}Reset examples{% else %}Create examples{% endif %}
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+{% if not examples %}
+<div class="alert alert-info">
+  No example records exist yet. Use <strong>Create examples</strong> to add one safe,
+  clearly labelled record to every Configuration section.
+</div>
+{% endif %}
+
+<div class="row row-cols-1 row-cols-xl-2 g-3">
+  <div class="col">
+    <div class="card h-100">
+      <h2 class="card-header">Retention Policy</h2>
+      <div class="card-body">
+        <p>Demonstrates layered retention: all recent revisions, then daily, weekly and monthly samples.</p>
+        <dl class="row mb-0">
+          <dt class="col-sm-5">Example</dt><dd class="col-sm-7">{% if examples %}{{ examples.retention_policy|linkify }}{% else %}[Example] Standard retention{% endif %}</dd>
+          <dt class="col-sm-5">Keep all</dt><dd class="col-sm-7">7 days</dd>
+          <dt class="col-sm-5">Daily / weekly / monthly</dt><dd class="col-sm-7">30 days / 12 weeks / 12 months</dd>
+        </dl>
+      </div>
+      <div class="card-footer"><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">Open Retention Policies</a></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card h-100">
+      <h2 class="card-header">Backup Policy</h2>
+      <div class="card-body">
+        <p>Runs every day in the site's time zone, spreads load with jitter, and retries transient failures.</p>
+        <dl class="row mb-0">
+          <dt class="col-sm-5">Example</dt><dd class="col-sm-7">{% if examples %}{{ examples.backup_policy|linkify }}{% else %}[Example] Daily at 03:00{% endif %}</dd>
+          <dt class="col-sm-5">Schedule</dt><dd class="col-sm-7">03:00 site time, 0–15 minute jitter</dd>
+          <dt class="col-sm-5">Retries</dt><dd class="col-sm-7">after 5, 15 and 60 minutes</dd>
+          <dt class="col-sm-5">Storage</dt><dd class="col-sm-7">changed configurations only</dd>
+        </dl>
+      </div>
+      <div class="card-footer"><a href="{% url 'plugins:netbox_config_backup:backuppolicy_list' %}">Open Backup Policies</a></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card h-100">
+      <h2 class="card-header">Connection Profile</h2>
+      <div class="card-body">
+        <p>Shows conservative SSH defaults suitable as a starting point for a real driver.</p>
+        <dl class="row mb-0">
+          <dt class="col-sm-5">Example</dt><dd class="col-sm-7">{% if examples %}{{ examples.connection_profile|linkify }}{% else %}[Example] Secure SSH defaults{% endif %}</dd>
+          <dt class="col-sm-5">Address</dt><dd class="col-sm-7">primary IPv4 first</dd>
+          <dt class="col-sm-5">SSH</dt><dd class="col-sm-7">port 22, 15 s connect, 60 s command timeout</dd>
+          <dt class="col-sm-5">Host key</dt><dd class="col-sm-7">verification enabled</dd>
+        </dl>
+      </div>
+      <div class="card-footer"><a href="{% url 'plugins:netbox_config_backup:connectionprofile_list' %}">Open Connection Profiles</a></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card h-100">
+      <h2 class="card-header">Credential Profile</h2>
+      <div class="card-body">
+        <p>Use an encrypted write-only password or an environment-variable reference.</p>
+        <dl class="row mb-0">
+          <dt class="col-sm-5">Example</dt><dd class="col-sm-7">{% if examples %}{{ examples.credential_profile|linkify }}{% else %}[Example] Environment secret reference{% endif %}</dd>
+          <dt class="col-sm-5">Provider</dt><dd class="col-sm-7"><code>environment</code></dd>
+          <dt class="col-sm-5">Reference</dt><dd class="col-sm-7"><code>env://CONFIG_BACKUP_EXAMPLE</code></dd>
+        </dl>
+        <div class="alert alert-warning mt-3 mb-0">The example is not assigned to a device and does not read the environment variable.</div>
+      </div>
+      <div class="card-footer"><a href="{% url 'plugins:netbox_config_backup:credentialprofile_list' %}">Open Credential Profiles</a></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card h-100">
+      <h2 class="card-header">Platform Mapping</h2>
+      <div class="card-body">
+        <p>Maps an isolated example NetBox platform to FakeDriver and supplies deterministic driver options.</p>
+        <dl class="row mb-0">
+          <dt class="col-sm-5">Platform</dt><dd class="col-sm-7">{% if examples %}{{ examples.platform|linkify }}{% else %}[Example] Fake network OS{% endif %}</dd>
+          <dt class="col-sm-5">Mapping</dt><dd class="col-sm-7">{% if examples %}{{ examples.platform_mapping|linkify }}{% else %}Fake network OS → fake{% endif %}</dd>
+          <dt class="col-sm-5">Driver</dt><dd class="col-sm-7"><code>fake</code></dd>
+          <dt class="col-sm-5">Fake hostname</dt><dd class="col-sm-7"><code>example-router</code></dd>
+        </dl>
+      </div>
+      <div class="card-footer"><a href="{% url 'plugins:netbox_config_backup:platformmapping_list' %}">Open Platform Mappings</a></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card h-100">
+      <h2 class="card-header">Cisco IOS / IOS-XE</h2>
+      <div class="card-body">
+        <p>Use a separate NetBox platform mapping for each operating-system family.</p>
+        <dl class="row mb-0">
+          <dt class="col-sm-5">IOS driver</dt><dd class="col-sm-7"><code>cisco_ios</code></dd>
+          <dt class="col-sm-5">IOS-XE driver</dt><dd class="col-sm-7"><code>cisco_xe</code></dd>
+          <dt class="col-sm-5">Command</dt><dd class="col-sm-7"><code>show running-config</code> (fixed, read-only)</dd>
+          <dt class="col-sm-5">Driver options</dt><dd class="col-sm-7"><code>{"max_output_bytes": 10485760}</code></dd>
+        </dl>
+        <div class="alert alert-info mt-3 mb-0">
+          Use a privilege 15 account, or the environment credential provider when a separate enable secret is required.
+        </div>
+      </div>
+      <div class="card-footer"><a href="{% url 'plugins:netbox_config_backup:platformmapping_list' %}">Open Platform Mappings</a></div>
+    </div>
+  </div>
+
+
+  <div class="col-12">
+    <div class="card">
+      <h2 class="card-header">Built-in network driver catalog</h2>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Vendor</th><th>Platforms</th><th>Driver IDs</th><th>Configuration command</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Dell</td><td>OS6, OS9/Force10, OS10, PowerConnect</td><td><code>dell_os6</code>, <code>dell_os9</code>, <code>dell_os10</code>, <code>dell_powerconnect</code></td><td><code>show running-config</code>; OS10 uses <code>show running-configuration</code></td></tr>
+            <tr><td>FS</td><td>FSOS, FSOS v2</td><td><code>fiberstore_fsos</code>, <code>fiberstore_fsosv2</code></td><td><code>show running-config</code></td></tr>
+            <tr><td>HP/HPE</td><td>Comware, ProCurve</td><td><code>hp_comware</code>, <code>hp_procurve</code></td><td><code>display current-configuration</code> or <code>show running-config</code></td></tr>
+            <tr><td>Huawei</td><td>VRP, VRP v8</td><td><code>huawei_vrp</code>, <code>huawei_vrpv8</code></td><td><code>display current-configuration</code></td></tr>
+            <tr><td>TP-Link</td><td>JetStream</td><td><code>tplink_jetstream</code></td><td><code>show running-config</code></td></tr>
+            <tr><td>Ubiquiti</td><td>EdgeRouter, EdgeSwitch</td><td><code>ubiquiti_edgerouter</code>, <code>ubiquiti_edgeswitch</code></td><td>Platform-specific read-only show command</td></tr>
+            <tr><td>ZTE</td><td>ZXROS</td><td><code>zte_zxros</code></td><td><code>show running-config</code></td></tr>
+            <tr><td>RACOM</td><td>RipEX2</td><td><code>racom_ripex2</code></td><td>HTTPS API: <code>settings_get</code> + <code>settings_package_get</code></td></tr>
+            <tr><td>RACOM</td><td>RAy2, RAy3</td><td><code>racom_ray2</code>, <code>racom_ray3</code></td><td><code>cli_cnf_backup_get</code> + SFTP download</td></tr>
+            <tr><td>Ceragon</td><td>IP-20, IP-50/CeraOS</td><td><code>ceragon_ip20</code>, <code>ceragon_ip50</code></td><td>Firmware-specific native export + SFTP download</td></tr>
+            <tr><td>SIAE</td><td>SM-OS: ALFOplus, ALFOplus2, ALFOplus80HD/HDX, AGS-20</td><td><code>siae_smos_auto</code></td><td>Validated <code>show running-config</code>; optional preconfigured native SFTP fallback for unsupported firmware</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer text-secondary">
+        Create one NetBox Platform Mapping per operating-system family. Test a representative device before bulk assignment.
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card">
+      <h2 class="card-header">Native radio backup examples</h2>
+      <div class="card-body">
+        <p>
+          RipEX2 uses an HTTPS connection profile on port 443. RAy2 and RAy3 use SSH/SFTP
+          on port 22 and need no driver options unless the backup file is stored elsewhere.
+        </p>
+        <div class="alert alert-warning">
+          <strong>SIAE SM-OS automatic backup:</strong> use <code>siae_smos_auto</code>. The connection
+          profile selects SSH or Telnet. The driver first validates <code>show running-config</code>.
+          It does not enter configuration mode or create, restore, or activate a native backup.
+          Telnet is unencrypted; restrict it to a trusted management network or protected VPN. A
+          CLI snapshot is not a full restorable <code>.bku</code> or <code>.bak</code> package.
+          First-generation ALFOplus firmware can reject this command and requires its
+          model-specific WebLCT/SCT native backup workflow.
+        </div>
+        <dl class="row">
+          <dt class="col-lg-3">RipEX2 options</dt>
+          <dd class="col-lg-9"><code>{"verify_tls": true, "ca_bundle_path": "/etc/ssl/certs/racom-ca.pem"}</code></dd>
+          <dt class="col-lg-3">RAy2 / RAy3 options</dt>
+          <dd class="col-lg-9"><code>{"remote_path": "cnf_backup.tgz"}</code></dd>
+          <dt class="col-lg-3">Ceragon example</dt>
+          <dd class="col-lg-9"><code>{"remote_path": "exports/configuration.zip"}</code></dd>
+          <dt class="col-lg-3">SIAE native fallback</dt>
+          <dd class="col-lg-9"><code>{"backup_method": "native", "native_model": "alfoplus2", "remote_path": "backup/configuration.bku"}</code></dd>
+        </dl>
+        <div class="alert alert-warning mb-0">
+          Ceragon and SIAE paths and export commands depend on firmware. When a command is
+          needed, add <code>"export_command": "vendor documented command"</code> and
+          <code>"allow_export_command": true</code> only after testing it on one device.
+          Without an export command the driver performs only a read-only SFTP download.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

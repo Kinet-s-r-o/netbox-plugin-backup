@@ -1,0 +1,33 @@
+Building configuration...
+
+Current configuration : 694 bytes
+!
+! Last configuration change at 12:00:00 UTC Sun Aug 16 2026 by admin
+! NVRAM config last updated at 11:30:00 UTC Sun Aug 16 2026 by admin
+!
+version 17.9
+service timestamps debug datetime msec
+service timestamps log datetime msec
+hostname edge-1
+!
+username backup privilege 15 secret 9 test-only-hash
+!
+interface GigabitEthernet1
+ description WAN uplink
+ ip address 192.0.2.2 255.255.255.252
+ no shutdown
+!
+interface Loopback0
+ ip address 198.51.100.10 255.255.255.255
+!
+router bgp 64512
+ bgp log-neighbor-changes
+ neighbor 192.0.2.1 remote-as 64513
+ neighbor 192.0.2.1 password 7 test-only-bgp-secret
+!
+snmp-server community test-only-community RO
+!
+line vty 0 4
+ transport input ssh
+!
+end

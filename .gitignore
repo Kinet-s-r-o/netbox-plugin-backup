@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+htmlcov/
+tmp/
+
+# Local secrets and deployment overrides
+.env
+.env.*
+*.pem
+*.key
+known_hosts
+docker/config-backup.env
+docker/config-backup-nas.env
+
+# Runtime data must live in persistent volumes, never in Git
+/data/
+/artifacts/
+/receiver/
+/media/
+*.sqlite3
+*.log
+
+# Superseded binary design drafts are kept locally only
+*.docx

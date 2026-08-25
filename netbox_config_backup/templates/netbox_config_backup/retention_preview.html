@@ -1,0 +1,92 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h2 class="mb-1">Retention preview</h2>
+    <div class="text-secondary">Dry-run only. No database record or stored artifact is deleted from this page.</div>
+  </div>
+  <div class="d-flex gap-2">
+    {% if policy and can_apply_retention and plan.revisions_to_delete or policy and can_apply_retention and plan.runs_to_delete %}
+    <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_retention_cleanup' pk=object.pk %}">
+      <i class="mdi mdi-delete-clock-outline"></i> Apply retention
+    </a>
+    {% elif policy and can_apply_retention %}
+    <button class="btn btn-outline-secondary" type="button" disabled>
+      <i class="mdi mdi-check-circle-outline"></i> Nothing expired
+    </button>
+    {% endif %}
+    <a class="btn btn-outline-secondary" href="{{ object.get_absolute_url }}">
+      <i class="mdi mdi-arrow-left"></i> Back to device
+    </a>
+  </div>
+</div>
+
+{% if not policy %}
+<div class="alert alert-warning" role="alert">
+  <i class="mdi mdi-alert-outline"></i>
+  This backup device has no effective retention policy. Assign a backup policy or a retention override first.
+</div>
+{% else %}
+<div class="alert alert-info" role="status">
+  <i class="mdi mdi-shield-check-outline"></i>
+  This is a deterministic preview generated at {{ plan.generated_at }}. Protected, latest, active, and unknown-status records are kept safely.
+</div>
+
+<div class="row row-cards mb-3">
+  <div class="col-sm-6 col-lg-3">
+    <div class="card"><div class="card-body"><div class="text-secondary">Policy</div><div class="h3 mb-0">{{ policy|linkify }}</div></div></div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card"><div class="card-body"><div class="text-secondary">Revisions kept</div><div class="h3 mb-0 text-success">{{ plan.revisions_to_keep }}</div></div></div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card"><div class="card-body"><div class="text-secondary">Revisions expired</div><div class="h3 mb-0 text-danger">{{ plan.revisions_to_delete }}</div><div class="text-secondary">{{ expired_artifact_count }} artifacts · {{ expired_artifact_bytes|filesizeformat }}</div></div></div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card"><div class="card-body"><div class="text-secondary">Runs kept / expired</div><div class="h3 mb-0"><span class="text-success">{{ plan.runs_to_keep }}</span> / <span class="text-danger">{{ plan.runs_to_delete }}</span></div></div></div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <h2 class="card-header"><i class="mdi mdi-source-commit"></i> Configuration revisions</h2>
+  <div class="table-responsive">
+    <table class="table table-vcenter table-hover mb-0">
+      <thead><tr><th>Created</th><th>Revision</th><th>Protected</th><th>Decision</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for revision, decision in revision_rows %}
+        <tr>
+          <td>{{ revision.created }}</td>
+          <td><a href="{{ revision.get_absolute_url }}"><code>{{ revision.revision_uuid }}</code></a></td>
+          <td>{{ revision.protected|yesno:"Yes,No" }}</td>
+          <td>{% if decision.keep %}<span class="badge text-bg-success">Keep</span>{% else %}<span class="badge text-bg-danger">Would delete</span>{% endif %}</td>
+          <td>{% for reason in decision.reasons %}<span class="badge text-bg-secondary me-1">{{ reason }}</span>{% endfor %}</td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="text-secondary">No revisions yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="card-header"><i class="mdi mdi-history"></i> Backup runs</h2>
+  <div class="table-responsive">
+    <table class="table table-vcenter table-hover mb-0">
+      <thead><tr><th>Finished / queued</th><th>Run</th><th>Status</th><th>Decision</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for run, decision in run_rows %}
+        <tr>
+          <td>{{ decision.timestamp }}</td>
+          <td><a href="{{ run.get_absolute_url }}">Run #{{ run.pk }}</a></td>
+          <td>{{ run.get_status_display }}</td>
+          <td>{% if decision.keep %}<span class="badge text-bg-success">Keep</span>{% else %}<span class="badge text-bg-danger">Would delete</span>{% endif %}</td>
+          <td>{{ decision.reasons|join:", " }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="text-secondary">No backup runs yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

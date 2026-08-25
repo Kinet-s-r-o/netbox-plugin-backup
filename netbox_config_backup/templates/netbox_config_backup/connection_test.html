@@ -1,0 +1,340 @@
+{% extends 'generic/_base.html' %}
+{% load helpers %}
+
+{% block head %}
+  {{ block.super }}
+  <style>
+    .connection-test-shell {
+      max-width: 70rem;
+      margin-inline: auto;
+    }
+    .connection-test-status-icon {
+      display: grid;
+      width: 4rem;
+      height: 4rem;
+      flex: 0 0 4rem;
+      place-items: center;
+      border-radius: var(--tblr-border-radius-lg);
+      background: var(--tblr-bg-surface-secondary);
+    }
+    .connection-test-status-icon .mdi {
+      font-size: 2rem;
+      line-height: 1;
+    }
+    .connection-test-card .activity-line {
+      display: none;
+      height: 0.2rem;
+      overflow: hidden;
+      background: color-mix(in srgb, var(--tblr-info) 18%, transparent);
+    }
+    .connection-test-card .activity-line::after {
+      display: block;
+      width: 36%;
+      height: 100%;
+      content: "";
+      background: var(--tblr-info);
+      transform: translateX(-110%);
+    }
+    .connection-test-card.is-active .activity-line {
+      display: block;
+    }
+    .connection-test-card.is-active .activity-line::after {
+      animation: connection-test-progress 1.4s ease-in-out infinite;
+    }
+    .connection-test-meta dt {
+      color: var(--tblr-secondary-color);
+      font-weight: 500;
+    }
+    .host-key-fingerprint {
+      overflow-wrap: anywhere;
+      user-select: all;
+    }
+    @keyframes connection-test-progress {
+      to {
+        transform: translateX(390%);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .connection-test-card.is-active .activity-line::after {
+        width: 100%;
+        animation: none;
+        transform: none;
+      }
+    }
+    @media (max-width: 575.98px) {
+      .connection-test-summary {
+        flex-direction: column;
+      }
+      .connection-test-actions .btn,
+      .connection-test-actions form {
+        width: 100%;
+      }
+      .connection-test-actions form .btn {
+        width: 100%;
+      }
+    }
+  </style>
+{% endblock %}
+
+{% block title %}Connection test{% endblock %}
+
+{% block subtitle %}
+  {{ target.device }}
+{% endblock %}
+
+{% block content %}
+<div class="container-xl px-0 connection-test-shell mt-4">
+  <div
+    id="connection-test-card"
+    class="card connection-test-card{% if not status_payload.terminal %} is-active{% endif %}"
+    aria-busy="{% if status_payload.terminal %}false{% else %}true{% endif %}"
+  >
+    <div class="activity-line" aria-hidden="true"></div>
+    <div class="card-body p-4 p-md-5">
+      <div class="d-flex gap-4 align-items-start connection-test-summary">
+        <div id="status-icon" class="connection-test-status-icon text-{{ status_payload.color }}" aria-hidden="true">
+          <i id="status-icon-glyph" class="mdi {{ status_payload.icon }}"></i>
+        </div>
+        <div class="flex-fill">
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <h2 id="status-headline" class="h2 mb-0">{{ status_payload.headline }}</h2>
+            <span id="status-badge" class="badge text-bg-{{ status_payload.color }}">{{ status_payload.label }}</span>
+          </div>
+          <p id="status-message" class="text-secondary mb-0">{{ status_payload.message }}</p>
+          <div id="status-announcement" class="visually-hidden" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div id="error-panel" class="alert alert-danger mt-4 mb-0{% if not status_payload.error_code %} d-none{% endif %}" role="alert">
+        <div class="fw-semibold mb-1">Reason</div>
+        <code id="error-code">{{ status_payload.error_code }}</code>
+      </div>
+
+      <div id="success-details" class="mt-4{% if status_payload.status != 'completed' %} d-none{% endif %}">
+        <h3 class="h4 mb-3">Validated collection</h3>
+        <dl class="row connection-test-meta mb-0">
+          <dt class="col-sm-4">Driver</dt>
+          <dd id="result-driver" class="col-sm-8"><code>{{ status_payload.driver_id }}</code></dd>
+          <dt class="col-sm-4">Artifacts validated</dt>
+          <dd id="result-artifacts" class="col-sm-8">{{ status_payload.artifact_count }}</dd>
+          <dt class="col-sm-4">Data received</dt>
+          <dd id="result-bytes" class="col-sm-8">{{ status_payload.total_bytes|filesizeformat }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div
+    id="host-key-panel"
+    class="card mt-4{% if not status_payload.host_key_candidate %} d-none{% endif %}"
+  >
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="mdi mdi-fingerprint text-warning" aria-hidden="true"></i>
+      <h2 class="card-title mb-0">Verify SSH device identity</h2>
+    </div>
+    <div class="card-body">
+      <p class="mb-3">
+        The device presented a host key which has not been approved for this backup target.
+        Compare the SHA256 fingerprint with the device or another trusted source before approval.
+      </p>
+      <dl class="row connection-test-meta mb-3">
+        <dt class="col-sm-3">Device address</dt>
+        <dd id="host-key-address" class="col-sm-9"></dd>
+        <dt class="col-sm-3">Key type</dt>
+        <dd id="host-key-type" class="col-sm-9"><code></code></dd>
+        <dt class="col-sm-3">SHA256 fingerprint</dt>
+        <dd class="col-sm-9 mb-0">
+          <code id="host-key-fingerprint" class="host-key-fingerprint"></code>
+        </dd>
+      </dl>
+      {% if can_manage_host_keys %}
+      <div id="host-key-actions" class="d-flex flex-wrap gap-2">
+        <form method="post" action="{{ trust_host_key_url }}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-warning">
+            <i class="mdi mdi-shield-check-outline" aria-hidden="true"></i>
+            Trust key and test again
+          </button>
+        </form>
+        <form method="post" action="{{ reject_host_key_url }}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-danger">
+            <i class="mdi mdi-close-circle-outline" aria-hidden="true"></i>
+            Reject key
+          </button>
+        </form>
+      </div>
+      <p id="host-key-decided" class="text-secondary mb-0 d-none"></p>
+      {% else %}
+      <div class="alert alert-warning mb-0">
+        A Config Backup Administrator must verify and approve this fingerprint.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card mt-4">
+    <h2 class="card-header">Test details</h2>
+    <div class="card-body">
+      <dl class="row connection-test-meta mb-0">
+        <dt class="col-sm-3">Backup device</dt>
+        <dd class="col-sm-9">{{ target|linkify }}</dd>
+        <dt class="col-sm-3">NetBox device</dt>
+        <dd class="col-sm-9">{{ target.device|linkify }}</dd>
+        <dt class="col-sm-3">Queued</dt>
+        <dd id="test-created" class="col-sm-9">{{ job.created }}</dd>
+        <dt class="col-sm-3">Started</dt>
+        <dd id="test-started" class="col-sm-9">{{ job.started|placeholder }}</dd>
+        <dt class="col-sm-3">Finished</dt>
+        <dd id="test-completed" class="col-sm-9">{{ job.completed|placeholder }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap justify-content-end gap-2 mt-4 connection-test-actions">
+    {% if can_view_job %}
+    <a href="{{ job.get_absolute_url }}" class="btn btn-outline-secondary">
+      <i class="mdi mdi-clipboard-text-clock-outline" aria-hidden="true"></i>
+      Background task
+    </a>
+    {% endif %}
+    <a href="{{ target.get_absolute_url }}" class="btn btn-secondary">
+      <i class="mdi mdi-arrow-left" aria-hidden="true"></i>
+      Back to device
+    </a>
+    {% if can_test %}
+    <form
+      id="test-again-form"
+      method="post"
+      action="{% url 'plugins:netbox_config_backup:backuptarget_test_connection' pk=target.pk %}"
+      {% if not status_payload.terminal %}class="d-none"{% endif %}
+    >
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary">
+        <i class="mdi mdi-refresh" aria-hidden="true"></i>
+        Test again
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{{ status_payload|json_script:"connection-test-initial-state" }}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const card = document.getElementById('connection-test-card');
+    const headline = document.getElementById('status-headline');
+    const message = document.getElementById('status-message');
+    const badge = document.getElementById('status-badge');
+    const icon = document.getElementById('status-icon');
+    const iconGlyph = document.getElementById('status-icon-glyph');
+    const announcement = document.getElementById('status-announcement');
+    const errorPanel = document.getElementById('error-panel');
+    const errorCode = document.getElementById('error-code');
+    const successDetails = document.getElementById('success-details');
+    const hostKeyPanel = document.getElementById('host-key-panel');
+    const hostKeyActions = document.getElementById('host-key-actions');
+    const hostKeyDecided = document.getElementById('host-key-decided');
+    const testAgainForm = document.getElementById('test-again-form');
+    let timer = null;
+    let lastStatus = '';
+
+    const formatDate = (value) => {
+      if (!value) return 'Not yet';
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'medium'
+      }).format(new Date(value));
+    };
+
+    const formatBytes = (value) => {
+      const bytes = Number(value || 0);
+      if (bytes < 1024) return `${bytes} bytes`;
+      const units = ['KB', 'MB', 'GB'];
+      let size = bytes / 1024;
+      let unit = units[0];
+      for (let index = 1; index < units.length && size >= 1024; index += 1) {
+        size /= 1024;
+        unit = units[index];
+      }
+      return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
+    };
+
+    const applyState = (state) => {
+      const active = !state.terminal;
+      card.classList.toggle('is-active', active);
+      card.setAttribute('aria-busy', active ? 'true' : 'false');
+      headline.textContent = state.headline;
+      message.textContent = state.message;
+      badge.textContent = state.label;
+      badge.className = `badge text-bg-${state.color}`;
+      icon.className = `connection-test-status-icon text-${state.color}`;
+      iconGlyph.className = `mdi ${state.icon}`;
+
+      errorCode.textContent = state.error_code || '';
+      errorPanel.classList.toggle('d-none', !state.error_code);
+      successDetails.classList.toggle(
+        'd-none',
+        state.status !== 'completed' || !state.driver_id
+      );
+      document.getElementById('result-driver').textContent = state.driver_id || '';
+      document.getElementById('result-artifacts').textContent = state.artifact_count || 0;
+      document.getElementById('result-bytes').textContent = formatBytes(state.total_bytes);
+      document.getElementById('test-created').textContent = formatDate(state.created_at);
+      document.getElementById('test-started').textContent = formatDate(state.started_at);
+      document.getElementById('test-completed').textContent = formatDate(state.completed_at);
+      testAgainForm?.classList.toggle('d-none', !state.terminal);
+
+      const candidate = state.host_key_candidate;
+      hostKeyPanel.classList.toggle('d-none', !candidate);
+      if (candidate) {
+        document.getElementById('host-key-address').textContent =
+          `${candidate.address}:${candidate.port}`;
+        document.querySelector('#host-key-type code').textContent = candidate.key_type;
+        document.getElementById('host-key-fingerprint').textContent =
+          candidate.fingerprint_sha256;
+        const pending = candidate.status === 'pending';
+        hostKeyActions?.classList.toggle('d-none', !pending);
+        if (hostKeyDecided) {
+          hostKeyDecided.classList.toggle('d-none', pending);
+          hostKeyDecided.textContent = candidate.status === 'trusted'
+            ? 'This key is already trusted.'
+            : 'This key was rejected and is not used for connections.';
+        }
+      }
+
+      if (lastStatus && lastStatus !== state.status) {
+        announcement.textContent = `${state.headline}. ${state.message}`;
+      }
+      lastStatus = state.status;
+    };
+
+    const poll = async () => {
+      try {
+        const response = await fetch('{{ status_url|escapejs }}', {
+          credentials: 'same-origin',
+          headers: {'Accept': 'application/json'},
+          cache: 'no-store'
+        });
+        if (!response.ok) throw new Error('Status request failed');
+        const state = await response.json();
+        applyState(state);
+        if (!state.terminal) timer = window.setTimeout(poll, 1200);
+      } catch (error) {
+        message.textContent = 'The status could not be refreshed. Retrying automatically.';
+        timer = window.setTimeout(poll, 4000);
+      }
+    };
+
+    const initialState = JSON.parse(
+      document.getElementById('connection-test-initial-state').textContent
+    );
+    applyState(initialState);
+    if (!initialState.terminal) timer = window.setTimeout(poll, 600);
+
+    window.addEventListener('pagehide', () => {
+      if (timer) window.clearTimeout(timer);
+    }, {once: true});
+  });
+</script>
+{% endblock content %}

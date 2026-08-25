@@ -1,0 +1,221 @@
+{% extends 'base/layout.html' %}
+{% load helpers %}
+
+{% block title %}Config Backup{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap gap-3 justify-content-between align-items-center mb-3">
+  <div>
+    <h1>Config Backup</h1>
+    <p class="text-secondary mb-0">
+      Backup freshness, active run health, and recent failures.
+    </p>
+  </div>
+  {% if perms.netbox_config_backup.add_backuptarget %}
+  <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:backuptarget_add' %}">
+    <i class="mdi mdi-plus-thick" aria-hidden="true"></i> Add device
+  </a>
+  {% endif %}
+</div>
+
+<div class="card mb-3">
+  <div class="card-body d-flex flex-wrap align-items-end justify-content-between gap-3">
+    <div>
+      <div class="fw-semibold mb-1">Reporting period</div>
+      <div class="btn-group flex-wrap" role="group" aria-label="Reporting period presets">
+        <a class="btn btn-sm {% if reporting_period.key == '24h' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?period=24h">24 hours</a>
+        <a class="btn btn-sm {% if reporting_period.key == '7d' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?period=7d">7 days</a>
+        <a class="btn btn-sm {% if reporting_period.key == '30d' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?period=30d">30 days</a>
+        <a class="btn btn-sm {% if reporting_period.key == '90d' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?period=90d">90 days</a>
+        <a class="btn btn-sm {% if reporting_period.key == 'all' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?period=all">All time</a>
+      </div>
+      <div class="small text-secondary mt-2">
+        Historical tables use <strong>{{ reporting_period.label }}</strong>. Current health and stuck-run cards always show the live state.
+      </div>
+    </div>
+    <form method="get" class="d-flex flex-wrap align-items-end gap-2">
+      <input type="hidden" name="period" value="custom">
+      <div>
+        <label class="form-label small mb-1" for="report-date-from">From</label>
+        <input class="form-control form-control-sm" id="report-date-from" name="date_from" type="date" value="{{ reporting_period.date_from|date:'Y-m-d' }}" required>
+      </div>
+      <div>
+        <label class="form-label small mb-1" for="report-date-to">To</label>
+        <input class="form-control form-control-sm" id="report-date-to" name="date_to" type="date" value="{{ reporting_period.date_to|date:'Y-m-d' }}" required>
+      </div>
+      <button class="btn btn-sm btn-outline-primary" type="submit">Apply dates</button>
+    </form>
+  </div>
+  {% if reporting_period.error %}
+  <div class="alert alert-warning rounded-0 border-start-0 border-end-0 border-bottom-0 mb-0 py-2">{{ reporting_period.error }} Showing the last 30 days instead.</div>
+  {% endif %}
+</div>
+
+<div class="row row-cols-1 row-cols-sm-2 row-cols-xl-5 g-3 mb-3">
+  <div class="col">
+    <a class="card h-100 text-reset text-decoration-none" href="{% url 'plugins:netbox_config_backup:backuptarget_list' %}?status=healthy">
+      <div class="card-body d-flex justify-content-between align-items-start">
+        <div><div class="text-secondary">Healthy</div><div class="fs-1 fw-semibold text-success">{{ healthy_target_count }}</div><small class="text-secondary">Successful within schedule</small></div>
+        <i class="mdi mdi-check-circle-outline fs-1 text-success" aria-hidden="true"></i>
+      </div>
+    </a>
+  </div>
+  <div class="col">
+    <a class="card h-100 text-reset text-decoration-none" href="{% url 'plugins:netbox_config_backup:backuptarget_list' %}?status=stale">
+      <div class="card-body d-flex justify-content-between align-items-start">
+        <div><div class="text-secondary">Stale</div><div class="fs-1 fw-semibold text-warning">{{ stale_target_count }}</div><small class="text-secondary">Expected success is overdue</small></div>
+        <i class="mdi mdi-clock-alert-outline fs-1 text-warning" aria-hidden="true"></i>
+      </div>
+    </a>
+  </div>
+  <div class="col">
+    <a class="card h-100 text-reset text-decoration-none" href="{% url 'plugins:netbox_config_backup:backuptarget_list' %}?status=failed">
+      <div class="card-body d-flex justify-content-between align-items-start">
+        <div><div class="text-secondary">Failed</div><div class="fs-1 fw-semibold text-danger">{{ failed_target_count }}</div><small class="text-secondary">Latest attempt failed</small></div>
+        <i class="mdi mdi-alert-circle-outline fs-1 text-danger" aria-hidden="true"></i>
+      </div>
+    </a>
+  </div>
+  <div class="col">
+    <a class="card h-100 text-reset text-decoration-none" href="{% url 'plugins:netbox_config_backup:backuprun_list' %}?stuck=true">
+      <div class="card-body d-flex justify-content-between align-items-start">
+        <div><div class="text-secondary">Stuck runs</div><div class="fs-1 fw-semibold text-danger">{{ stuck_run_count }}</div><small class="text-secondary">Active for over {{ stuck_run_minutes }} minutes</small></div>
+        <i class="mdi mdi-progress-alert fs-1 text-danger" aria-hidden="true"></i>
+      </div>
+    </a>
+  </div>
+  <div class="col">
+    <a class="card h-100 text-reset text-decoration-none" href="{% url 'plugins:netbox_config_backup:configrevision_list' %}?{{ reporting_period.query_string }}">
+      <div class="card-body d-flex justify-content-between align-items-start">
+        <div><div class="text-secondary">Revisions</div><div class="fs-1 fw-semibold">{{ revision_count }}</div><small class="text-secondary">Created in selected period</small></div>
+        <i class="mdi mdi-file-document-multiple-outline fs-1 text-secondary" aria-hidden="true"></i>
+      </div>
+    </a>
+  </div>
+</div>
+
+{% if ftp_destination_count %}
+<div class="card mb-3">
+  <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+    <div class="d-flex align-items-center gap-3">
+      <i class="mdi mdi-folder-check-outline fs-1 text-primary" aria-hidden="true"></i>
+      <div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <h2 class="h4 mb-0">FTP storage</h2>
+          {% if ftp_attention_destination_count %}
+          <span class="badge text-bg-danger">{{ ftp_attention_destination_count }} need attention</span>
+          {% else %}
+          <span class="badge text-bg-success">Healthy</span>
+          {% endif %}
+        </div>
+        <div class="text-secondary mt-1">
+          {{ ftp_healthy_destination_count }} of {{ ftp_enabled_destination_count }} enabled destinations healthy ·
+          {{ ftp_automatic_audit_count }} automatic audit{{ ftp_automatic_audit_count|pluralize }}
+          {% if ftp_next_audit_at %} · next {{ ftp_next_audit_at }}{% endif %}
+        </div>
+      </div>
+    </div>
+    <a class="btn btn-outline-primary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">
+      View FTP destinations
+    </a>
+  </div>
+  {% if recent_ftp_failures %}
+  <div class="table-responsive border-top">
+    <table class="table table-sm table-hover table-vcenter mb-0">
+      <thead><tr><th>Destination</th><th>Device</th><th>Reason</th><th>Last attempt</th></tr></thead>
+      <tbody>
+      {% for replica in recent_ftp_failures %}
+        <tr>
+          <td>{{ replica.destination|linkify }}</td>
+          <td>{{ replica.revision.target.device|linkify }}</td>
+          <td><code>{{ replica.error_code|default:"UNKNOWN" }}</code> — {{ replica.error_message|truncatechars:100 }}</td>
+          <td>{{ replica.finished_at|default:replica.last_updated }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
+    <div>
+      <h2 class="card-title mb-1">Failures · {{ reporting_period.label }}</h2>
+      <div class="text-secondary small">Failed, errored, and partial backup runs in the selected period.</div>
+    </div>
+    <a class="btn btn-sm btn-outline-danger" href="{% url 'plugins:netbox_config_backup:backuprun_list' %}?failed=true&amp;{{ reporting_period.query_string }}">
+      <i class="mdi mdi-filter-variant" aria-hidden="true"></i> View all failures
+    </a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover table-vcenter mb-0">
+      <thead>
+        <tr><th>Time</th><th>Device</th><th>Status</th><th>Reason</th><th>Details</th></tr>
+      </thead>
+      <tbody>
+        {% for run in recent_failures %}
+        <tr>
+          <td class="text-nowrap">
+            <a href="{{ run.get_absolute_url }}">{{ run.finished_at|default:run.queued_at }}</a>
+            <div class="small text-secondary">{{ run.finished_at|default:run.queued_at|timesince }} ago</div>
+          </td>
+          <td>
+            {{ run.target.device|linkify }}
+            <div class="small"><a href="{{ run.target.get_absolute_url }}">Backup target</a></div>
+          </td>
+          <td><span class="badge text-bg-{{ run.get_status_color }}">{{ run.get_status_display }}</span></td>
+          <td><a href="{% url 'plugins:netbox_config_backup:backuprun_list' %}?error_code={{ run.error_code|urlencode }}"><code>{{ run.error_code|default:"UNKNOWN" }}</code></a></td>
+          <td class="text-secondary">{{ run.error_message|default:"No diagnostic message was recorded."|truncatechars:140 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-muted py-4 text-center">No backup failures have been recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-xl-7">
+    <div class="card h-100">
+      <h2 class="card-header">Runs · {{ reporting_period.label }} <a class="btn btn-sm btn-secondary ms-auto" href="{% url 'plugins:netbox_config_backup:backuprun_list' %}?{{ reporting_period.query_string }}">View period</a></h2>
+      <div class="table-responsive">
+        <table class="table table-hover table-vcenter mb-0">
+          <thead><tr><th>Queued</th><th>Device</th><th>Status</th><th>Changed</th></tr></thead>
+          <tbody>
+            {% for run in recent_runs %}
+            <tr>
+              <td><a href="{{ run.get_absolute_url }}">{{ run.queued_at }}</a></td>
+              <td>{{ run.target.device|linkify }}</td>
+              <td><span class="badge text-bg-{{ run.get_status_color }}">{{ run.get_status_display }}</span></td>
+              <td>{{ run.changed|yesno:"Yes,No" }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="4" class="text-muted">No backup runs yet.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-5">
+    <div class="card h-100">
+      <h2 class="card-header">Revisions · {{ reporting_period.label }} <a class="btn btn-sm btn-secondary ms-auto" href="{% url 'plugins:netbox_config_backup:configrevision_list' %}?{{ reporting_period.query_string }}">View period</a></h2>
+      <div class="table-responsive">
+        <table class="table table-hover table-vcenter mb-0">
+          <thead><tr><th>Created</th><th>Device</th><th>Driver</th></tr></thead>
+          <tbody>
+            {% for revision in recent_revisions %}
+            <tr><td><a href="{{ revision.get_absolute_url }}">{{ revision.created }}</a></td><td>{{ revision.target.device|linkify }}</td><td>{{ revision.driver_id }}</td></tr>
+            {% empty %}<tr><td colspan="3" class="text-muted">No revisions yet.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="text-secondary small mt-3">
+  Monitoring scope: {{ target_count }} targets, {{ enabled_target_count }} enabled, {{ never_target_count }} awaiting first successful backup, and {{ disabled_target_count }} disabled. Stale grace: {{ stale_target_grace_minutes }} minutes.
+</div>
+{% endblock content %}

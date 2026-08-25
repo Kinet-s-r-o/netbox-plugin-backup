@@ -1,0 +1,2321 @@
+import io
+import logging
+from pathlib import PurePosixPath
+from uuid import uuid4
+
+from core.choices import JobStatusChoices
+from core.exceptions import JobFailed
+from dcim.models import Device
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.core.exceptions import PermissionDenied
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Min, Q
+from django.http import FileResponse, Http404, HttpResponseBadRequest, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
+from django.views.generic import FormView, TemplateView, View
+from netbox.views import generic
+from utilities.forms import BulkDeleteForm, DeleteForm
+from utilities.jobs import is_background_request, process_request_as_job
+from utilities.views import register_model_view
+
+from . import filtersets, forms, tables
+from .choices import DestinationProtocolChoices, RunSourceChoices, RunStatusChoices
+from .drivers import driver_registry
+from .jobs import (
+    BACKUP_QUEUE,
+    ConnectionTestJob,
+    DestinationConnectionTestJob,
+    DestinationReconciliationJob,
+    FtpRecoveryPackageJob,
+    RetentionCleanupJob,
+    SSHHostKeyScanJob,
+)
+from .models import (
+    BackupDestination,
+    BackupPolicy,
+    BackupRun,
+    BackupTarget,
+    ConfigArtifact,
+    ConfigRevision,
+    ConnectionProfile,
+    CredentialProfile,
+    OperationalSettings,
+    PlatformMapping,
+    RetentionPolicy,
+    RevisionReplica,
+    SftpReceiverProfile,
+    SSHHostKey,
+)
+from .services.connection_test_status import connection_test_status_payload
+from .services.destination_reconciliation_status import (
+    destination_reconciliation_status_payload,
+)
+from .services.destination_test_status import destination_test_status_payload
+from .services.destination_types import DestinationError
+from .services.examples import (
+    create_or_reset_example_configuration,
+    get_example_configuration,
+)
+from .services.ftp_recovery import (
+    recovery_package_is_expired,
+    validate_recovery_package,
+)
+from .services.ftp_recovery_status import ftp_recovery_status_payload
+from .services.health import (
+    FAILURE_RUN_STATUSES,
+    evaluate_target_health,
+    is_run_stuck,
+    stuck_run_queryset,
+)
+from .services.queueing import enqueue_backup_run
+from .services.quick_setup import create_quick_setup
+from .services.replication import backfill_destination, enqueue_revision_replica
+from .services.reporting_period import resolve_reporting_period
+from .services.retention import (
+    RevisionCandidate,
+    RunCandidate,
+    build_retention_plan,
+    effective_retention_policy,
+    settings_from_policy,
+)
+from .services.revision_display import (
+    RevisionDisplayError,
+    build_display_diff,
+    load_artifact_content,
+    load_revision_content,
+)
+from .services.runtime_controls import get_runtime_controls
+from .services.scheduling import apply_target_schedule
+from .services.ssh_host_keys import reject_host_key, trust_host_key
+from .services.target_deletion import TargetDeletionError, delete_backup_target
+
+
+def _connection_test_job(target, job_id):
+    return get_object_or_404(ConnectionTestJob.get_jobs(target), job_id=job_id)
+
+
+def _connection_test_status(job, target):
+    payload = connection_test_status_payload(job)
+    candidate = payload.get("host_key_candidate")
+    if candidate and candidate.get("id"):
+        current_status = (
+            SSHHostKey.objects.filter(pk=candidate["id"], target=target)
+            .values_list("status", flat=True)
+            .first()
+        )
+        if current_status:
+            candidate["status"] = current_status
+    return payload
+
+
+class ConfigBackupHomeView(PermissionRequiredMixin, LoginRequiredMixin, TemplateView):
+    template_name = "netbox_config_backup/home.html"
+    permission_required = "netbox_config_backup.view_backuptarget"
+    raise_exception = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        now = timezone.now()
+        reporting_period = resolve_reporting_period(self.request.GET, now=now)
+        plugin_settings = settings.PLUGINS_CONFIG["netbox_config_backup"]
+        targets = BackupTarget.objects.restrict(self.request.user, "view")
+        visible_target_ids = targets.values("pk")
+        runs = BackupRun.objects.restrict(self.request.user, "view").filter(
+            target_id__in=visible_target_ids
+        )
+        revisions = ConfigRevision.objects.restrict(self.request.user, "view").filter(
+            target_id__in=visible_target_ids
+        )
+        destinations = BackupDestination.objects.restrict(self.request.user, "view").filter(
+            protocol=DestinationProtocolChoices.FTP
+        )
+        visible_destination_ids = destinations.values("pk")
+        replicas = RevisionReplica.objects.restrict(self.request.user, "view").filter(
+            destination_id__in=visible_destination_ids
+        )
+        period_runs = reporting_period.filter(runs, "queued_at")
+        period_revisions = reporting_period.filter(revisions, "created")
+        period_replicas = reporting_period.filter(replicas, "finished_at")
+        ftp_attention = Q(last_error_code__gt="") | Q(
+            last_integrity_audit_status__in=("failed", "problems")
+        )
+        enabled_destinations = destinations.filter(enabled=True)
+        target_status_counts = {
+            row["status"]: row["count"]
+            for row in targets.values("status").annotate(count=Count("pk"))
+        }
+        recent_failures = period_runs.filter(status__in=FAILURE_RUN_STATUSES).select_related(
+            "target__device"
+        )[:10]
+        context.update(
+            {
+                "target_count": targets.count(),
+                "enabled_target_count": targets.filter(enabled=True).count(),
+                "healthy_target_count": target_status_counts.get("healthy", 0),
+                "stale_target_count": target_status_counts.get("stale", 0),
+                "failed_target_count": target_status_counts.get("failed", 0),
+                "never_target_count": target_status_counts.get("never", 0),
+                "disabled_target_count": target_status_counts.get("disabled", 0),
+                "scheduled_target_count": targets.filter(
+                    enabled=True, next_run_at__isnull=False
+                ).count(),
+                "due_target_count": targets.filter(
+                    enabled=True, next_run_at__lte=timezone.now()
+                ).count(),
+                "stuck_run_count": stuck_run_queryset(
+                    runs,
+                    now=now,
+                    timeout_minutes=plugin_settings["stale_run_minutes"],
+                ).count(),
+                "stuck_run_minutes": plugin_settings["stale_run_minutes"],
+                "stale_target_grace_minutes": plugin_settings["stale_target_grace_minutes"],
+                "reporting_period": reporting_period,
+                "revision_count": period_revisions.count(),
+                "recent_runs": period_runs.select_related("target__device", "revision")[:10],
+                "recent_failures": recent_failures,
+                "recent_revisions": period_revisions.select_related("target__device")[:10],
+                "ftp_destination_count": destinations.count(),
+                "ftp_enabled_destination_count": enabled_destinations.count(),
+                "ftp_healthy_destination_count": enabled_destinations.exclude(
+                    ftp_attention
+                ).count(),
+                "ftp_attention_destination_count": enabled_destinations.filter(
+                    ftp_attention
+                ).count(),
+                "ftp_automatic_audit_count": enabled_destinations.filter(
+                    integrity_audit_enabled=True
+                ).count(),
+                "ftp_next_audit_at": enabled_destinations.filter(
+                    integrity_audit_enabled=True
+                ).aggregate(next=Min("next_integrity_audit_at"))["next"],
+                "recent_ftp_failures": period_replicas.filter(status="failed").select_related(
+                    "destination", "revision__target__device"
+                )[:5],
+            }
+        )
+        return context
+
+
+class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, TemplateView):
+    template_name = "netbox_config_backup/advanced_settings.html"
+    permission_required = "netbox_config_backup.view_operationalsettings"
+    raise_exception = True
+
+    @staticmethod
+    def _operational_settings():
+        operational_settings = OperationalSettings.objects.filter(singleton=True).first()
+        return operational_settings or OperationalSettings(singleton=True)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        operational_settings = kwargs.get(
+            "operational_settings",
+            self._operational_settings(),
+        )
+        runtime_controls = get_runtime_controls()
+        context.update(
+            {
+                "operational_settings": operational_settings,
+                "operational_settings_form": kwargs.get(
+                    "operational_settings_form",
+                    forms.OperationalSettingsForm(instance=operational_settings),
+                ),
+                "notification_settings_form": kwargs.get(
+                    "notification_settings_form",
+                    forms.NotificationSettingsForm(instance=operational_settings),
+                ),
+                "can_change_operational_settings": self.request.user.has_perm(
+                    "netbox_config_backup.change_operationalsettings"
+                ),
+                "retention_scheduler_enabled": (operational_settings.retention_scheduler_enabled),
+                "backup_events_enabled": runtime_controls.events_enabled,
+                "backup_notify_every_failure": runtime_controls.notify_on_every_failure,
+            }
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.has_perm("netbox_config_backup.change_operationalsettings"):
+            raise PermissionDenied
+        operational_settings = self._operational_settings()
+        settings_action = request.POST.get("settings_action", "retention")
+        if settings_action in {"notifications", "runtime_integrations"}:
+            return self._save_notifications(request, operational_settings)
+        if settings_action != "retention":
+            return HttpResponseBadRequest("Unknown settings action.")
+        form = forms.OperationalSettingsForm(
+            request.POST,
+            instance=operational_settings,
+        )
+        if not form.is_valid():
+            if operational_settings.pk:
+                operational_settings.refresh_from_db()
+            context = self.get_context_data(
+                operational_settings=operational_settings,
+                operational_settings_form=form,
+            )
+            return render(request, self.template_name, context, status=400)
+
+        if operational_settings.pk and hasattr(operational_settings, "snapshot"):
+            operational_settings.snapshot()
+        operational_settings._changelog_message = "Updated automatic retention settings."
+        operational_settings = form.save()
+        state = "enabled" if operational_settings.retention_scheduler_enabled else "disabled"
+        messages.success(
+            request,
+            f"Automatic retention is now {state}; no Docker restart is required.",
+        )
+        return redirect("plugins:netbox_config_backup:advanced_settings")
+
+    def _save_notifications(self, request, operational_settings):
+        form = forms.NotificationSettingsForm(
+            request.POST,
+            instance=operational_settings,
+        )
+        if not form.is_valid():
+            if operational_settings.pk:
+                operational_settings.refresh_from_db()
+            context = self.get_context_data(
+                operational_settings=operational_settings,
+                notification_settings_form=form,
+            )
+            return render(request, self.template_name, context, status=400)
+
+        if operational_settings.pk and hasattr(operational_settings, "snapshot"):
+            operational_settings.snapshot()
+        operational_settings._changelog_message = "Updated notification settings."
+        form.save()
+        messages.success(
+            request,
+            "Notification settings were updated; no Docker restart is required.",
+        )
+        return redirect("plugins:netbox_config_backup:advanced_settings")
+
+
+def _queryset_fully_permitted(queryset, user, action: str) -> bool:
+    permitted_ids = queryset.restrict(user, action).values("pk")
+    return not queryset.exclude(pk__in=permitted_ids).exists()
+
+
+def _assert_target_delete_permissions(targets, user) -> None:
+    if not _queryset_fully_permitted(targets, user, "delete"):
+        raise PermissionDenied
+
+    target_ids = targets.values("pk")
+    dependent_checks = (
+        (BackupRun.objects.filter(target_id__in=target_ids), "delete"),
+        (ConfigRevision.objects.filter(target_id__in=target_ids), "delete"),
+        (ConfigArtifact.objects.filter(revision__target_id__in=target_ids), "delete"),
+    )
+    if not all(
+        _queryset_fully_permitted(queryset, user, action) for queryset, action in dependent_checks
+    ):
+        raise PermissionDenied
+
+    quick_connections = ConnectionProfile.objects.filter(
+        target_overrides__in=target_ids,
+        name__startswith="[Quick]",
+    ).distinct()
+    quick_credentials = CredentialProfile.objects.filter(
+        target_overrides__in=target_ids,
+        name__startswith="[Quick]",
+    ).distinct()
+    if not _queryset_fully_permitted(quick_connections, user, "delete"):
+        raise PermissionDenied
+    if not _queryset_fully_permitted(quick_credentials, user, "delete"):
+        raise PermissionDenied
+    if quick_credentials.filter(provider_id="encrypted_database").exists() and not user.has_perm(
+        "netbox_config_backup.delete_storedcredential"
+    ):
+        raise PermissionDenied
+
+
+def _retention_preview_context(target, *, now, user=None):
+    policy = effective_retention_policy(target)
+    if policy is None:
+        return {"policy": None, "plan": None}
+
+    revisions_queryset = target.revisions.prefetch_related("artifacts").order_by("-created")
+    runs_queryset = target.runs.all().order_by("-queued_at")
+    if user is not None:
+        revisions_queryset = revisions_queryset.restrict(user, "view")
+        runs_queryset = runs_queryset.restrict(user, "view")
+    revisions = list(revisions_queryset)
+    runs = list(runs_queryset)
+    plan = build_retention_plan(
+        settings_from_policy(policy),
+        revisions=(
+            RevisionCandidate(
+                object_id=revision.pk,
+                created=revision.created,
+                protected=revision.protected,
+                content_changed=revision.content_changed,
+            )
+            for revision in revisions
+        ),
+        runs=(
+            RunCandidate(
+                object_id=run.pk,
+                timestamp=run.finished_at or run.queued_at,
+                status=run.status,
+            )
+            for run in runs
+        ),
+        now=now,
+    )
+    revision_by_id = {revision.pk: revision for revision in revisions}
+    run_by_id = {run.pk: run for run in runs}
+    expired_revision_ids = {
+        decision.object_id for decision in plan.revision_decisions if not decision.keep
+    }
+    expired_artifacts = tuple(
+        artifact
+        for revision in revisions
+        if revision.pk in expired_revision_ids
+        for artifact in revision.artifacts.all()
+    )
+    return {
+        "policy": policy,
+        "plan": plan,
+        "revision_rows": tuple(
+            (revision_by_id[decision.object_id], decision) for decision in plan.revision_decisions
+        ),
+        "run_rows": tuple(
+            (run_by_id[decision.object_id], decision) for decision in plan.run_decisions
+        ),
+        "expired_artifact_count": len(expired_artifacts),
+        "expired_artifact_bytes": sum(artifact.size for artifact in expired_artifacts),
+    }
+
+
+class ExampleConfigurationView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    template_name = "netbox_config_backup/examples.html"
+    permission_required = (
+        "netbox_config_backup.view_retentionpolicy",
+        "netbox_config_backup.view_backuppolicy",
+        "netbox_config_backup.view_connectionprofile",
+        "netbox_config_backup.view_credentialprofile",
+        "netbox_config_backup.view_platformmapping",
+    )
+    raise_exception = True
+    create_permissions = (
+        "netbox_config_backup.add_retentionpolicy",
+        "netbox_config_backup.add_backuppolicy",
+        "netbox_config_backup.add_connectionprofile",
+        "netbox_config_backup.add_credentialprofile",
+        "netbox_config_backup.add_platformmapping",
+        "dcim.add_platform",
+    )
+
+    def get(self, request):
+        return render(
+            request,
+            self.template_name,
+            {
+                "examples": get_example_configuration(),
+                "can_create_examples": request.user.has_perms(self.create_permissions),
+            },
+        )
+
+    def post(self, request):
+        if not request.user.has_perms(self.create_permissions):
+            raise PermissionDenied
+        create_or_reset_example_configuration()
+        messages.success(request, "Example configuration was created or reset.")
+        return redirect("plugins:netbox_config_backup:examples")
+
+
+class ConfigObjectView(generic.ObjectView):
+    template_name = "netbox_config_backup/config_object.html"
+    display_fields: tuple[str, ...] = ()
+
+    def get_extra_context(self, request, instance):
+        rows = []
+        for field_name in self.display_fields:
+            field = instance._meta.get_field(field_name)
+            display_method = getattr(instance, f"get_{field_name}_display", None)
+            value = display_method() if display_method else getattr(instance, field_name)
+            rows.append((field.verbose_name, value))
+        return {"detail_rows": rows}
+
+
+@register_model_view(RetentionPolicy, "list", path="", detail=False)
+class RetentionPolicyListView(generic.ObjectListView):
+    queryset = RetentionPolicy.objects.all()
+    table = tables.RetentionPolicyTable
+
+
+@register_model_view(RetentionPolicy)
+class RetentionPolicyView(ConfigObjectView):
+    queryset = RetentionPolicy.objects.all()
+    display_fields = (
+        "keep_all_days",
+        "daily_days",
+        "weekly_weeks",
+        "monthly_months",
+        "minimum_changed_revisions",
+        "unchanged_run_days",
+        "changed_run_days",
+        "failed_run_days",
+        "max_runs_per_target",
+    )
+
+
+@register_model_view(RetentionPolicy, "add", detail=False)
+@register_model_view(RetentionPolicy, "edit")
+class RetentionPolicyEditView(generic.ObjectEditView):
+    queryset = RetentionPolicy.objects.all()
+    form = forms.RetentionPolicyForm
+
+
+@register_model_view(RetentionPolicy, "delete")
+class RetentionPolicyDeleteView(generic.ObjectDeleteView):
+    queryset = RetentionPolicy.objects.all()
+
+
+@register_model_view(BackupPolicy, "list", path="", detail=False)
+class BackupPolicyListView(generic.ObjectListView):
+    queryset = BackupPolicy.objects.select_related("retention_policy")
+    table = tables.BackupPolicyTable
+
+
+@register_model_view(BackupPolicy)
+class BackupPolicyView(ConfigObjectView):
+    queryset = BackupPolicy.objects.select_related("retention_policy")
+    display_fields = (
+        "enabled",
+        "schedule_type",
+        "interval_minutes",
+        "time_of_day",
+        "timezone_mode",
+        "jitter_minutes",
+        "connection_timeout",
+        "command_timeout",
+        "max_retries",
+        "retry_backoff_minutes",
+        "store_mode",
+        "retention_policy",
+    )
+
+
+@register_model_view(BackupPolicy, "add", detail=False)
+@register_model_view(BackupPolicy, "edit")
+class BackupPolicyEditView(generic.ObjectEditView):
+    queryset = BackupPolicy.objects.all()
+    form = forms.BackupPolicyForm
+
+
+@register_model_view(BackupPolicy, "delete")
+class BackupPolicyDeleteView(generic.ObjectDeleteView):
+    queryset = BackupPolicy.objects.all()
+
+
+@register_model_view(ConnectionProfile, "list", path="", detail=False)
+class ConnectionProfileListView(generic.ObjectListView):
+    queryset = ConnectionProfile.objects.all()
+    table = tables.ConnectionProfileTable
+
+
+@register_model_view(ConnectionProfile)
+class ConnectionProfileView(ConfigObjectView):
+    queryset = ConnectionProfile.objects.all()
+    display_fields = (
+        "protocol",
+        "address_preference",
+        "port",
+        "connect_timeout",
+        "command_timeout",
+        "keepalive",
+        "verify_host_key",
+        "known_hosts_path",
+    )
+
+
+@register_model_view(ConnectionProfile, "add", detail=False)
+@register_model_view(ConnectionProfile, "edit")
+class ConnectionProfileEditView(generic.ObjectEditView):
+    queryset = ConnectionProfile.objects.all()
+    form = forms.ConnectionProfileForm
+
+
+@register_model_view(ConnectionProfile, "delete")
+class ConnectionProfileDeleteView(generic.ObjectDeleteView):
+    queryset = ConnectionProfile.objects.all()
+
+
+@register_model_view(CredentialProfile, "list", path="", detail=False)
+class CredentialProfileListView(generic.ObjectListView):
+    queryset = CredentialProfile.objects.exclude(provider_id="vault_kv2").select_related(
+        "stored_credential"
+    )
+    table = tables.CredentialProfileTable
+
+
+@register_model_view(CredentialProfile)
+class CredentialProfileView(ConfigObjectView):
+    queryset = CredentialProfile.objects.exclude(provider_id="vault_kv2").select_related(
+        "stored_credential"
+    )
+
+    def get_extra_context(self, request, instance):
+        username = instance.stored_username if instance.provider_id == "encrypted_database" else ""
+        password_status = (
+            "Configured (write-only)"
+            if instance.provider_id == "encrypted_database" and instance.has_stored_password
+            else "Not stored in NetBox"
+        )
+        return {
+            "detail_rows": (
+                ("Provider", instance.provider_id),
+                ("Secret reference", instance.secret_reference),
+                ("Authentication type", instance.get_auth_type_display()),
+                ("Username", username),
+                ("Password", password_status),
+            )
+        }
+
+
+@register_model_view(CredentialProfile, "add", detail=False)
+@register_model_view(CredentialProfile, "edit")
+class CredentialProfileEditView(generic.ObjectEditView):
+    queryset = CredentialProfile.objects.exclude(provider_id="vault_kv2").select_related(
+        "stored_credential"
+    )
+    form = forms.CredentialProfileForm
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.method == "POST":
+            pk = kwargs.get("pk")
+            existing = CredentialProfile.objects.filter(pk=pk).first() if pk else None
+            posted_provider = request.POST.get("provider_id", "")
+            required_permission = None
+            if existing and existing.provider_id == "encrypted_database":
+                required_permission = (
+                    "netbox_config_backup.change_storedcredential"
+                    if posted_provider == "encrypted_database"
+                    else "netbox_config_backup.delete_storedcredential"
+                )
+            elif posted_provider == "encrypted_database":
+                required_permission = "netbox_config_backup.add_storedcredential"
+            if required_permission and not request.user.has_perm(required_permission):
+                raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+
+@register_model_view(CredentialProfile, "delete")
+class CredentialProfileDeleteView(generic.ObjectDeleteView):
+    queryset = CredentialProfile.objects.exclude(provider_id="vault_kv2")
+
+    def dispatch(self, request, *args, **kwargs):
+        instance = self.queryset.filter(pk=kwargs.get("pk")).first()
+        if (
+            request.method == "POST"
+            and instance
+            and instance.provider_id == "encrypted_database"
+            and not request.user.has_perm("netbox_config_backup.delete_storedcredential")
+        ):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+
+@register_model_view(BackupDestination, "list", path="", detail=False)
+class BackupDestinationListView(generic.ObjectListView):
+    queryset = BackupDestination.objects.filter(
+        protocol=DestinationProtocolChoices.FTP
+    ).select_related("credential_profile")
+    table = tables.BackupDestinationTable
+
+
+@register_model_view(BackupDestination)
+class BackupDestinationView(generic.ObjectView):
+    queryset = BackupDestination.objects.filter(
+        protocol=DestinationProtocolChoices.FTP
+    ).select_related("credential_profile")
+    template_name = "netbox_config_backup/backupdestination.html"
+
+    def get_extra_context(self, request, instance):
+        replicas = instance.replicas.restrict(request.user, "view").select_related(
+            "revision__target__device"
+        )[:25]
+        latest_reconciliation_job = (
+            DestinationReconciliationJob.get_jobs(instance).order_by("-created").first()
+        )
+        return {
+            "replicas": replicas,
+            "latest_reconciliation_job": latest_reconciliation_job,
+            "latest_reconciliation": (
+                destination_reconciliation_status_payload(latest_reconciliation_job)
+                if latest_reconciliation_job
+                else None
+            ),
+            "audit_schedule_form": forms.FtpIntegrityAuditScheduleForm(instance=instance),
+            "audit_timezone": settings.TIME_ZONE,
+            "can_test": request.user.has_perm("netbox_config_backup.change_backupdestination"),
+            "can_reconcile": request.user.has_perm("netbox_config_backup.change_backupdestination"),
+            "can_backfill": request.user.has_perms(
+                (
+                    "netbox_config_backup.change_backupdestination",
+                    "netbox_config_backup.add_revisionreplica",
+                )
+            ),
+            "can_retry": request.user.has_perm("netbox_config_backup.change_revisionreplica"),
+        }
+
+
+@register_model_view(BackupDestination, "add", detail=False)
+@register_model_view(BackupDestination, "edit")
+class BackupDestinationEditView(generic.ObjectEditView):
+    queryset = BackupDestination.objects.filter(protocol=DestinationProtocolChoices.FTP)
+    form = forms.BackupDestinationForm
+
+
+@register_model_view(BackupDestination, "delete")
+class BackupDestinationDeleteView(generic.ObjectDeleteView):
+    queryset = BackupDestination.objects.filter(protocol=DestinationProtocolChoices.FTP)
+
+
+@register_model_view(BackupDestination, "test_connection", path="test-connection")
+class BackupDestinationTestView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backupdestination",
+        "netbox_config_backup.change_backupdestination",
+    )
+    raise_exception = True
+
+    def post(self, request, pk):
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(request.user, "change"),
+            pk=pk,
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        active_job = (
+            DestinationConnectionTestJob.get_jobs(destination)
+            .filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES)
+            .order_by("-created")
+            .first()
+        )
+        if active_job:
+            job = active_job
+            messages.info(request, "A destination test is already in progress.")
+        else:
+            job = DestinationConnectionTestJob.enqueue(
+                destination_id=destination.pk,
+                instance=destination,
+                user=request.user,
+                queue_name=BACKUP_QUEUE,
+            )
+            messages.info(request, "The destination test was queued.")
+        return redirect(
+            "plugins:netbox_config_backup:backupdestination_test_result",
+            pk=destination.pk,
+            job_id=job.job_id,
+        )
+
+
+class BackupDestinationTestResultView(PermissionRequiredMixin, LoginRequiredMixin, TemplateView):
+    template_name = "netbox_config_backup/destination_test.html"
+    permission_required = "netbox_config_backup.view_backupdestination"
+    raise_exception = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(self.request.user, "view"),
+            pk=self.kwargs["pk"],
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        job = get_object_or_404(
+            DestinationConnectionTestJob.get_jobs(destination),
+            job_id=self.kwargs["job_id"],
+        )
+        context.update(
+            {
+                "destination": destination,
+                "job": job,
+                "status_payload": destination_test_status_payload(job),
+                "status_url": reverse(
+                    "plugins:netbox_config_backup:backupdestination_test_status",
+                    kwargs={"pk": destination.pk, "job_id": job.job_id},
+                ),
+                "can_manage": self.request.user.has_perm(
+                    "netbox_config_backup.change_backupdestination"
+                ),
+                "can_view_job": self.request.user.has_perm("core.view_job"),
+            }
+        )
+        return context
+
+
+class BackupDestinationTestStatusView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = "netbox_config_backup.view_backupdestination"
+    raise_exception = True
+
+    def get(self, request, pk, job_id):
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(request.user, "view"),
+            pk=pk,
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        job = get_object_or_404(DestinationConnectionTestJob.get_jobs(destination), job_id=job_id)
+        response = JsonResponse(destination_test_status_payload(job))
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+@register_model_view(BackupDestination, "reconcile", path="reconcile")
+class BackupDestinationReconciliationView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backupdestination",
+        "netbox_config_backup.change_backupdestination",
+    )
+    raise_exception = True
+
+    def post(self, request, pk):
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(request.user, "change"),
+            pk=pk,
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        active_job = (
+            DestinationReconciliationJob.get_jobs(destination)
+            .filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES)
+            .order_by("-created")
+            .first()
+        )
+        if active_job:
+            job = active_job
+            messages.info(request, "An FTP integrity audit is already in progress.")
+        else:
+            job = DestinationReconciliationJob.enqueue(
+                destination_id=destination.pk,
+                instance=destination,
+                user=request.user,
+                queue_name=BACKUP_QUEUE,
+            )
+            messages.info(request, "The read-only FTP integrity audit was queued.")
+        return redirect(
+            "plugins:netbox_config_backup:backupdestination_reconciliation_result",
+            pk=destination.pk,
+            job_id=job.job_id,
+        )
+
+
+class BackupDestinationReconciliationResultView(
+    PermissionRequiredMixin, LoginRequiredMixin, TemplateView
+):
+    template_name = "netbox_config_backup/destination_reconciliation.html"
+    permission_required = "netbox_config_backup.view_backupdestination"
+    raise_exception = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(self.request.user, "view"),
+            pk=self.kwargs["pk"],
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        job = get_object_or_404(
+            DestinationReconciliationJob.get_jobs(destination),
+            job_id=self.kwargs["job_id"],
+        )
+        context.update(
+            {
+                "destination": destination,
+                "job": job,
+                "status_payload": destination_reconciliation_status_payload(job),
+                "status_url": reverse(
+                    "plugins:netbox_config_backup:backupdestination_reconciliation_status",
+                    kwargs={"pk": destination.pk, "job_id": job.job_id},
+                ),
+                "can_manage": self.request.user.has_perm(
+                    "netbox_config_backup.change_backupdestination"
+                ),
+                "can_view_job": self.request.user.has_perm("core.view_job"),
+            }
+        )
+        return context
+
+
+class BackupDestinationReconciliationStatusView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = "netbox_config_backup.view_backupdestination"
+    raise_exception = True
+
+    def get(self, request, pk, job_id):
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(request.user, "view"),
+            pk=pk,
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        job = get_object_or_404(DestinationReconciliationJob.get_jobs(destination), job_id=job_id)
+        response = JsonResponse(destination_reconciliation_status_payload(job))
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+@register_model_view(BackupDestination, "audit_schedule", path="audit-schedule")
+class BackupDestinationAuditScheduleView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backupdestination",
+        "netbox_config_backup.change_backupdestination",
+    )
+    raise_exception = True
+
+    def post(self, request, pk):
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(request.user, "change"),
+            pk=pk,
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        form = forms.FtpIntegrityAuditScheduleForm(request.POST, instance=destination)
+        if not form.is_valid():
+            for field_errors in form.errors.values():
+                for error in field_errors:
+                    messages.error(request, error)
+            return redirect(destination.get_absolute_url())
+
+        if hasattr(destination, "snapshot"):
+            destination.snapshot()
+        destination._changelog_message = "Updated automatic FTP integrity audit schedule."
+        destination = form.save()
+        if destination.integrity_audit_enabled:
+            messages.success(
+                request,
+                f"Automatic FTP integrity audit enabled; next audit is "
+                f"{destination.next_integrity_audit_at}.",
+            )
+        else:
+            messages.success(request, "Automatic FTP integrity audit disabled.")
+        return redirect(destination.get_absolute_url())
+
+
+class BackupDestinationTrustHostKeyView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = "netbox_config_backup.change_backupdestination"
+    raise_exception = True
+
+    def post(self, request, pk, job_id):
+        raise Http404
+
+
+class BackupDestinationBackfillView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.change_backupdestination",
+        "netbox_config_backup.add_revisionreplica",
+    )
+    raise_exception = True
+
+    def post(self, request, pk):
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(request.user, "change"),
+            pk=pk,
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        count = backfill_destination(destination, user=request.user)
+        if count:
+            messages.success(request, f"Queued {count} existing revision(s) for FTP replication.")
+        else:
+            messages.info(request, "All existing revisions already have a replica record.")
+        return redirect(destination.get_absolute_url())
+
+
+class RevisionReplicaRetryView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = "netbox_config_backup.change_revisionreplica"
+    raise_exception = True
+
+    def post(self, request, pk, replica_pk):
+        destination = get_object_or_404(
+            BackupDestination.objects.restrict(request.user, "view"),
+            pk=pk,
+            protocol=DestinationProtocolChoices.FTP,
+        )
+        replica = get_object_or_404(
+            RevisionReplica.objects.restrict(request.user, "change"),
+            pk=replica_pk,
+            destination=destination,
+        )
+        job = enqueue_revision_replica(replica.pk, user=request.user, force=True)
+        if job:
+            messages.success(request, "The FTP replication retry was queued.")
+        else:
+            messages.warning(request, "The FTP destination is disabled.")
+        return redirect(destination.get_absolute_url())
+
+
+@register_model_view(SftpReceiverProfile, "list", path="", detail=False)
+class SftpReceiverProfileListView(generic.ObjectListView):
+    queryset = SftpReceiverProfile.objects.select_related("credential_profile")
+    table = tables.SftpReceiverProfileTable
+
+
+@register_model_view(SftpReceiverProfile)
+class SftpReceiverProfileView(ConfigObjectView):
+    queryset = SftpReceiverProfile.objects.select_related("credential_profile")
+    display_fields = (
+        "enabled",
+        "protocol",
+        "mode",
+        "credential_profile",
+        "listen_host",
+        "listen_port",
+        "advertised_host",
+        "advertised_port",
+        "bridge_host",
+        "bridge_port",
+        "remote_bind_host",
+        "remote_bind_port",
+        "upload_directory",
+        "export_timeout",
+        "max_upload_size",
+        "passive_port_start",
+        "passive_port_end",
+    )
+
+
+@register_model_view(SftpReceiverProfile, "add", detail=False)
+@register_model_view(SftpReceiverProfile, "edit")
+class SftpReceiverProfileEditView(generic.ObjectEditView):
+    queryset = SftpReceiverProfile.objects.all()
+    form = forms.SftpReceiverProfileForm
+
+
+@register_model_view(SftpReceiverProfile, "delete")
+class SftpReceiverProfileDeleteView(generic.ObjectDeleteView):
+    queryset = SftpReceiverProfile.objects.all()
+
+
+@register_model_view(PlatformMapping, "list", path="", detail=False)
+class PlatformMappingListView(generic.ObjectListView):
+    queryset = PlatformMapping.objects.select_related(
+        "platform", "connection_profile", "credential_profile", "receiver_profile"
+    )
+    table = tables.PlatformMappingTable
+
+
+@register_model_view(PlatformMapping)
+class PlatformMappingView(ConfigObjectView):
+    queryset = PlatformMapping.objects.select_related(
+        "platform", "connection_profile", "credential_profile", "receiver_profile"
+    )
+    display_fields = (
+        "platform",
+        "driver_id",
+        "enabled",
+        "connection_profile",
+        "credential_profile",
+        "receiver_profile",
+        "driver_options",
+    )
+
+
+@register_model_view(PlatformMapping, "add", detail=False)
+@register_model_view(PlatformMapping, "edit")
+class PlatformMappingEditView(generic.ObjectEditView):
+    queryset = PlatformMapping.objects.all()
+    form = forms.PlatformMappingForm
+
+
+@register_model_view(PlatformMapping, "delete")
+class PlatformMappingDeleteView(generic.ObjectDeleteView):
+    queryset = PlatformMapping.objects.all()
+
+
+@register_model_view(BackupTarget, "list", path="", detail=False)
+class BackupTargetListView(generic.ObjectListView):
+    queryset = BackupTarget.objects.select_related("device", "last_revision")
+    table = tables.BackupTargetTable
+    filterset = filtersets.BackupTargetFilterSet
+    filterset_form = forms.BackupTargetFilterForm
+
+
+@register_model_view(BackupTarget)
+class BackupTargetView(generic.ObjectView):
+    queryset = BackupTarget.objects.select_related(
+        "device",
+        "policy_override",
+        "retention_override",
+        "credential_override",
+        "connection_override",
+        "receiver_override",
+        "last_revision",
+    )
+    template_name = "netbox_config_backup/backuptarget.html"
+
+    def get_extra_context(self, request, instance):
+        now = timezone.now()
+        plugin_settings = settings.PLUGINS_CONFIG["netbox_config_backup"]
+        visible_runs = instance.runs.all().restrict(request.user, "view")
+        visible_revisions = instance.revisions.all().restrict(request.user, "view")
+        health = evaluate_target_health(
+            instance,
+            now=now,
+            grace_minutes=plugin_settings["stale_target_grace_minutes"],
+        )
+        latest_failure = visible_runs.filter(status__in=FAILURE_RUN_STATUSES).first()
+        stuck_run = stuck_run_queryset(
+            visible_runs,
+            now=now,
+            timeout_minutes=plugin_settings["stale_run_minutes"],
+        ).first()
+        return {
+            "recent_runs": visible_runs.select_related("revision")[:10],
+            "recent_revisions": visible_revisions[:10],
+            "health": health,
+            "latest_failure": latest_failure,
+            "stuck_run": stuck_run,
+            "stuck_run_minutes": plugin_settings["stale_run_minutes"],
+            "can_run": request.user.has_perm("netbox_config_backup.add_backuprun"),
+            "can_test": request.user.has_perm("netbox_config_backup.add_backuprun"),
+            "can_preview_retention": request.user.has_perms(
+                (
+                    "netbox_config_backup.view_configrevision",
+                    "netbox_config_backup.view_backuprun",
+                    "netbox_config_backup.view_retentionpolicy",
+                )
+            ),
+        }
+
+
+@register_model_view(BackupTarget, "edit")
+class BackupTargetEditView(generic.ObjectEditView):
+    queryset = BackupTarget.objects.all()
+    form = forms.BackupTargetForm
+
+
+@register_model_view(BackupTarget, "add", detail=False)
+class BackupTargetQuickSetupView(LoginRequiredMixin, PermissionRequiredMixin, FormView):
+    template_name = "netbox_config_backup/quick_setup.html"
+    form_class = forms.QuickSetupForm
+    permission_required = (
+        "netbox_config_backup.add_backuptarget",
+        "netbox_config_backup.add_connectionprofile",
+        "netbox_config_backup.add_credentialprofile",
+        "netbox_config_backup.add_storedcredential",
+        "netbox_config_backup.add_backuppolicy",
+        "netbox_config_backup.add_retentionpolicy",
+    )
+    raise_exception = True
+
+    def form_valid(self, form):
+        create_and_test = "_create_and_test" in self.request.POST
+        if create_and_test and not self.request.user.has_perm("netbox_config_backup.add_backuprun"):
+            raise PermissionDenied
+
+        result = create_quick_setup(
+            device=form.cleaned_data["device"],
+            driver_id=form.cleaned_data["driver_id"],
+            connection_profile=form.cleaned_data["connection_profile"],
+            credential_profile=form.cleaned_data["credential_profile"],
+            receiver_profile=form.cleaned_data["receiver_profile"],
+            allow_device_export=form.cleaned_data["allow_device_export"],
+            sync_receiver_credentials=form.cleaned_data["sync_receiver_credentials"],
+            restore_point=form.cleaned_data["restore_point"],
+            port=form.cleaned_data["port"],
+            protocol=form.cleaned_data["protocol"],
+            verify_host_key=form.cleaned_data["verify_host_key"],
+            username=form.cleaned_data["username"],
+            password=form.cleaned_data["password"],
+            schedule=form.cleaned_data["schedule"],
+            retention_days=form.cleaned_data["retention_days"],
+        )
+        target = result.target
+        messages.success(request=self.request, message=f"Backup device {target.device} created.")
+
+        if create_and_test:
+            job = ConnectionTestJob.enqueue(
+                target_id=target.pk,
+                instance=target,
+                user=self.request.user,
+                queue_name=BACKUP_QUEUE,
+            )
+            messages.info(
+                request=self.request,
+                message=(
+                    f"Connection test for {target.device} was queued. "
+                    "This page will update when the test finishes."
+                ),
+            )
+            return redirect(
+                "plugins:netbox_config_backup:backuptarget_connection_test_result",
+                pk=target.pk,
+                job_id=job.job_id,
+            )
+        return redirect(target.get_absolute_url())
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        device_driver_defaults = dict(
+            Device.objects.filter(
+                config_backup_target__isnull=True,
+                platform__config_backup_mapping__enabled=True,
+            ).values_list("pk", "platform__config_backup_mapping__driver_id")
+        )
+        context.update(
+            {
+                "return_url": reverse("plugins:netbox_config_backup:backuptarget_list"),
+                "can_test": self.request.user.has_perm("netbox_config_backup.add_backuprun"),
+                "device_driver_defaults": device_driver_defaults,
+                "receiver_protocols": dict(
+                    SftpReceiverProfile.objects.filter(enabled=True).values_list("pk", "protocol")
+                ),
+            }
+        )
+        return context
+
+
+@register_model_view(BackupTarget, "delete")
+class BackupTargetDeleteView(generic.ObjectDeleteView):
+    queryset = BackupTarget.objects.select_related("connection_override", "credential_override")
+
+    def _get_dependent_objects(self, obj):
+        return {
+            BackupRun: list(BackupRun.objects.filter(target=obj)),
+            ConfigRevision: list(ConfigRevision.objects.filter(target=obj)),
+            ConfigArtifact: [
+                str(artifact) for artifact in ConfigArtifact.objects.filter(revision__target=obj)
+            ],
+        }
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.method == "POST" and request.user.is_authenticated:
+            targets = self.queryset.filter(pk=kwargs.get("pk"))
+            if targets.exists():
+                _assert_target_delete_permissions(targets, request.user)
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        logger = logging.getLogger("netbox_config_backup.views.BackupTargetDeleteView")
+        target = self.get_object(**kwargs)
+        form = DeleteForm(request.POST, instance=target)
+        if not form.is_valid():
+            return super().post(request, *args, **kwargs)
+
+        target_label = str(target)
+        return_url = form.cleaned_data.get("return_url")
+        fallback_url = self.get_return_url(request, target)
+        if hasattr(target, "snapshot"):
+            target.snapshot()
+        target._changelog_message = form.cleaned_data.pop("changelog_message", "")
+
+        try:
+            summary = delete_backup_target(target)
+        except TargetDeletionError as exc:
+            logger.info("Target deletion was safely aborted: %s", exc)
+            messages.error(request, str(exc))
+            return redirect(target.get_absolute_url())
+
+        messages.success(
+            request,
+            (
+                f"Deleted backup device {target_label}, {summary.run_count} runs, "
+                f"{summary.revision_count} revisions, and {summary.artifact_count} artifacts."
+            ),
+        )
+        if return_url and return_url.startswith("/"):
+            return redirect(return_url)
+        return redirect(fallback_url)
+
+
+@register_model_view(BackupTarget, "bulk_delete", detail=False)
+class BackupTargetBulkDeleteView(generic.BulkDeleteView):
+    queryset = BackupTarget.objects.select_related(
+        "device",
+        "connection_override",
+        "credential_override",
+    )
+    table = tables.BackupTargetTable
+    filterset = filtersets.BackupTargetFilterSet
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).restrict(request.user, "delete")
+
+    def _selected_ids(self, request) -> list[int]:
+        if request.POST.get("_all"):
+            queryset = self.queryset
+            if self.filterset is not None:
+                queryset = self.filterset(request.GET, queryset, request=request).qs
+            return list(queryset.values_list("pk", flat=True))
+        try:
+            return [int(pk) for pk in request.POST.getlist("pk")]
+        except (TypeError, ValueError) as exc:
+            raise PermissionDenied from exc
+
+    def _render_confirmation(self, request, selected_ids, selected, form=None):
+        if form is None:
+            form = BulkDeleteForm(
+                BackupTarget,
+                initial={
+                    "pk": selected_ids,
+                    "return_url": self.get_return_url(request),
+                },
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "model": BackupTarget,
+                "form": form,
+                "table": self.table(selected, orderable=False),
+                "return_url": self.get_return_url(request),
+                **self.get_extra_context(request),
+            },
+        )
+
+    def post(self, request, **kwargs):
+        selected_ids = self._selected_ids(request)
+        selected = self.queryset.filter(pk__in=selected_ids)
+        if selected.count() != len(set(selected_ids)):
+            raise PermissionDenied
+
+        if "_confirm" not in request.POST:
+            if not selected_ids:
+                messages.warning(request, "No backup devices were selected.")
+                return redirect(self.get_return_url(request))
+            return self._render_confirmation(request, selected_ids, selected)
+
+        form = BulkDeleteForm(BackupTarget, request.POST)
+        if not form.is_valid():
+            return self._render_confirmation(request, selected_ids, selected, form)
+
+        confirmed_ids = set(form.cleaned_data["pk"].values_list("pk", flat=True))
+        if confirmed_ids != set(selected_ids):
+            raise PermissionDenied
+        _assert_target_delete_permissions(selected, request.user)
+
+        if BackupRun.objects.filter(
+            target_id__in=selected_ids,
+            status__in=(RunStatusChoices.QUEUED, RunStatusChoices.RUNNING),
+        ).exists():
+            message = "Bulk deletion was cancelled because a selected device has an active backup."
+            if is_background_request(request):
+                request.job.logger.error(message)
+                raise JobFailed
+            messages.error(request, message)
+            return redirect(self.get_return_url(request))
+
+        if form.cleaned_data["background_job"]:
+            job_name = f"Delete {len(selected_ids)} backup devices"
+            if process_request_as_job(self.__class__, request, name=job_name):
+                return redirect(self.get_return_url(request))
+
+        totals = {"targets": 0, "runs": 0, "revisions": 0, "artifacts": 0}
+        changelog_message = form.cleaned_data.get("changelog_message", "")
+        logger = logging.getLogger("netbox_config_backup.views.BackupTargetBulkDeleteView")
+        for target in selected.order_by("pk"):
+            if hasattr(target, "snapshot"):
+                target.snapshot()
+            target._changelog_message = changelog_message
+            try:
+                summary = delete_backup_target(target)
+            except TargetDeletionError as exc:
+                logger.info("Bulk target deletion was safely aborted: %s", exc)
+                if is_background_request(request):
+                    request.job.logger.error(str(exc))
+                    raise JobFailed from exc
+                messages.error(
+                    request,
+                    f"Deletion stopped after {totals['targets']} devices: {exc}",
+                )
+                return redirect(self.get_return_url(request))
+            totals["targets"] += 1
+            totals["runs"] += summary.run_count
+            totals["revisions"] += summary.revision_count
+            totals["artifacts"] += summary.artifact_count
+
+        message = (
+            f"Deleted {totals['targets']} backup devices, {totals['runs']} runs, "
+            f"{totals['revisions']} revisions, and {totals['artifacts']} artifacts."
+        )
+        logger.info(message)
+        if is_background_request(request):
+            request.job.logger.info(message)
+            return None
+        messages.success(request, message)
+        return redirect(self.get_return_url(request))
+
+
+@register_model_view(BackupTarget, "run", path="run")
+class BackupTargetRunView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backuptarget",
+        "netbox_config_backup.add_backuprun",
+    )
+    raise_exception = True
+
+    def post(self, request, pk):
+        target = get_object_or_404(
+            BackupTarget.objects.restrict(request.user, "view").select_related("device"),
+            pk=pk,
+        )
+        if not target.enabled:
+            messages.error(request, "Backup target is disabled.")
+            return redirect(target.get_absolute_url())
+
+        mapping = (
+            PlatformMapping.objects.filter(
+                platform_id=target.device.platform_id, enabled=True
+            ).first()
+            if target.device.platform_id
+            else None
+        )
+        driver_id = target.driver_override or (mapping.driver_id if mapping else "")
+        if not driver_id or not driver_registry.contains(driver_id):
+            messages.error(request, "No supported backup driver is configured for this target.")
+            return redirect(target.get_absolute_url())
+
+        try:
+            run = enqueue_backup_run(
+                target,
+                source=RunSourceChoices.MANUAL,
+                user=request.user,
+            )
+        except IntegrityError:
+            messages.warning(request, "This target already has a queued or running backup.")
+            return redirect(target.get_absolute_url())
+
+        messages.info(
+            request,
+            (
+                f"Configuration backup for {target.device} was queued. "
+                "The run status will update when collection finishes."
+            ),
+        )
+        return redirect(run.get_absolute_url())
+
+
+@register_model_view(BackupTarget, "test_connection", path="test-connection")
+class BackupTargetConnectionTestView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backuptarget",
+        "netbox_config_backup.add_backuprun",
+    )
+    raise_exception = True
+
+    def post(self, request, pk):
+        target = get_object_or_404(
+            BackupTarget.objects.restrict(request.user, "view").select_related("device"),
+            pk=pk,
+        )
+        mapping = (
+            PlatformMapping.objects.filter(
+                platform_id=target.device.platform_id, enabled=True
+            ).first()
+            if target.device.platform_id
+            else None
+        )
+        driver_id = target.driver_override or (mapping.driver_id if mapping else "")
+        if not driver_id or not driver_registry.contains(driver_id):
+            messages.error(request, "No supported backup driver is configured for this target.")
+            return redirect(target.get_absolute_url())
+
+        active_job = (
+            ConnectionTestJob.get_jobs(target)
+            .filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES)
+            .order_by("-created")
+            .first()
+        )
+        if active_job:
+            messages.info(request, "A connection test is already in progress for this device.")
+            return redirect(
+                "plugins:netbox_config_backup:backuptarget_connection_test_result",
+                pk=target.pk,
+                job_id=active_job.job_id,
+            )
+
+        job = ConnectionTestJob.enqueue(
+            target_id=target.pk,
+            instance=target,
+            user=request.user,
+            queue_name=BACKUP_QUEUE,
+        )
+        messages.info(
+            request,
+            (
+                f"Connection test for {target.device} was queued. "
+                "This page will update when the test finishes."
+            ),
+        )
+        return redirect(
+            "plugins:netbox_config_backup:backuptarget_connection_test_result",
+            pk=target.pk,
+            job_id=job.job_id,
+        )
+
+
+class BackupTargetConnectionTestResultView(
+    PermissionRequiredMixin,
+    LoginRequiredMixin,
+    TemplateView,
+):
+    template_name = "netbox_config_backup/connection_test.html"
+    permission_required = "netbox_config_backup.view_backuptarget"
+    raise_exception = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        target = get_object_or_404(
+            BackupTarget.objects.restrict(self.request.user, "view").select_related("device"),
+            pk=self.kwargs["pk"],
+        )
+        job = _connection_test_job(target, self.kwargs["job_id"])
+        context.update(
+            {
+                "target": target,
+                "job": job,
+                "status_payload": _connection_test_status(job, target),
+                "status_url": reverse(
+                    "plugins:netbox_config_backup:backuptarget_connection_test_status",
+                    kwargs={"pk": target.pk, "job_id": job.job_id},
+                ),
+                "can_test": self.request.user.has_perm("netbox_config_backup.add_backuprun"),
+                "can_view_job": self.request.user.has_perm("core.view_job"),
+                "can_manage_host_keys": self.request.user.has_perm(
+                    "netbox_config_backup.change_sshhostkey"
+                ),
+                "trust_host_key_url": reverse(
+                    "plugins:netbox_config_backup:backuptarget_trust_host_key",
+                    kwargs={"pk": target.pk, "job_id": job.job_id},
+                ),
+                "reject_host_key_url": reverse(
+                    "plugins:netbox_config_backup:backuptarget_reject_host_key",
+                    kwargs={"pk": target.pk, "job_id": job.job_id},
+                ),
+            }
+        )
+        return context
+
+
+class BackupTargetConnectionTestStatusView(
+    PermissionRequiredMixin,
+    LoginRequiredMixin,
+    View,
+):
+    permission_required = "netbox_config_backup.view_backuptarget"
+    raise_exception = True
+
+    def get(self, request, pk, job_id):
+        target = get_object_or_404(
+            BackupTarget.objects.restrict(request.user, "view"),
+            pk=pk,
+        )
+        job = _connection_test_job(target, job_id)
+        response = JsonResponse(_connection_test_status(job, target))
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+def _job_host_key_candidate(request, target, job):
+    candidate_id = (
+        ((job.data or {}).get("connection_test") or {}).get("host_key_candidate", {}).get("id")
+    )
+    if not candidate_id:
+        raise Http404
+    return get_object_or_404(
+        SSHHostKey.objects.restrict(request.user, "change"),
+        pk=candidate_id,
+        target=target,
+    )
+
+
+class BackupTargetTrustHostKeyView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backuptarget",
+        "netbox_config_backup.change_sshhostkey",
+        "netbox_config_backup.add_backuprun",
+    )
+    raise_exception = True
+
+    def post(self, request, pk, job_id):
+        target = get_object_or_404(
+            BackupTarget.objects.restrict(request.user, "view").select_related("device"),
+            pk=pk,
+        )
+        job = _connection_test_job(target, job_id)
+        candidate = _job_host_key_candidate(request, target, job)
+        trust_host_key(candidate.pk, user=request.user)
+        retry_job = ConnectionTestJob.enqueue(
+            target_id=target.pk,
+            instance=target,
+            user=request.user,
+            queue_name=BACKUP_QUEUE,
+        )
+        messages.success(
+            request,
+            "SSH host key was approved. The connection test is running again.",
+        )
+        return redirect(
+            "plugins:netbox_config_backup:backuptarget_connection_test_result",
+            pk=target.pk,
+            job_id=retry_job.job_id,
+        )
+
+
+class BackupTargetRejectHostKeyView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backuptarget",
+        "netbox_config_backup.change_sshhostkey",
+    )
+    raise_exception = True
+
+    def post(self, request, pk, job_id):
+        target = get_object_or_404(
+            BackupTarget.objects.restrict(request.user, "view"),
+            pk=pk,
+        )
+        job = _connection_test_job(target, job_id)
+        candidate = _job_host_key_candidate(request, target, job)
+        reject_host_key(candidate.pk, user=request.user)
+        job_data = dict(job.data or {})
+        result_data = dict(job_data.get("connection_test") or {})
+        candidate_data = dict(result_data.get("host_key_candidate") or {})
+        candidate_data["status"] = "rejected"
+        result_data["host_key_candidate"] = candidate_data
+        job_data["connection_test"] = result_data
+        job.data = job_data
+        job.save(update_fields=("data",))
+        messages.warning(request, "SSH host key was rejected and was not trusted.")
+        return redirect(
+            "plugins:netbox_config_backup:backuptarget_connection_test_result",
+            pk=target.pk,
+            job_id=job.job_id,
+        )
+
+
+class SSHHostKeyListView(PermissionRequiredMixin, LoginRequiredMixin, TemplateView):
+    template_name = "netbox_config_backup/ssh_host_keys.html"
+    permission_required = "netbox_config_backup.view_sshhostkey"
+    raise_exception = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        visible_targets = BackupTarget.objects.restrict(self.request.user, "view")
+        keys = (
+            SSHHostKey.objects.restrict(self.request.user, "view")
+            .filter(target_id__in=visible_targets.values("pk"))
+            .select_related("target__device", "approved_by")
+        )
+        context.update(
+            {
+                "host_keys": keys,
+                "pending_count": keys.filter(status="pending").count(),
+                "trusted_count": keys.filter(status="trusted").count(),
+                "rejected_count": keys.filter(status="rejected").count(),
+                "can_manage_host_keys": self.request.user.has_perm(
+                    "netbox_config_backup.change_sshhostkey"
+                ),
+                "can_scan_host_keys": self.request.user.has_perm(
+                    "netbox_config_backup.add_sshhostkey"
+                ),
+            }
+        )
+        return context
+
+
+class SSHHostKeyScanView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backuptarget",
+        "netbox_config_backup.add_sshhostkey",
+    )
+    raise_exception = True
+
+    def post(self, request):
+        target_ids = list(
+            BackupTarget.objects.restrict(request.user, "view")
+            .filter(enabled=True)
+            .values_list("pk", flat=True)[:1000]
+        )
+        if not target_ids:
+            messages.info(request, "There are no enabled backup devices to scan.")
+            return redirect("plugins:netbox_config_backup:ssh_host_key_list")
+        SSHHostKeyScanJob.enqueue(
+            target_ids=target_ids,
+            user=request.user,
+            queue_name=BACKUP_QUEUE,
+        )
+        messages.info(
+            request,
+            "SSH identity discovery was queued. Refresh this page to see new fingerprints.",
+        )
+        return redirect("plugins:netbox_config_backup:ssh_host_key_list")
+
+
+def _manageable_host_key(request, pk):
+    visible_targets = BackupTarget.objects.restrict(request.user, "view").values("pk")
+    return get_object_or_404(
+        SSHHostKey.objects.restrict(request.user, "change"),
+        pk=pk,
+        target_id__in=visible_targets,
+    )
+
+
+class SSHHostKeyTrustView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = "netbox_config_backup.change_sshhostkey"
+    raise_exception = True
+
+    def post(self, request, pk):
+        candidate = _manageable_host_key(request, pk)
+        trust_host_key(candidate.pk, user=request.user)
+        messages.success(request, "SSH host key was approved.")
+        return redirect("plugins:netbox_config_backup:ssh_host_key_list")
+
+
+class SSHHostKeyRejectView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = "netbox_config_backup.change_sshhostkey"
+    raise_exception = True
+
+    def post(self, request, pk):
+        candidate = _manageable_host_key(request, pk)
+        reject_host_key(candidate.pk, user=request.user)
+        messages.warning(request, "SSH host key was rejected.")
+        return redirect("plugins:netbox_config_backup:ssh_host_key_list")
+
+
+@register_model_view(BackupTarget, "reschedule", path="reschedule")
+class BackupTargetRescheduleView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = "netbox_config_backup.change_backuptarget"
+
+    def post(self, request, pk):
+        target = get_object_or_404(
+            BackupTarget.objects.restrict(request.user, "change").select_related(
+                "policy_override", "device__site"
+            ),
+            pk=pk,
+        )
+        apply_target_schedule(target, now=timezone.now())
+        if target.next_run_at:
+            messages.success(request, f"Next backup scheduled for {target.next_run_at}.")
+        else:
+            messages.warning(request, "Target has no enabled backup policy; schedule is disabled.")
+        return redirect(target.get_absolute_url())
+
+
+@register_model_view(BackupTarget, "retention_preview", path="retention-preview")
+class BackupTargetRetentionPreviewView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backuptarget",
+        "netbox_config_backup.view_configrevision",
+        "netbox_config_backup.view_backuprun",
+        "netbox_config_backup.view_retentionpolicy",
+    )
+    raise_exception = True
+    template_name = "netbox_config_backup/retention_preview.html"
+
+    def get(self, request, pk):
+        target = get_object_or_404(
+            BackupTarget.objects.restrict(request.user, "view").select_related(
+                "device",
+                "retention_override",
+                "policy_override__retention_policy",
+            ),
+            pk=pk,
+        )
+        policy = effective_retention_policy(target)
+        if (
+            policy
+            and not RetentionPolicy.objects.restrict(request.user, "view")
+            .filter(pk=policy.pk)
+            .exists()
+        ):
+            raise PermissionDenied
+        context = _retention_preview_context(target, now=timezone.now(), user=request.user)
+        revisions = target.revisions.all()
+        runs = target.runs.all()
+        artifacts = ConfigArtifact.objects.filter(revision__target=target)
+        context.update(
+            {
+                "object": target,
+                "can_apply_retention": (
+                    _queryset_fully_permitted(revisions, request.user, "delete")
+                    and _queryset_fully_permitted(runs, request.user, "delete")
+                    and _queryset_fully_permitted(artifacts, request.user, "delete")
+                ),
+            }
+        )
+        return render(
+            request,
+            self.template_name,
+            context,
+        )
+
+
+@register_model_view(BackupTarget, "retention_cleanup", path="retention-cleanup")
+class BackupTargetRetentionCleanupView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backuptarget",
+        "netbox_config_backup.view_configrevision",
+        "netbox_config_backup.view_backuprun",
+        "netbox_config_backup.view_retentionpolicy",
+        "netbox_config_backup.delete_configrevision",
+        "netbox_config_backup.delete_configartifact",
+        "netbox_config_backup.delete_backuprun",
+    )
+    raise_exception = True
+    template_name = "netbox_config_backup/retention_cleanup_confirm.html"
+
+    def _target(self, request, pk):
+        return get_object_or_404(
+            BackupTarget.objects.restrict(request.user, "view").select_related(
+                "device",
+                "retention_override",
+                "policy_override__retention_policy",
+            ),
+            pk=pk,
+        )
+
+    @staticmethod
+    def _assert_history_permissions(request, target):
+        checks = (
+            (target.revisions.all(), "view"),
+            (target.revisions.all(), "delete"),
+            (target.runs.all(), "view"),
+            (target.runs.all(), "delete"),
+            (ConfigArtifact.objects.filter(revision__target=target), "delete"),
+        )
+        if not all(
+            _queryset_fully_permitted(queryset, request.user, action) for queryset, action in checks
+        ):
+            raise PermissionDenied
+        policy = effective_retention_policy(target)
+        if (
+            policy
+            and not RetentionPolicy.objects.restrict(request.user, "view")
+            .filter(pk=policy.pk)
+            .exists()
+        ):
+            raise PermissionDenied
+
+    def get(self, request, pk):
+        target = self._target(request, pk)
+        self._assert_history_permissions(request, target)
+        context = _retention_preview_context(target, now=timezone.now())
+        context.update(
+            {
+                "object": target,
+                "form": forms.RetentionCleanupConfirmationForm(),
+            }
+        )
+        return render(request, self.template_name, context)
+
+    def post(self, request, pk):
+        target = self._target(request, pk)
+        self._assert_history_permissions(request, target)
+        form = forms.RetentionCleanupConfirmationForm(request.POST)
+        context = _retention_preview_context(target, now=timezone.now())
+        if not form.is_valid():
+            context.update({"object": target, "form": form})
+            return render(request, self.template_name, context, status=400)
+        plan = context["plan"]
+        if plan is None:
+            messages.error(request, "The backup target has no effective retention policy.")
+            return redirect(target.get_absolute_url())
+        if not plan.revisions_to_delete and not plan.runs_to_delete:
+            messages.info(request, "The current retention plan has nothing to delete.")
+            return redirect(
+                "plugins:netbox_config_backup:backuptarget_retention_preview",
+                pk=target.pk,
+            )
+        if target.runs.filter(status__in=("queued", "running")).exists():
+            messages.error(request, "Retention cleanup cannot run during an active backup.")
+            return redirect(
+                "plugins:netbox_config_backup:backuptarget_retention_preview",
+                pk=target.pk,
+            )
+
+        job = RetentionCleanupJob.enqueue(
+            target_id=target.pk,
+            instance=target,
+            user=request.user,
+            queue_name=BACKUP_QUEUE,
+        )
+        messages.info(
+            request,
+            (
+                f"Retention cleanup for {target.device} was queued. "
+                "The plan will be recomputed safely when the job starts."
+            ),
+        )
+        if request.user.has_perm("core.view_job"):
+            return redirect(job.get_absolute_url())
+        return redirect(target.get_absolute_url())
+
+
+@register_model_view(BackupRun, "list", path="", detail=False)
+class BackupRunListView(generic.ObjectListView):
+    queryset = BackupRun.objects.select_related("target__device", "revision")
+    table = tables.BackupRunTable
+    filterset = filtersets.BackupRunFilterSet
+    filterset_form = forms.BackupRunFilterForm
+    actions = ()
+
+
+@register_model_view(BackupRun)
+class BackupRunView(generic.ObjectView):
+    queryset = BackupRun.objects.select_related("target__device", "revision", "triggered_by")
+    template_name = "netbox_config_backup/backuprun.html"
+    actions = ()
+
+    def get_extra_context(self, request, instance):
+        timeout_minutes = settings.PLUGINS_CONFIG["netbox_config_backup"]["stale_run_minutes"]
+        return {
+            "is_stuck": is_run_stuck(
+                instance,
+                now=timezone.now(),
+                timeout_minutes=timeout_minutes,
+            ),
+            "stuck_run_minutes": timeout_minutes,
+        }
+
+
+@register_model_view(ConfigRevision, "list", path="", detail=False)
+class ConfigRevisionListView(generic.ObjectListView):
+    queryset = ConfigRevision.objects.select_related("target__device")
+    table = tables.ConfigRevisionTable
+    filterset = filtersets.ConfigRevisionFilterSet
+    filterset_form = forms.ConfigRevisionFilterForm
+    actions = ()
+
+
+@register_model_view(ConfigRevision)
+class ConfigRevisionView(generic.ObjectView):
+    queryset = ConfigRevision.objects.select_related(
+        "target__device", "previous_revision"
+    ).prefetch_related("artifacts")
+    template_name = "netbox_config_backup/configrevision.html"
+    actions = ()
+
+    def get_extra_context(self, request, instance):
+        artifact_queryset = ConfigArtifact.objects.filter(revision=instance)
+        can_view_all_artifacts = bool(
+            artifact_queryset.exists()
+            and _queryset_fully_permitted(artifact_queryset, request.user, "view")
+        )
+        visible_destination_ids = (
+            BackupDestination.objects.restrict(request.user, "view")
+            .filter(protocol=DestinationProtocolChoices.FTP)
+            .values("pk")
+        )
+        ftp_replicas = (
+            RevisionReplica.objects.restrict(request.user, "view")
+            .filter(
+                revision=instance,
+                destination_id__in=visible_destination_ids,
+                destination__protocol=DestinationProtocolChoices.FTP,
+                status="success",
+            )
+            .select_related("destination")
+            .order_by("destination__name")
+        )
+        return {
+            "can_view_content": request.user.has_perm("netbox_config_backup.view_configartifact"),
+            "can_change_protection": request.user.has_perm(
+                "netbox_config_backup.change_configrevision"
+            ),
+            "can_prepare_ftp_recovery": request.user.has_perms(
+                (
+                    "netbox_config_backup.view_configartifact",
+                    "netbox_config_backup.view_revisionreplica",
+                    "netbox_config_backup.view_backupdestination",
+                )
+            )
+            and can_view_all_artifacts,
+            "ftp_replicas": ftp_replicas if can_view_all_artifacts else (),
+        }
+
+
+_FTP_RECOVERY_PERMISSIONS = (
+    "netbox_config_backup.view_configrevision",
+    "netbox_config_backup.view_configartifact",
+    "netbox_config_backup.view_revisionreplica",
+    "netbox_config_backup.view_backupdestination",
+)
+
+
+def _ftp_recovery_revision(request, pk):
+    revision = get_object_or_404(
+        ConfigRevision.objects.restrict(request.user, "view").select_related("target__device"),
+        pk=pk,
+    )
+    artifacts = ConfigArtifact.objects.filter(revision=revision)
+    if not artifacts.exists() or not _queryset_fully_permitted(artifacts, request.user, "view"):
+        raise PermissionDenied
+    return revision
+
+
+def _ftp_recovery_replica(request, revision, replica_pk):
+    visible_destinations = BackupDestination.objects.restrict(request.user, "view").filter(
+        protocol=DestinationProtocolChoices.FTP
+    )
+    return get_object_or_404(
+        RevisionReplica.objects.restrict(request.user, "view").select_related(
+            "destination", "revision__target__device"
+        ),
+        pk=replica_pk,
+        revision=revision,
+        destination_id__in=visible_destinations.values("pk"),
+        destination__protocol=DestinationProtocolChoices.FTP,
+        status="success",
+    )
+
+
+def _ftp_recovery_job(revision, job_id):
+    job = get_object_or_404(FtpRecoveryPackageJob.get_jobs(revision.target), job_id=job_id)
+    job_revision_id = ((job.data or {}).get("ftp_recovery_package") or {}).get("revision_id")
+    if job_revision_id is not None and job_revision_id != revision.pk:
+        raise Http404
+    return job
+
+
+class ConfigRevisionFtpRecoveryPrepareView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = _FTP_RECOVERY_PERMISSIONS
+    raise_exception = True
+
+    def post(self, request, pk, replica_pk):
+        revision = _ftp_recovery_revision(request, pk)
+        replica = _ftp_recovery_replica(request, revision, replica_pk)
+        job = FtpRecoveryPackageJob.enqueue(
+            replica_id=replica.pk,
+            package_token=str(uuid4()),
+            instance=revision.target,
+            user=request.user,
+            queue_name=BACKUP_QUEUE,
+        )
+        messages.info(
+            request,
+            "The read-only FTP download and integrity verification were queued.",
+        )
+        return redirect(
+            "plugins:netbox_config_backup:configrevision_ftp_recovery_result",
+            pk=revision.pk,
+            job_id=job.job_id,
+        )
+
+
+class ConfigRevisionFtpRecoveryResultView(
+    PermissionRequiredMixin, LoginRequiredMixin, TemplateView
+):
+    template_name = "netbox_config_backup/ftp_recovery.html"
+    permission_required = _FTP_RECOVERY_PERMISSIONS
+    raise_exception = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        revision = _ftp_recovery_revision(self.request, self.kwargs["pk"])
+        job = _ftp_recovery_job(revision, self.kwargs["job_id"])
+        context.update(
+            {
+                "revision": revision,
+                "job": job,
+                "status_payload": ftp_recovery_status_payload(job),
+                "status_url": reverse(
+                    "plugins:netbox_config_backup:configrevision_ftp_recovery_status",
+                    kwargs={"pk": revision.pk, "job_id": job.job_id},
+                ),
+                "download_url": reverse(
+                    "plugins:netbox_config_backup:configrevision_ftp_recovery_download",
+                    kwargs={"pk": revision.pk, "job_id": job.job_id},
+                ),
+                "can_view_job": self.request.user.has_perm("core.view_job"),
+            }
+        )
+        return context
+
+
+class ConfigRevisionFtpRecoveryStatusView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = _FTP_RECOVERY_PERMISSIONS
+    raise_exception = True
+
+    def get(self, request, pk, job_id):
+        revision = _ftp_recovery_revision(request, pk)
+        job = _ftp_recovery_job(revision, job_id)
+        response = JsonResponse(ftp_recovery_status_payload(job))
+        response["Cache-Control"] = "private, no-store"
+        response["Pragma"] = "no-cache"
+        return response
+
+
+class ConfigRevisionFtpRecoveryDownloadView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = _FTP_RECOVERY_PERMISSIONS
+    raise_exception = True
+
+    def get(self, request, pk, job_id):
+        revision = _ftp_recovery_revision(request, pk)
+        job = _ftp_recovery_job(revision, job_id)
+        result = (job.data or {}).get("ftp_recovery_package") or {}
+        if (
+            job.status != "completed"
+            or not result.get("ready")
+            or result.get("revision_id") != revision.pk
+            or recovery_package_is_expired(result.get("expires_at"))
+        ):
+            raise Http404
+        replica = _ftp_recovery_replica(request, revision, result.get("replica_id"))
+        if replica.destination_id != result.get("destination_id"):
+            raise Http404
+
+        try:
+            package_path = validate_recovery_package(
+                storage_root=settings.PLUGINS_CONFIG["netbox_config_backup"]["storage_root"],
+                package_token=result.get("token"),
+                expected_size=int(result.get("size") or -1),
+                expected_sha256=str(result.get("sha256") or ""),
+            )
+            package_handle = package_path.open("rb")
+        except (DestinationError, OSError, TypeError, ValueError) as exc:
+            logging.getLogger(
+                "netbox_config_backup.views.ConfigRevisionFtpRecoveryDownloadView"
+            ).warning(
+                "Verified FTP package download was denied for revision %s: %s.",
+                revision.pk,
+                getattr(exc, "error_code", "RECOVERY_PACKAGE_UNAVAILABLE"),
+            )
+            raise Http404 from exc
+
+        with transaction.atomic():
+            locked_job = job.__class__.objects.select_for_update().get(pk=job.pk)
+            job_data = dict(locked_job.data or {})
+            package_data = dict(job_data.get("ftp_recovery_package") or {})
+            downloads = list(package_data.get("downloads") or [])[-99:]
+            downloads.append(
+                {
+                    "user_id": request.user.pk,
+                    "username": request.user.get_username(),
+                    "issued_at": timezone.now().isoformat(),
+                }
+            )
+            package_data["downloads"] = downloads
+            package_data["download_count"] = int(package_data.get("download_count") or 0) + 1
+            job_data["ftp_recovery_package"] = package_data
+            locked_job.data = job_data
+            locked_job.save(update_fields=("data",))
+
+        logging.getLogger("netbox_config_backup.views.ConfigRevisionFtpRecoveryDownloadView").info(
+            "User %s downloaded verified FTP package for revision %s from replica %s.",
+            request.user.get_username(),
+            revision.pk,
+            replica.pk,
+        )
+        response = FileResponse(
+            package_handle,
+            as_attachment=True,
+            filename=result["filename"],
+            content_type="application/zip",
+        )
+        response["Cache-Control"] = "private, no-store"
+        response["Pragma"] = "no-cache"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+@register_model_view(ConfigRevision, "set_protection", path="set-protection")
+class ConfigRevisionProtectionView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = "netbox_config_backup.change_configrevision"
+    raise_exception = True
+
+    def post(self, request, pk):
+        desired = request.POST.get("protected", "")
+        if desired not in {"true", "false"}:
+            return HttpResponseBadRequest("Invalid protection state.")
+        with transaction.atomic():
+            revision = get_object_or_404(
+                ConfigRevision.objects.restrict(request.user, "change")
+                .select_for_update()
+                .select_related("target__device"),
+                pk=pk,
+            )
+            new_value = desired == "true"
+            if revision.protected != new_value:
+                if hasattr(revision, "snapshot"):
+                    revision.snapshot()
+                revision._changelog_message = (
+                    "Protected from retention cleanup."
+                    if new_value
+                    else "Removed retention cleanup protection."
+                )
+                revision.protected = new_value
+                revision.save(update_fields=("protected", "last_updated"))
+        messages.success(
+            request,
+            "Revision is protected from cleanup."
+            if new_value
+            else "Revision protection was removed.",
+        )
+        return redirect(revision.get_absolute_url())
+
+
+@register_model_view(ConfigRevision, "content", path="content")
+class ConfigRevisionContentView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_configrevision",
+        "netbox_config_backup.view_configartifact",
+    )
+    raise_exception = True
+    template_name = "netbox_config_backup/configrevision_content.html"
+
+    def get(self, request, pk):
+        revision = get_object_or_404(
+            ConfigRevision.objects.restrict(request.user, "view")
+            .select_related("target__device")
+            .prefetch_related("artifacts"),
+            pk=pk,
+        )
+        if (
+            not ConfigArtifact.objects.restrict(request.user, "view")
+            .filter(
+                revision=revision,
+                is_primary=True,
+            )
+            .exists()
+        ):
+            raise Http404
+        display_error = ""
+        content = None
+        try:
+            content = load_revision_content(revision, allow_truncate=True)
+        except RevisionDisplayError as exc:
+            display_error = str(exc)
+        downloadable_artifacts = list(
+            ConfigArtifact.objects.restrict(request.user, "view")
+            .filter(revision=revision, artifact_type="native_backup")
+            .order_by("artifact_type")
+        )
+        return render(
+            request,
+            self.template_name,
+            {
+                "object": revision,
+                "content": content,
+                "display_error": display_error,
+                "downloadable_artifacts": downloadable_artifacts,
+            },
+        )
+
+
+class ConfigRevisionArtifactDownloadView(
+    PermissionRequiredMixin,
+    LoginRequiredMixin,
+    View,
+):
+    permission_required = (
+        "netbox_config_backup.view_configrevision",
+        "netbox_config_backup.view_configartifact",
+    )
+    raise_exception = True
+
+    def get(self, request, pk, artifact_pk):
+        revision = get_object_or_404(
+            ConfigRevision.objects.restrict(request.user, "view"),
+            pk=pk,
+        )
+        artifact = get_object_or_404(
+            ConfigArtifact.objects.restrict(request.user, "view"),
+            pk=artifact_pk,
+            revision=revision,
+            artifact_type="native_backup",
+        )
+        try:
+            content = load_artifact_content(artifact)
+        except RevisionDisplayError as exc:
+            raise Http404(str(exc)) from exc
+
+        filename = PurePosixPath(artifact.storage_key).name
+        content_type = (
+            "application/zip" if artifact.format.endswith("_zip") else "application/octet-stream"
+        )
+        response = FileResponse(
+            io.BytesIO(content),
+            as_attachment=True,
+            filename=filename,
+            content_type=content_type,
+        )
+        response["Cache-Control"] = "private, no-store"
+        response["Pragma"] = "no-cache"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+@register_model_view(ConfigRevision, "diff", path="diff")
+class ConfigRevisionDiffView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_configrevision",
+        "netbox_config_backup.view_configartifact",
+    )
+    raise_exception = True
+    template_name = "netbox_config_backup/configrevision_diff.html"
+
+    def get(self, request, pk):
+        visible_primary_revision_ids = (
+            ConfigArtifact.objects.restrict(request.user, "view")
+            .filter(is_primary=True)
+            .values("revision_id")
+        )
+        visible_revisions = ConfigRevision.objects.restrict(request.user, "view").filter(
+            pk__in=visible_primary_revision_ids
+        )
+        revision = get_object_or_404(
+            visible_revisions.select_related(
+                "target__device", "previous_revision"
+            ).prefetch_related("artifacts"),
+            pk=pk,
+        )
+        candidates = list(
+            visible_revisions.filter(target=revision.target)
+            .exclude(pk=revision.pk)
+            .order_by("-created")[:100]
+        )
+        compare_id = request.GET.get("compare", "").strip()
+        if compare_id:
+            if not compare_id.isdecimal():
+                raise Http404
+            base_revision = get_object_or_404(
+                visible_revisions.filter(target=revision.target).prefetch_related("artifacts"),
+                pk=int(compare_id),
+            )
+        else:
+            base_revision = (
+                visible_revisions.filter(pk=revision.previous_revision_id)
+                .prefetch_related("artifacts")
+                .first()
+                if revision.previous_revision_id
+                else None
+            )
+
+        display_error = ""
+        display_diff = None
+        if base_revision is not None:
+            try:
+                diff_input_max_bytes = settings.PLUGINS_CONFIG["netbox_config_backup"][
+                    "diff_input_max_bytes"
+                ]
+                before = load_revision_content(
+                    base_revision,
+                    max_bytes=diff_input_max_bytes,
+                    normalize_for_comparison=True,
+                )
+                after = load_revision_content(
+                    revision,
+                    max_bytes=diff_input_max_bytes,
+                    normalize_for_comparison=True,
+                )
+                display_diff = build_display_diff(
+                    before,
+                    after,
+                    before_label=str(base_revision.revision_uuid),
+                    after_label=str(revision.revision_uuid),
+                    max_lines=settings.PLUGINS_CONFIG["netbox_config_backup"]["diff_max_lines"],
+                )
+            except RevisionDisplayError as exc:
+                display_error = str(exc)
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "object": revision,
+                "base_revision": base_revision,
+                "comparison_candidates": candidates,
+                "display_diff": display_diff,
+                "display_error": display_error,
+            },
+        )

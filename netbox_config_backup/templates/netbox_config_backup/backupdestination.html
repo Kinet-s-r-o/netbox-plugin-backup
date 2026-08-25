@@ -1,0 +1,165 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
+  {% if can_test %}
+  <form method="post" action="{% url 'plugins:netbox_config_backup:backupdestination_test_connection' pk=object.pk %}">
+    {% csrf_token %}
+    <button class="btn btn-primary" type="submit">
+      <i class="mdi mdi-lan-connect" aria-hidden="true"></i> Test FTP destination
+    </button>
+  </form>
+  {% endif %}
+  {% if can_reconcile %}
+  <form method="post" action="{% url 'plugins:netbox_config_backup:backupdestination_reconcile' pk=object.pk %}">
+    {% csrf_token %}
+    <button class="btn btn-outline-primary" type="submit">
+      <i class="mdi mdi-shield-search-outline" aria-hidden="true"></i> Check stored copies
+    </button>
+  </form>
+  {% endif %}
+  {% if can_backfill and object.enabled %}
+  <form method="post" action="{% url 'plugins:netbox_config_backup:backupdestination_backfill' pk=object.pk %}" onsubmit="return confirm('Queue every revision which has not yet been copied to this destination?');">
+    {% csrf_token %}
+    <button class="btn btn-outline-primary" type="submit">
+      <i class="mdi mdi-cloud-upload-outline" aria-hidden="true"></i> Copy existing revisions
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <h2 class="card-header">FTP destination</h2>
+      <table class="table table-hover attr-table mb-0">
+        <tr><th scope="row">Enabled</th><td>{{ object.enabled|yesno:"Yes,No" }}</td></tr>
+        <tr><th scope="row">Copy new revisions</th><td>{{ object.auto_replicate|yesno:"Automatically,Manually" }}</td></tr>
+        <tr><th scope="row">Server</th><td><code>{{ object.host }}:{{ object.port }}</code></td></tr>
+        <tr><th scope="row">Remote directory</th><td><code>{{ object.base_path }}</code></td></tr>
+        <tr><th scope="row">Credential profile</th><td>{{ object.credential_profile|linkify }}</td></tr>
+        <tr><th scope="row">Retry policy</th><td>{{ object.max_retries }} retries, every {{ object.retry_delay_minutes }} minutes</td></tr>
+        <tr><th scope="row">Artifact size limit</th><td>{{ object.max_artifact_size|filesizeformat }}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <h2 class="card-header">FTP health</h2>
+      <table class="table table-hover attr-table mb-0">
+        <tr><th scope="row">Last tested</th><td>{{ object.last_tested_at|placeholder }}</td></tr>
+        <tr><th scope="row">Last copied revision</th><td>{{ object.last_success_at|placeholder }}</td></tr>
+        <tr>
+          <th scope="row">Last integrity audit</th>
+          <td>
+            {% if latest_reconciliation_job %}
+              <a href="{% url 'plugins:netbox_config_backup:backupdestination_reconciliation_result' pk=object.pk job_id=latest_reconciliation_job.job_id %}">{{ latest_reconciliation_job.created }}</a>
+              <span class="badge text-bg-{{ latest_reconciliation.color }} ms-2">{{ latest_reconciliation.label }}</span>
+            {% else %}
+              <span class="text-secondary">Not run yet</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% if latest_reconciliation and latest_reconciliation.terminal %}
+        <tr>
+          <th scope="row">Audit result</th>
+          <td>
+            {{ latest_reconciliation.healthy_replicas }} healthy / {{ latest_reconciliation.failed_replicas }} with problems,
+            {{ latest_reconciliation.checked_files }} files checked
+          </td>
+        </tr>
+        {% endif %}
+        <tr><th scope="row">Last error</th><td>{% if object.last_error_code %}<code>{{ object.last_error_code }}</code> — {{ object.last_error_message }}{% else %}<span class="text-success">None</span>{% endif %}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <h2 class="card-title mb-1">Automatic integrity audit</h2>
+      <div class="text-secondary small">Read-only verification of file existence, size, and SHA-256. Uses the {{ audit_timezone }} timezone.</div>
+    </div>
+    {% if object.integrity_audit_enabled %}<span class="badge text-bg-success">Enabled</span>{% else %}<span class="badge text-bg-secondary">Disabled</span>{% endif %}
+  </div>
+  <div class="card-body">
+    {% if can_reconcile %}
+    <form method="post" action="{% url 'plugins:netbox_config_backup:backupdestination_audit_schedule' pk=object.pk %}">
+      {% csrf_token %}
+      <div class="form-check form-switch mb-3">
+        {{ audit_schedule_form.integrity_audit_enabled }}
+        <label class="form-check-label fw-semibold" for="{{ audit_schedule_form.integrity_audit_enabled.id_for_label }}">Run integrity audits automatically</label>
+        <div class="form-hint">The scheduler only reads successful revision copies and never changes FTP content.</div>
+      </div>
+      <div id="audit-schedule-fields" class="row g-3 align-items-end{% if not object.integrity_audit_enabled %} d-none{% endif %}">
+        <div class="col-md-4">
+          <label class="form-label" for="{{ audit_schedule_form.integrity_audit_frequency.id_for_label }}">Frequency</label>
+          {{ audit_schedule_form.integrity_audit_frequency }}
+        </div>
+        <div id="audit-weekday-field" class="col-md-4{% if object.integrity_audit_frequency != 'weekly' %} d-none{% endif %}">
+          <label class="form-label" for="{{ audit_schedule_form.integrity_audit_weekday.id_for_label }}">Day</label>
+          {{ audit_schedule_form.integrity_audit_weekday }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="{{ audit_schedule_form.integrity_audit_time.id_for_label }}">Start time</label>
+          {{ audit_schedule_form.integrity_audit_time }}
+        </div>
+      </div>
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-4 pt-3 border-top">
+        <div class="small">
+          <span class="text-secondary">Last audit:</span> {{ object.last_integrity_audit_at|placeholder }}
+          {% if object.last_integrity_audit_status == 'healthy' %}<span class="badge text-bg-success ms-1">Healthy</span>{% elif object.last_integrity_audit_status == 'problems' %}<span class="badge text-bg-warning ms-1">{{ object.last_integrity_audit_problem_count }} problem(s)</span>{% elif object.last_integrity_audit_status == 'failed' %}<span class="badge text-bg-danger ms-1">Failed</span>{% endif %}
+          <span class="text-secondary ms-3">Next audit:</span> {{ object.next_integrity_audit_at|placeholder }}
+        </div>
+        <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline"></i> Save audit schedule</button>
+      </div>
+    </form>
+    {% else %}
+    <dl class="row mb-0">
+      <dt class="col-sm-3">Schedule</dt><dd class="col-sm-9">{% if object.integrity_audit_enabled %}{{ object.get_integrity_audit_frequency_display }} at {{ object.integrity_audit_time }}{% if object.integrity_audit_frequency == 'weekly' %}, {{ object.get_integrity_audit_weekday_display }}{% endif %}{% else %}Disabled{% endif %}</dd>
+      <dt class="col-sm-3">Last audit</dt><dd class="col-sm-9">{{ object.last_integrity_audit_at|placeholder }}</dd>
+      <dt class="col-sm-3">Next audit</dt><dd class="col-sm-9">{{ object.next_integrity_audit_at|placeholder }}</dd>
+    </dl>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h2 class="card-title mb-0">Recent revision copies</h2>
+    <span class="text-secondary small">Remote copies are immutable; configure long-term retention on the NAS.</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Revision</th><th>Device</th><th>Status</th><th>Attempts</th><th>Transferred</th><th>Finished</th><th>Error</th><th></th></tr></thead>
+      <tbody>
+      {% for replica in replicas %}
+        <tr>
+          <td>{{ replica.revision|linkify }}</td>
+          <td>{{ replica.revision.target.device|linkify }}</td>
+          <td><span class="badge text-bg-{{ replica.get_status_color }}">{{ replica.get_status_display }}</span></td>
+          <td>{{ replica.attempts }}</td>
+          <td>{{ replica.bytes_transferred|filesizeformat }}</td>
+          <td>{{ replica.finished_at|placeholder }}</td>
+          <td>{% if replica.error_code %}<code>{{ replica.error_code }}</code><br><span class="small text-secondary">{{ replica.error_message }}</span>{% else %}—{% endif %}</td>
+          <td class="text-end">
+            {% if can_retry and replica.status == 'failed' %}
+            <form method="post" action="{% url 'plugins:netbox_config_backup:revisionreplica_retry' pk=object.pk replica_pk=replica.pk %}">
+              {% csrf_token %}<button class="btn btn-sm btn-outline-primary" type="submit"><i class="mdi mdi-refresh"></i> Retry</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="text-secondary">No revision has been queued for this destination yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{const enabled=document.getElementById('{{ audit_schedule_form.integrity_audit_enabled.id_for_label }}'),frequency=document.getElementById('{{ audit_schedule_form.integrity_audit_frequency.id_for_label }}'),fields=document.getElementById('audit-schedule-fields'),weekday=document.getElementById('audit-weekday-field');const sync=()=>{fields?.classList.toggle('d-none',!enabled?.checked);weekday?.classList.toggle('d-none',frequency?.value!=='weekly')};enabled?.addEventListener('change',sync);frequency?.addEventListener('change',sync);sync()});
+</script>
+{% endblock %}

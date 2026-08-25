@@ -1,0 +1,342 @@
+{% extends 'generic/_base.html' %}
+{% load form_helpers %}
+
+{% block head %}
+  {{ block.super }}
+  <style>
+    .quick-setup-shell {
+      max-width: 76rem;
+      margin-inline: auto;
+    }
+    .quick-setup-form .card-body {
+      padding: 1.5rem;
+    }
+    .quick-setup-form .card-body > .row.mb-3,
+    .quick-setup-form .field-stack > .row.mb-3 {
+      display: block;
+      margin-right: 0;
+      margin-bottom: 1.25rem !important;
+      margin-left: 0;
+    }
+    .quick-setup-form .card-body > .row.mb-3:last-child,
+    .quick-setup-form .field-stack > .row.mb-3:last-child {
+      margin-bottom: 0 !important;
+    }
+    .quick-setup-form .card-body > .row.mb-3 > .col-sm-3,
+    .quick-setup-form .field-stack > .row.mb-3 > .col-sm-3 {
+      width: 100%;
+      padding: 0;
+      margin-bottom: 0.375rem;
+      text-align: left !important;
+    }
+    .quick-setup-form .card-body > .row.mb-3 > .col,
+    .quick-setup-form .field-stack > .row.mb-3 > .col {
+      width: 100%;
+      padding: 0;
+      margin-left: 0;
+    }
+    .quick-setup-form .form-control,
+    .quick-setup-form .form-select,
+    .quick-setup-form .ts-control {
+      min-height: 2.75rem;
+      font-size: 0.95rem;
+    }
+    .quick-setup-form .form-text {
+      margin-top: 0.4rem;
+      line-height: 1.45;
+    }
+    .quick-setup-form .section-intro {
+      max-width: 42rem;
+      margin-bottom: 1.25rem;
+    }
+    .quick-setup-form .native-export-confirmation {
+      border-left: 0.25rem solid var(--tblr-warning);
+    }
+    .quick-setup-form .advanced-settings > summary {
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .quick-setup-form .advanced-settings > summary::-webkit-details-marker {
+      display: none;
+    }
+    .quick-setup-form .advanced-settings .advanced-chevron {
+      transition: transform 120ms ease;
+    }
+    .quick-setup-form .advanced-settings[open] .advanced-chevron {
+      transform: rotate(180deg);
+    }
+    .quick-setup-form .advanced-settings > summary:focus-visible {
+      outline: 0.125rem solid var(--tblr-primary);
+      outline-offset: -0.25rem;
+    }
+    .quick-setup-form .advanced-group + .advanced-group {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: var(--tblr-border-width) solid var(--tblr-border-color);
+    }
+    .quick-setup-form .sticky-actions {
+      padding-right: 0;
+      padding-left: 0;
+    }
+    @media (max-width: 767.98px) {
+      .quick-setup-form .card-body {
+        padding: 1rem;
+      }
+      .quick-setup-form .sticky-actions .btn-list {
+        width: 100%;
+      }
+      .quick-setup-form .sticky-actions .btn {
+        flex: 1 1 100%;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .quick-setup-form .advanced-settings .advanced-chevron {
+        transition: none;
+      }
+    }
+  </style>
+{% endblock %}
+
+{% block title %}Add device{% endblock %}
+
+{% block subtitle %}
+  Choose the device, credentials, and backup plan. Technical defaults are applied automatically.
+{% endblock %}
+
+{% block content %}
+<form method="post" class="quick-setup-form object-edit--with-sticky-actions mt-4">
+  {% csrf_token %}
+
+  <div class="container-xl px-0 quick-setup-shell">
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="row g-4 align-items-start">
+      <div class="col-lg-7">
+        <div class="card h-100">
+          <h2 class="card-header"><i class="mdi mdi-router-network me-1"></i> Backup device</h2>
+          <div class="card-body">
+            <p class="text-secondary section-intro">
+              Select a NetBox device and the login it should use. Driver and connection details
+              come from its platform mapping.
+            </p>
+            {% render_field form.device %}
+            {% render_field form.credential_profile %}
+            <div id="existing-credential-note" class="alert alert-success mb-0 d-none" role="status">
+              <i class="mdi mdi-shield-check-outline me-1"></i>
+              The selected credential profile will be reused. No new password is stored.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-5">
+        <div class="card h-100">
+          <h2 class="card-header"><i class="mdi mdi-calendar-clock me-1"></i> Backup plan</h2>
+          <div class="card-body">
+            <p class="text-secondary section-intro">
+              Choose how often the backup runs and how long its history is retained.
+            </p>
+            {% render_field form.schedule %}
+            {% render_field form.retention_days %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="native-export-confirmation" class="card native-export-confirmation mt-4 d-none">
+      <div class="card-body">
+        <div class="d-flex gap-3 align-items-start">
+          <i class="mdi mdi-shield-alert-outline fs-2 text-warning" aria-hidden="true"></i>
+          <div class="flex-fill field-stack">
+            <h2 class="h3 mb-2">Device-side backup export</h2>
+            <p class="text-secondary mb-3">
+              This driver asks the device to create a native backup file and send it to the
+              configured backup receiver. For legacy ALFOplus it temporarily selects FTP. It
+              never imports a configuration, activates changes, reboots, or restores the device.
+            </p>
+            {% render_field form.allow_device_export %}
+            <div id="legacy-ftp-credential-sync" class="mt-3 d-none">
+              {% render_field form.sync_receiver_credentials %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="plaintext-transport-warning" class="alert alert-warning mt-4 d-none" role="alert">
+      <div class="d-flex gap-3 align-items-start">
+        <i class="mdi mdi-lock-open-alert-outline fs-2" aria-hidden="true"></i>
+        <div>
+          <h2 class="h3 mb-2">Legacy Telnet connection</h2>
+          <p class="mb-0">
+            This SIAE transport runs only the read-only <code>show running-config</code> command.
+            Telnet does not encrypt the username, password, or configuration in transit, so use it
+            only on a trusted management network or through a protected VPN. First-generation
+            ALFOplus firmware may not support this command and requires a native WebLCT/SCT backup.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <details class="card advanced-settings mt-4"{% if form.advanced_has_errors %} open{% endif %}>
+      <summary class="card-header d-flex align-items-center justify-content-between gap-3">
+        <span>
+          <i class="mdi mdi-tune-variant me-1" aria-hidden="true"></i>
+          <strong>Advanced settings</strong>
+          <span class="text-secondary ms-2">Usually not required</span>
+        </span>
+        <i class="mdi mdi-chevron-down advanced-chevron" aria-hidden="true"></i>
+      </summary>
+      <div class="card-body">
+        {% if form.advanced_has_errors %}
+        <div class="alert alert-danger" role="alert">
+          Review the highlighted advanced settings before saving.
+        </div>
+        {% endif %}
+
+        <div class="row g-4">
+          <div class="col-lg-6">
+            <section class="advanced-group" aria-labelledby="device-integration-heading">
+              <h3 id="device-integration-heading" class="h4 mb-3">Device integration</h3>
+              <div class="field-stack">
+                {% render_field form.driver_id %}
+                <div id="native-export-options">
+                  {% render_field form.receiver_profile %}
+                  {% render_field form.restore_point %}
+                </div>
+              </div>
+            </section>
+
+            <section id="new-credential-fields" class="advanced-group" aria-labelledby="dedicated-login-heading">
+              <h3 id="dedicated-login-heading" class="h4 mb-2">Dedicated login</h3>
+              <p class="text-secondary mb-3">
+                Use these fields only when no reusable or mapped credential profile is available.
+                The password is stored encrypted and cannot be displayed again.
+              </p>
+              <div class="field-stack">
+                {% render_field form.username %}
+                {% render_field form.password %}
+                {% render_field form.password_confirm %}
+              </div>
+            </section>
+          </div>
+
+          <div class="col-lg-6">
+            <section class="advanced-group" aria-labelledby="connection-heading">
+              <h3 id="connection-heading" class="h4 mb-3">Connection</h3>
+              <div class="field-stack">
+                {% render_field form.connection_profile %}
+                <div id="new-connection-fields" class="field-stack">
+                  {% render_field form.protocol %}
+                  {% render_field form.port %}
+                  {% render_field form.verify_host_key %}
+                </div>
+                <div id="existing-connection-note" class="alert alert-success mb-0 d-none" role="status">
+                  <i class="mdi mdi-lan-check me-1"></i>
+                  Address, port, timeouts, and host-key verification come from the selected profile.
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <div class="sticky-actions sticky-actions-footer d-print-none" data-sticky-position="full" data-sticky-when="always">
+      <div class="btn-list">
+        <a href="{{ return_url }}" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" name="_create" class="btn btn-primary">
+          <i class="mdi mdi-content-save-outline" aria-hidden="true"></i> Save device
+        </button>
+        {% if can_test %}
+        <button type="submit" name="_create_and_test" class="btn btn-outline-primary">
+          <i class="mdi mdi-lan-connect" aria-hidden="true"></i> Save &amp; test connection
+        </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</form>
+
+{{ device_driver_defaults|json_script:"quick-setup-device-drivers" }}
+{{ receiver_protocols|json_script:"quick-setup-receiver-protocols" }}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const toggleReusableProfile = (selectId, newFieldsId, existingNoteId) => {
+      const select = document.getElementById(selectId);
+      const newFields = document.getElementById(newFieldsId);
+      const existingNote = document.getElementById(existingNoteId);
+      if (!select || !newFields || !existingNote) return;
+
+      const update = () => {
+        const usesExisting = Boolean(select.value);
+        newFields.classList.toggle('d-none', usesExisting);
+        existingNote.classList.toggle('d-none', !usesExisting);
+      };
+      select.addEventListener('change', update);
+      update();
+    };
+
+    toggleReusableProfile(
+      'id_credential_profile',
+      'new-credential-fields',
+      'existing-credential-note'
+    );
+    toggleReusableProfile(
+      'id_connection_profile',
+      'new-connection-fields',
+      'existing-connection-note'
+    );
+
+    const deviceDriversElement = document.getElementById('quick-setup-device-drivers');
+    const deviceDrivers = deviceDriversElement ? JSON.parse(deviceDriversElement.textContent) : {};
+    const receiverProtocolsElement = document.getElementById('quick-setup-receiver-protocols');
+    const receiverProtocols = receiverProtocolsElement ?
+      JSON.parse(receiverProtocolsElement.textContent) : {};
+    const deviceSelect = document.getElementById('id_device');
+    const driverSelect = document.getElementById('id_driver_id');
+    const receiverSelect = document.getElementById('id_receiver_profile');
+    const nativeConfirmation = document.getElementById('native-export-confirmation');
+    const nativeOptions = document.getElementById('native-export-options');
+    const exportCheckbox = document.getElementById('id_allow_device_export');
+    const legacyCredentialSync = document.getElementById('legacy-ftp-credential-sync');
+    const plaintextWarning = document.getElementById('plaintext-transport-warning');
+    const protocolSelect = document.getElementById('id_protocol');
+    const portInput = document.getElementById('id_port');
+    const verifyHostKey = document.getElementById('id_verify_host_key');
+
+    const updateDriverFields = () => {
+      const automaticDriver = deviceDrivers[String(deviceSelect?.value || '')] || '';
+      const effectiveDriver = driverSelect?.value || automaticDriver;
+      const isCeragonNative = effectiveDriver === 'ceragon_ip50';
+      const isLegacyAlfoplus = effectiveDriver === 'siae_smos_auto' &&
+        receiverProtocols[String(receiverSelect?.value || '')] === 'ftp';
+      const isNativeExport = isCeragonNative || isLegacyAlfoplus;
+      const isSiaeTelnet = effectiveDriver === 'siae_smos_cli' ||
+        (effectiveDriver === 'siae_smos_auto' && protocolSelect?.value === 'telnet');
+      const hasExportError = exportCheckbox?.getAttribute('aria-invalid') === 'true';
+      nativeConfirmation?.classList.toggle('d-none', !isNativeExport && !hasExportError);
+      nativeOptions?.classList.toggle('d-none', !isCeragonNative && effectiveDriver !== 'siae_smos_auto');
+      legacyCredentialSync?.classList.toggle('d-none', !isLegacyAlfoplus);
+      plaintextWarning?.classList.toggle('d-none', !isSiaeTelnet);
+    };
+
+    deviceSelect?.addEventListener('change', updateDriverFields);
+    driverSelect?.addEventListener('change', updateDriverFields);
+    receiverSelect?.addEventListener('change', updateDriverFields);
+    protocolSelect?.addEventListener('change', () => {
+      if (protocolSelect.value === 'telnet') {
+        if (portInput?.value === '22') portInput.value = '23';
+        if (verifyHostKey) verifyHostKey.checked = false;
+      } else if (protocolSelect.value === 'ssh' && portInput?.value === '23') {
+        portInput.value = '22';
+      }
+      updateDriverFields();
+    });
+    updateDriverFields();
+  });
+</script>
+{% endblock content %}

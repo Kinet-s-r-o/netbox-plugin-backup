@@ -1,0 +1,95 @@
+{% extends 'generic/_base.html' %}
+{% load helpers %}
+
+{% block title %}SSH host keys{% endblock %}
+{% block subtitle %}Discover and approve device identities used by configuration backups.{% endblock %}
+
+{% block content %}
+<div class="container-xl px-0 mt-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h2 class="h3 mb-1">Trusted SSH identities</h2>
+      <p class="text-secondary mb-0">
+        Discovery reads only the SSH handshake. It does not authenticate or run commands.
+      </p>
+    </div>
+    {% if can_scan_host_keys %}
+    <form method="post" action="{% url 'plugins:netbox_config_backup:ssh_host_key_scan' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary">
+        <i class="mdi mdi-radar" aria-hidden="true"></i>
+        Scan enabled devices
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="d-flex flex-wrap gap-2 mb-3" aria-label="SSH host key summary">
+    <span class="badge text-bg-warning">{{ pending_count }} pending</span>
+    <span class="badge text-bg-success">{{ trusted_count }} trusted</span>
+    <span class="badge text-bg-secondary">{{ rejected_count }} rejected</span>
+  </div>
+
+  <div class="card">
+    {% if host_keys %}
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th>Backup device</th>
+            <th>Address</th>
+            <th>Key type</th>
+            <th>SHA256 fingerprint</th>
+            <th>Status</th>
+            <th>Last seen</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for key in host_keys %}
+          <tr>
+            <td>{{ key.target|linkify }}</td>
+            <td><code>{{ key.address }}:{{ key.port }}</code></td>
+            <td><code>{{ key.key_type }}</code></td>
+            <td><code class="text-wrap user-select-all">{{ key.fingerprint_sha256 }}</code></td>
+            <td>
+              <span class="badge {% if key.status == 'trusted' %}text-bg-success{% elif key.status == 'pending' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+                {{ key.get_status_display }}
+              </span>
+            </td>
+            <td>{{ key.last_seen_at }}</td>
+            <td>
+              {% if can_manage_host_keys and key.status != 'trusted' %}
+              <div class="d-flex justify-content-end gap-1">
+                <form method="post" action="{% url 'plugins:netbox_config_backup:ssh_host_key_trust' pk=key.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-sm btn-warning">Trust</button>
+                </form>
+                {% if key.status != 'rejected' %}
+                <form method="post" action="{% url 'plugins:netbox_config_backup:ssh_host_key_reject' pk=key.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>
+                </form>
+                {% endif %}
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card-body py-5 text-center">
+      <i class="mdi mdi-fingerprint fs-1 text-secondary" aria-hidden="true"></i>
+      <h3 class="h4 mt-2">No SSH identities discovered</h3>
+      <p class="text-secondary mb-0">Run a connection test or scan enabled devices.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="alert alert-warning mt-3 mb-0">
+    A changed fingerprint is always shown as a new pending key. The plugin never replaces a trusted identity automatically.
+  </div>
+</div>
+{% endblock content %}

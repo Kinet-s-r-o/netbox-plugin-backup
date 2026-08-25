@@ -1,0 +1,211 @@
+{% extends 'generic/_base.html' %}
+{% load helpers %}
+
+{% block title %}Verified FTP package{% endblock %}
+{% block subtitle %}{{ revision.target.device }} · {{ revision.revision_uuid }}{% endblock %}
+
+{% block head %}
+  {{ block.super }}
+  <style>
+    .ftp-recovery-shell { max-width: 72rem; margin-inline: auto; }
+    .ftp-recovery-icon {
+      display: grid; width: 4rem; height: 4rem; flex: 0 0 4rem;
+      place-items: center; border-radius: var(--tblr-border-radius-lg);
+      background: var(--tblr-bg-surface-secondary);
+    }
+    .ftp-recovery-icon .mdi { font-size: 2rem; line-height: 1; }
+    .ftp-recovery-card .activity-line {
+      display: none; height: .2rem; overflow: hidden;
+      background: color-mix(in srgb, var(--tblr-info) 18%, transparent);
+    }
+    .ftp-recovery-card .activity-line::after {
+      display: block; width: 36%; height: 100%; content: "";
+      background: var(--tblr-info); transform: translateX(-110%);
+    }
+    .ftp-recovery-card.is-active .activity-line { display: block; }
+    .ftp-recovery-card.is-active .activity-line::after {
+      animation: ftp-recovery-progress 1.4s ease-in-out infinite;
+    }
+    .ftp-recovery-hash { overflow-wrap: anywhere; user-select: all; }
+    @keyframes ftp-recovery-progress { to { transform: translateX(390%); } }
+    @media (prefers-reduced-motion: reduce) {
+      .ftp-recovery-card.is-active .activity-line::after {
+        width: 100%; animation: none; transform: none;
+      }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl px-0 ftp-recovery-shell mt-4">
+  <div id="ftp-recovery-card" class="card ftp-recovery-card{% if not status_payload.terminal %} is-active{% endif %}" aria-busy="{% if status_payload.terminal %}false{% else %}true{% endif %}">
+    <div class="activity-line" aria-hidden="true"></div>
+    <div class="card-body p-4 p-md-5">
+      <div class="d-flex gap-4 align-items-start">
+        <div id="status-icon" class="ftp-recovery-icon text-{{ status_payload.color }}" aria-hidden="true">
+          <i id="status-icon-glyph" class="mdi {{ status_payload.icon }}"></i>
+        </div>
+        <div class="flex-fill">
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <h2 id="status-headline" class="h2 mb-0">{{ status_payload.headline }}</h2>
+            <span id="status-badge" class="badge text-bg-{{ status_payload.color }}">{{ status_payload.label }}</span>
+          </div>
+          <p id="status-message" class="text-secondary mb-0">{{ status_payload.message }}</p>
+          <div id="status-announcement" class="visually-hidden" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div id="error-panel" class="alert alert-danger mt-4 mb-0{% if not status_payload.error_code %} d-none{% endif %}" role="alert">
+        <div class="fw-semibold mb-1">Reason</div>
+        <code id="error-code">{{ status_payload.error_code }}</code>
+      </div>
+
+      <div id="package-panel" class="mt-4{% if not status_payload.ready %} d-none{% endif %}">
+        <dl class="row mb-4">
+          <dt class="col-sm-4">FTP destination</dt>
+          <dd id="package-destination" class="col-sm-8">{{ status_payload.destination_name }}</dd>
+          <dt class="col-sm-4">Verified FTP files</dt>
+          <dd id="package-files" class="col-sm-8">{{ status_payload.file_count }}</dd>
+          <dt class="col-sm-4">Verified source data</dt>
+          <dd id="package-source-bytes" class="col-sm-8">{{ status_payload.verified_bytes|filesizeformat }}</dd>
+          <dt class="col-sm-4">ZIP size</dt>
+          <dd id="package-size" class="col-sm-8">{{ status_payload.size|filesizeformat }}</dd>
+          <dt class="col-sm-4">ZIP SHA256</dt>
+          <dd class="col-sm-8"><code id="package-sha256" class="ftp-recovery-hash">{{ status_payload.sha256 }}</code></dd>
+          <dt class="col-sm-4">Available until</dt>
+          <dd id="package-expires" class="col-sm-8">{{ status_payload.expires_at|placeholder }}</dd>
+        </dl>
+        <a id="download-package" class="btn btn-primary" href="{{ download_url }}">
+          <i class="mdi mdi-download" aria-hidden="true"></i>
+          Download verified ZIP
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-info mt-4 mb-0" role="note">
+    <div class="d-flex gap-3 align-items-start">
+      <i class="mdi mdi-shield-check-outline fs-2" aria-hidden="true"></i>
+      <div>
+        <div class="fw-semibold">Read-only recovery export</div>
+        <div>
+          This task reads the existing FTP copy only. It never connects to the device and
+          cannot import, restore, reboot, or change device configuration. Each issued
+          download is recorded in the NetBox background task audit data.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt-4">
+    <h2 class="card-header">Task details</h2>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-3">Device</dt>
+        <dd class="col-sm-9">{{ revision.target.device|linkify }}</dd>
+        <dt class="col-sm-3">Revision</dt>
+        <dd class="col-sm-9"><code>{{ revision.revision_uuid }}</code></dd>
+        <dt class="col-sm-3">Queued</dt>
+        <dd id="task-created" class="col-sm-9">{{ job.created }}</dd>
+        <dt class="col-sm-3">Started</dt>
+        <dd id="task-started" class="col-sm-9">{{ job.started|placeholder }}</dd>
+        <dt class="col-sm-3">Finished</dt>
+        <dd id="task-completed" class="col-sm-9">{{ job.completed|placeholder }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
+    {% if can_view_job %}
+    <a href="{{ job.get_absolute_url }}" class="btn btn-outline-secondary">
+      <i class="mdi mdi-clipboard-text-clock-outline" aria-hidden="true"></i>
+      Background task
+    </a>
+    {% endif %}
+    <a href="{{ revision.get_absolute_url }}" class="btn btn-secondary">
+      <i class="mdi mdi-arrow-left" aria-hidden="true"></i>
+      Back to revision
+    </a>
+  </div>
+</div>
+
+{{ status_payload|json_script:"ftp-recovery-initial-state" }}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const card = document.getElementById('ftp-recovery-card');
+    const headline = document.getElementById('status-headline');
+    const message = document.getElementById('status-message');
+    const badge = document.getElementById('status-badge');
+    const icon = document.getElementById('status-icon');
+    const glyph = document.getElementById('status-icon-glyph');
+    const announcement = document.getElementById('status-announcement');
+    const errorPanel = document.getElementById('error-panel');
+    const errorCode = document.getElementById('error-code');
+    const packagePanel = document.getElementById('package-panel');
+    let timer = null;
+    let lastStatus = '';
+
+    const date = value => value ? new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium', timeStyle: 'medium'
+    }).format(new Date(value)) : 'Not yet';
+    const bytes = value => {
+      let size = Number(value || 0);
+      if (size < 1024) return `${size} bytes`;
+      const units = ['KB', 'MB', 'GB'];
+      let unit = units[0];
+      size /= 1024;
+      for (let i = 1; i < units.length && size >= 1024; i += 1) {
+        size /= 1024; unit = units[i];
+      }
+      return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
+    };
+    const setText = (id, value) => {
+      const element = document.getElementById(id);
+      if (element) element.textContent = value;
+    };
+    const apply = state => {
+      headline.textContent = state.headline;
+      message.textContent = state.message;
+      badge.textContent = state.label;
+      badge.className = `badge text-bg-${state.color}`;
+      icon.className = `ftp-recovery-icon text-${state.color}`;
+      glyph.className = `mdi ${state.icon}`;
+      card.classList.toggle('is-active', !state.terminal);
+      card.setAttribute('aria-busy', state.terminal ? 'false' : 'true');
+      errorPanel.classList.toggle('d-none', !state.error_code);
+      errorCode.textContent = state.error_code || '';
+      packagePanel.classList.toggle('d-none', !state.ready);
+      setText('package-destination', state.destination_name || '');
+      setText('package-files', state.file_count || 0);
+      setText('package-source-bytes', bytes(state.verified_bytes));
+      setText('package-size', bytes(state.size));
+      setText('package-sha256', state.sha256 || '');
+      setText('package-expires', date(state.expires_at));
+      setText('task-created', date(state.created_at));
+      setText('task-started', date(state.started_at));
+      setText('task-completed', date(state.completed_at));
+      if (state.status !== lastStatus) {
+        announcement.textContent = `${state.headline}. ${state.message}`;
+        lastStatus = state.status;
+      }
+      if (state.terminal && timer) clearTimeout(timer);
+    };
+    const poll = async () => {
+      try {
+        const response = await fetch('{{ status_url|escapejs }}', {
+          credentials: 'same-origin', headers: {Accept: 'application/json'}, cache: 'no-store'
+        });
+        if (!response.ok) throw new Error();
+        const state = await response.json();
+        apply(state);
+        if (!state.terminal) timer = setTimeout(poll, 1500);
+      } catch {
+        timer = setTimeout(poll, 3000);
+      }
+    };
+    const initial = JSON.parse(document.getElementById('ftp-recovery-initial-state').textContent);
+    apply(initial);
+    if (!initial.terminal) timer = setTimeout(poll, 1000);
+  });
+</script>
+{% endblock %}

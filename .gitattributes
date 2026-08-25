@@ -1,0 +1,18 @@
+* text=auto
+
+# Keep files executed inside Linux containers portable on Windows checkouts.
+*.py text eol=lf
+*.html text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+Dockerfile* text eol=lf
+docker/nas-backup-* text eol=lf
+
+# PowerShell helpers are intended for Windows administrators.
+*.ps1 text eol=crlf
+
+# Binary documentation and archives must never be line-ending converted.
+*.docx binary
+*.zip binary
+*.tgz binary

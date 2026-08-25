@@ -1,0 +1,13 @@
+ARG NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2
+FROM ${NETBOX_IMAGE}
+
+# Install an immutable copy of the plugin and all declared runtime dependencies.
+# Keeping the source outside /opt/netbox avoids accidental editable imports.
+COPY pyproject.toml README.md /tmp/netbox-config-backup/
+COPY netbox_config_backup /tmp/netbox-config-backup/netbox_config_backup
+
+RUN /usr/local/bin/uv pip install --no-cache \
+      --python /opt/netbox/venv/bin/python \
+      /tmp/netbox-config-backup \
+    && rm -rf /tmp/netbox-config-backup \
+    && install -d -o netbox -g root -m 0700 /var/lib/netbox-config-backup

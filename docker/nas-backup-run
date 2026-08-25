@@ -1,0 +1,88 @@
+#!/bin/sh
+set -eu
+
+umask 077
+status_dir="/status/nas-backup"
+work_dir="$(mktemp -d /tmp/netbox-config-backup.XXXXXX)"
+completed="false"
+
+cleanup() {
+  exit_code=$?
+  trap - EXIT INT TERM
+  rm -rf -- "$work_dir"
+  if [ "$completed" != "true" ]; then
+    mkdir -p "$status_dir"
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    epoch="$(date -u +%s)"
+    printf '{"schema":1,"status":"failed","finished_at":"%s","epoch":%s,"exit_code":%s}\n' \
+      "$now" "$epoch" "$exit_code" >"$status_dir/.last-failure.json.tmp"
+    mv "$status_dir/.last-failure.json.tmp" "$status_dir/last-failure.json"
+  fi
+  exit "$exit_code"
+}
+trap cleanup EXIT INT TERM
+
+: "${RESTIC_REPOSITORY:?RESTIC_REPOSITORY is required}"
+: "${RESTIC_PASSWORD:?RESTIC_PASSWORD is required}"
+: "${POSTGRES_DB:?POSTGRES_DB is required}"
+: "${POSTGRES_USER:?POSTGRES_USER is required}"
+: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+
+export PGHOST="${PGHOST:-postgres}"
+export PGPORT="${PGPORT:-5432}"
+export PGDATABASE="$POSTGRES_DB"
+export PGUSER="$POSTGRES_USER"
+export PGPASSWORD="$POSTGRES_PASSWORD"
+
+if ! restic cat config >/dev/null 2>&1; then
+  if [ "${RESTIC_AUTO_INIT:-false}" != "true" ]; then
+    echo "The encrypted backup repository is unavailable or not initialized." >&2
+    exit 20
+  fi
+  restic init
+fi
+
+mkdir -p "$work_dir/database" "$status_dir"
+pg_dump \
+  --format=custom \
+  --compress=6 \
+  --no-owner \
+  --no-privileges \
+  --file="$work_dir/database/netbox.dump"
+
+now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf 'schema=1\ncreated_at=%s\ncomponents=postgresql,artifacts,receiver-keys,ssh-trust,plugin-env,netbox-config\n' \
+  "$now" >"$work_dir/manifest.txt"
+
+restic backup \
+  --tag netbox-config-backup \
+  --exclude /source/artifacts/nas-backup \
+  "$work_dir/database" \
+  "$work_dir/manifest.txt" \
+  /source/artifacts \
+  /source/netbox-configuration \
+  /source/plugin-env \
+  /source/ssh-trust
+
+restic forget \
+  --tag netbox-config-backup \
+  --keep-daily "${RESTIC_KEEP_DAILY:-7}" \
+  --keep-weekly "${RESTIC_KEEP_WEEKLY:-4}" \
+  --keep-monthly "${RESTIC_KEEP_MONTHLY:-12}" \
+  --prune
+restic check
+
+snapshot_id="$(restic snapshots --tag netbox-config-backup --latest 1 --json | jq -r '.[0].short_id')"
+case "$snapshot_id" in
+  ""|null|*[!A-Za-z0-9_-]*) echo "Backup snapshot verification failed." >&2; exit 21 ;;
+esac
+
+now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+epoch="$(date -u +%s)"
+printf '{"schema":1,"status":"success","finished_at":"%s","epoch":%s,"snapshot_id":"%s"}\n' \
+  "$now" "$epoch" "$snapshot_id" >"$status_dir/.last-success.json.tmp"
+mv "$status_dir/.last-success.json.tmp" "$status_dir/last-success.json"
+printf '%s\n' "$epoch" >"$status_dir/.last-success-epoch.tmp"
+mv "$status_dir/.last-success-epoch.tmp" "$status_dir/last-success-epoch"
+rm -f "$status_dir/last-failure.json"
+completed="true"

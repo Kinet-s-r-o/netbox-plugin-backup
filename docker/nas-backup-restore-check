@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+umask 077
+: "${RESTIC_REPOSITORY:?RESTIC_REPOSITORY is required}"
+: "${RESTIC_PASSWORD:?RESTIC_PASSWORD is required}"
+
+restore_dir="$(mktemp -d /tmp/netbox-config-restore.XXXXXX)"
+cleanup() {
+  exit_code=$?
+  trap - EXIT INT TERM
+  rm -rf -- "$restore_dir"
+  exit "$exit_code"
+}
+trap cleanup EXIT INT TERM
+
+snapshot_id="$(restic snapshots --no-lock --tag netbox-config-backup --latest 1 --json | jq -r '.[0].short_id')"
+case "$snapshot_id" in
+  ""|null|*[!A-Za-z0-9_-]*) echo "No valid backup snapshot was found." >&2; exit 30 ;;
+esac
+
+restic restore --no-lock "$snapshot_id" --target "$restore_dir"
+dump_path="$(find "$restore_dir" -type f -path '*/database/netbox.dump' -print -quit)"
+[ -n "$dump_path" ] || { echo "The PostgreSQL dump is missing." >&2; exit 31; }
+pg_restore --list "$dump_path" >/dev/null
+[ -f "$restore_dir/source/plugin-env/config-backup.env" ] || {
+  echo "The protected plugin environment backup is missing." >&2
+  exit 32
+}
+[ -d "$restore_dir/source/artifacts" ] || {
+  echo "The configuration artifact backup is missing." >&2
+  exit 33
+}
+[ -d "$restore_dir/source/ssh-trust" ] || {
+  echo "The SSH trust-store backup is missing." >&2
+  exit 34
+}
+echo "RESTORE_CHECK_OK snapshot=$snapshot_id"

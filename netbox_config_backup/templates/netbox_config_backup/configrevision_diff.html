@@ -1,0 +1,59 @@
+{% extends 'generic/object.html' %}
+
+{% block content %}
+<style>
+  .ncb-diff-shell { max-height: 72vh; overflow: auto; background: var(--tblr-bg-surface-dark, #081824); }
+  .ncb-diff-line { margin: 0; padding: 0 .9rem; white-space: pre; font: .82rem/1.55 var(--tblr-font-monospace, monospace); }
+  .ncb-diff-added { background: rgba(47, 179, 68, .16); color: var(--tblr-success); }
+  .ncb-diff-removed { background: rgba(214, 57, 57, .16); color: var(--tblr-danger); }
+  .ncb-diff-hunk { background: rgba(66, 153, 225, .14); color: var(--tblr-info); }
+  .ncb-diff-file { color: var(--tblr-warning); font-weight: 600; }
+  .ncb-diff-context { color: var(--tblr-body-color); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2 class="mb-1">Configuration diff</h2>
+    <div class="text-secondary">Unified diff generated from redacted configuration previews.</div>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-secondary" href="{% url 'plugins:netbox_config_backup:configrevision_content' pk=object.pk %}">View configuration</a>
+    <a class="btn btn-outline-secondary" href="{{ object.get_absolute_url }}">Back to revision</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-lg-9">
+        <label class="form-label" for="compare-revision">Compare against</label>
+        <select class="form-select" id="compare-revision" name="compare">
+          {% if not comparison_candidates %}<option value="">No other revisions available</option>{% endif %}
+          {% for candidate in comparison_candidates %}
+          <option value="{{ candidate.pk }}" {% if base_revision and candidate.pk == base_revision.pk %}selected{% endif %}>{{ candidate.created }} · {{ candidate.revision_uuid }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-lg-3"><button class="btn btn-primary w-100" type="submit"><i class="mdi mdi-file-compare"></i> Compare</button></div>
+    </form>
+  </div>
+</div>
+
+{% if display_error %}
+<div class="alert alert-danger" role="alert"><i class="mdi mdi-alert-circle-outline"></i> {{ display_error }}</div>
+{% elif not base_revision %}
+<div class="alert alert-info" role="status">This is the first stored revision. There is no earlier configuration to compare.</div>
+{% elif display_diff %}
+<div class="card">
+  <div class="card-header">
+    <span>{{ base_revision.revision_uuid }}</span>
+    <i class="mdi mdi-arrow-right mx-2"></i>
+    <strong>{{ object.revision_uuid }}</strong>
+  </div>
+  <div class="ncb-diff-shell" aria-label="Redacted configuration diff">
+    {% for line in display_diff.lines %}<pre class="ncb-diff-line ncb-diff-{{ line.kind }}"><code>{{ line.text }}</code></pre>{% empty %}<div class="p-4 text-secondary">No displayable differences.</div>{% endfor %}
+  </div>
+</div>
+{% if display_diff.truncated %}<div class="alert alert-warning mt-3">The diff reached the configured display limit and was truncated.</div>{% endif %}
+{% endif %}
+{% endblock %}

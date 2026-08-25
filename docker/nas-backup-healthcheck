@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+epoch_file="/status/nas-backup/last-success-epoch"
+[ -r "$epoch_file" ] || exit 1
+last_epoch="$(cat "$epoch_file")"
+case "$last_epoch" in
+  ""|*[!0-9]*) exit 1 ;;
+esac
+now="$(date -u +%s)"
+age=$((now - last_epoch))
+[ "$age" -ge 0 ] || exit 1
+[ "$age" -le "${NAS_BACKUP_HEALTH_MAX_AGE_SECONDS:-172800}" ]

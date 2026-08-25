@@ -1,0 +1,31 @@
+services:
+  netbox:
+    image: netbox-config-backup:dev
+    pull_policy: never
+    build:
+      context: ../netbox-plugin-backup
+      dockerfile: docker/Dockerfile
+      args:
+        NETBOX_IMAGE: netbox-zabbix-status:dev
+    ports: !override
+      - "8001:8080"
+    volumes:
+      - ../netbox-plugin-backup:/opt/netbox-plugin-backup
+      - ../netbox-plugin-backup/docker/plugins.py:/etc/netbox/config/plugins.py:ro
+      - netbox-config-backup-data:/var/lib/netbox-config-backup
+
+  netbox-worker:
+    image: netbox-config-backup:dev
+    pull_policy: never
+    build:
+      context: ../netbox-plugin-backup
+      dockerfile: docker/Dockerfile
+      args:
+        NETBOX_IMAGE: netbox-zabbix-status:dev
+    volumes:
+      - ../netbox-plugin-backup:/opt/netbox-plugin-backup
+      - ../netbox-plugin-backup/docker/plugins.py:/etc/netbox/config/plugins.py:ro
+      - netbox-config-backup-data:/var/lib/netbox-config-backup
+
+volumes:
+  netbox-config-backup-data:

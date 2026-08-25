@@ -1,0 +1,17 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-8">
+    <div class="card">
+      <h2 class="card-header">Configuration</h2>
+      <table class="table table-hover attr-table">
+        {% for label, value in detail_rows %}
+        <tr><th scope="row">{{ label|capfirst }}</th><td>{{ value|linkify|placeholder }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

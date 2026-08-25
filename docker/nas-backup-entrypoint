@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+case "${1:-schedule}" in
+  backup-now)
+    exec /usr/local/bin/nas-backup-run
+    ;;
+  restore-check)
+    exec /usr/local/bin/nas-backup-restore-check
+    ;;
+  schedule)
+    interval="${BACKUP_INTERVAL_SECONDS:-86400}"
+    case "$interval" in
+      ""|*[!0-9]*) echo "BACKUP_INTERVAL_SECONDS must be a positive integer." >&2; exit 2 ;;
+    esac
+    if [ "$interval" -lt 300 ]; then
+      echo "BACKUP_INTERVAL_SECONDS must be at least 300." >&2
+      exit 2
+    fi
+    if [ "${BACKUP_RUN_ON_START:-true}" = "true" ]; then
+      /usr/local/bin/nas-backup-run || true
+    fi
+    while :; do
+      sleep "$interval"
+      /usr/local/bin/nas-backup-run || true
+    done
+    ;;
+  *)
+    echo "Use schedule, backup-now, or restore-check." >&2
+    exit 2
+    ;;
+esac

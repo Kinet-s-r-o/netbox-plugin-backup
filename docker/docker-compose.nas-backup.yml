@@ -1,0 +1,35 @@
+services:
+  netbox-config-backup-nas:
+    build:
+      context: ${NETBOX_CONFIG_BACKUP_PLUGIN_PATH:-../netbox-plugin-backup}
+      dockerfile: docker/Dockerfile.backup
+    image: netbox-config-backup-nas:0.4.0
+    profiles:
+      - nas-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - env/postgres.env
+      - path: env/config-backup-nas.env
+        required: false
+    environment:
+      PGHOST: postgres
+    volumes:
+      - netbox-config-backup-data:/source/artifacts:ro
+      - netbox-config-backup-data:/status:rw
+      - ./configuration:/source/netbox-configuration:ro
+      - ./env/config-backup.env:/source/plugin-env/config-backup.env:ro
+      - ./env/config-backup-ssh:/source/ssh-trust:ro
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/nas-backup-healthcheck
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 15m
+
+volumes:
+  netbox-config-backup-data:

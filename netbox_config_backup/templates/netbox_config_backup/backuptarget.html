@@ -1,0 +1,102 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+{% if stuck_run %}
+<div class="alert alert-danger d-flex gap-3 align-items-start" role="alert">
+  <i class="mdi mdi-progress-alert fs-2" aria-hidden="true"></i>
+  <div>
+    <div class="fw-semibold">A backup run appears to be stuck.</div>
+    <div><a href="{{ stuck_run.get_absolute_url }}">Open run {{ stuck_run.pk }}</a>. It has remained {{ stuck_run.get_status_display|lower }} beyond the {{ stuck_run_minutes }} minute timeout.</div>
+  </div>
+</div>
+{% elif object.status == "stale" %}
+<div class="alert alert-warning d-flex gap-3 align-items-start" role="alert">
+  <i class="mdi mdi-clock-alert-outline fs-2" aria-hidden="true"></i>
+  <div>
+    <div class="fw-semibold">This target is stale.</div>
+    <div>No successful backup was recorded by {{ health.expected_success_by }}. Stale target health is separate from the state of any individual backup run.</div>
+  </div>
+</div>
+{% elif object.status == "failed" and latest_failure %}
+<div class="alert alert-danger d-flex gap-3 align-items-start" role="alert">
+  <i class="mdi mdi-alert-circle-outline fs-2" aria-hidden="true"></i>
+  <div>
+    <div class="fw-semibold">The latest backup attempt failed.</div>
+    <div><a href="{{ latest_failure.get_absolute_url }}">Open the failed run</a> to inspect <code>{{ latest_failure.error_code|default:"UNKNOWN" }}</code> and its safe diagnostic message.</div>
+  </div>
+</div>
+{% endif %}
+{% if can_run or can_test or can_preview_retention or perms.netbox_config_backup.change_backuptarget %}
+<div class="text-end mb-3">
+  {% if can_preview_retention %}
+  <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backuptarget_retention_preview' pk=object.pk %}">
+    <i class="mdi mdi-delete-clock-outline"></i> Retention preview
+  </a>
+  {% endif %}
+  {% if perms.netbox_config_backup.change_backuptarget %}
+  <form method="post" action="{% url 'plugins:netbox_config_backup:backuptarget_reschedule' pk=object.pk %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-secondary">
+      <i class="mdi mdi-calendar-refresh"></i> Recalculate schedule
+    </button>
+  </form>
+  {% endif %}
+  {% if can_test %}
+  <form method="post" action="{% url 'plugins:netbox_config_backup:backuptarget_test_connection' pk=object.pk %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-info">
+      <i class="mdi mdi-lan-connect"></i> Test connection
+    </button>
+  </form>
+  {% endif %}
+  {% if can_run %}
+  <form method="post" action="{% url 'plugins:netbox_config_backup:backuptarget_run' pk=object.pk %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary" {% if not object.enabled %}disabled{% endif %}>
+      <i class="mdi mdi-play"></i> Run backup
+    </button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <h2 class="card-header">Target</h2>
+      <table class="table table-hover attr-table">
+        <tr><th scope="row">Device</th><td>{{ object.device|linkify }}</td></tr>
+        <tr><th scope="row">Enabled</th><td>{{ object.enabled|yesno:"Yes,No" }}</td></tr>
+        <tr><th scope="row">Status</th><td><span class="badge text-bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span></td></tr>
+        <tr><th scope="row">Driver override</th><td>{{ object.driver_override|placeholder }}</td></tr>
+        <tr><th scope="row">Policy</th><td>{{ object.policy_override|linkify|placeholder }}</td></tr>
+        <tr><th scope="row">Retention</th><td>{{ object.retention_override|linkify|placeholder }}</td></tr>
+        <tr><th scope="row">Credential</th><td>{{ object.credential_override|linkify|placeholder }}</td></tr>
+        <tr><th scope="row">Connection</th><td>{{ object.connection_override|linkify|placeholder }}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <h2 class="card-header">State</h2>
+      <table class="table table-hover attr-table">
+        <tr><th scope="row">Last attempt</th><td>{{ object.last_attempt_at|placeholder }}</td></tr>
+        <tr><th scope="row">Last success</th><td>{{ object.last_success_at|placeholder }}</td></tr>
+        <tr><th scope="row">Last change</th><td>{{ object.last_change_at|placeholder }}</td></tr>
+        <tr><th scope="row">Next run</th><td>{{ object.next_run_at|placeholder }}</td></tr>
+        <tr><th scope="row">Expected success by</th><td>{{ health.expected_success_by|placeholder }}</td></tr>
+        <tr><th scope="row">Failures</th><td>{{ object.consecutive_failures }}</td></tr>
+        <tr><th scope="row">Last revision</th><td>{{ object.last_revision|linkify|placeholder }}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="row">
+  <div class="col-md-7"><div class="card"><h2 class="card-header">Recent runs</h2><table class="table table-hover"><thead><tr><th>Queued</th><th>Status</th><th>Changed</th><th>Error</th></tr></thead><tbody>
+    {% for run in recent_runs %}<tr><td><a href="{{ run.get_absolute_url }}">{{ run.queued_at }}</a></td><td><span class="badge text-bg-{{ run.get_status_color }}">{{ run.get_status_display }}</span></td><td>{{ run.changed|yesno:"Yes,No" }}</td><td>{% if run.error_code %}<a href="{% url 'plugins:netbox_config_backup:backuprun_list' %}?error_code={{ run.error_code|urlencode }}"><code>{{ run.error_code }}</code></a>{% else %}{{ run.error_code|placeholder }}{% endif %}</td></tr>{% empty %}<tr><td colspan="4" class="text-muted">No runs yet.</td></tr>{% endfor %}
+  </tbody></table></div></div>
+  <div class="col-md-5"><div class="card"><h2 class="card-header">Recent revisions</h2><table class="table table-hover"><thead><tr><th>Created</th><th>Driver</th><th>Artifacts</th></tr></thead><tbody>
+    {% for revision in recent_revisions %}<tr><td><a href="{{ revision.get_absolute_url }}">{{ revision.created }}</a></td><td>{{ revision.driver_id }}</td><td>{{ revision.artifacts.count }}</td></tr>{% empty %}<tr><td colspan="3" class="text-muted">No revisions yet.</td></tr>{% endfor %}
+  </tbody></table></div></div>
+</div>
+{% endblock %}

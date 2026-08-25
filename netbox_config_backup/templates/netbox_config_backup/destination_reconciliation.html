@@ -1,0 +1,69 @@
+{% extends 'generic/_base.html' %}
+{% load helpers %}
+
+{% block title %}FTP integrity audit{% endblock %}
+{% block subtitle %}{{ destination }}{% endblock %}
+
+{% block head %}
+{{ block.super }}
+<style>
+  .audit-shell{max-width:78rem;margin-inline:auto}.audit-icon{display:grid;width:4rem;height:4rem;flex:0 0 4rem;place-items:center;border-radius:.5rem;background:var(--tblr-bg-surface-secondary)}.audit-icon .mdi{font-size:2rem}.activity{display:none;height:.2rem;overflow:hidden;background:rgba(66,153,225,.18)}.activity:after{display:block;width:36%;height:100%;content:"";background:var(--tblr-info);animation:progress 1.4s ease-in-out infinite}.is-active .activity{display:block}.metric-value{font-size:1.5rem;font-weight:600}.metric-label{font-size:.8rem;color:var(--tblr-secondary)}@keyframes progress{from{transform:translateX(-110%)}to{transform:translateX(390%)}}@media(prefers-reduced-motion:reduce){.activity:after{width:100%;animation:none}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl px-0 audit-shell mt-4">
+  <div id="audit-card" class="card{% if not status_payload.terminal %} is-active{% endif %}" aria-busy="{% if status_payload.terminal %}false{% else %}true{% endif %}">
+    <div class="activity"></div>
+    <div class="card-body p-4 p-md-5 d-flex gap-4 align-items-start">
+      <div id="audit-icon" class="audit-icon text-{{ status_payload.color }}"><i id="audit-glyph" class="mdi {{ status_payload.icon }}"></i></div>
+      <div class="flex-fill">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2"><h2 id="headline" class="h2 mb-0">{{ status_payload.headline }}</h2><span id="badge" class="badge text-bg-{{ status_payload.color }}">{{ status_payload.label }}</span></div>
+        <p id="message" class="text-secondary mb-0">{{ status_payload.message }}</p>
+        <div id="error" class="alert alert-danger mt-4 mb-0{% if not status_payload.error_code %} d-none{% endif %}"><strong>Reason</strong> <code id="error-code" class="ms-2">{{ status_payload.error_code }}</code></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-info d-flex gap-3 align-items-start mt-4 mb-0" role="note">
+    <i class="mdi mdi-shield-check-outline fs-2" aria-hidden="true"></i>
+    <div><strong>This audit is read-only.</strong> It compares the expected file name, size, and SHA-256 hash with FTP. It never uploads, overwrites, renames, or deletes a remote file.</div>
+  </div>
+
+  <div id="summary" class="card mt-4">
+    <h2 class="card-header">Audit summary</h2>
+    <div class="card-body">
+      <div class="row g-4 text-center">
+        <div class="col-6 col-md"><div id="checked-replicas" class="metric-value">{{ status_payload.checked_replicas }}</div><div class="metric-label">Copies checked</div></div>
+        <div class="col-6 col-md"><div id="healthy-replicas" class="metric-value text-success">{{ status_payload.healthy_replicas }}</div><div class="metric-label">Healthy</div></div>
+        <div class="col-6 col-md"><div id="failed-replicas" class="metric-value text-warning">{{ status_payload.failed_replicas }}</div><div class="metric-label">With problems</div></div>
+        <div class="col-6 col-md"><div id="checked-files" class="metric-value">{{ status_payload.checked_files }}</div><div class="metric-label">Files checked</div></div>
+        <div class="col-6 col-md"><div id="verified-bytes" class="metric-value">{{ status_payload.verified_bytes|filesizeformat }}</div><div class="metric-label">Verified data</div></div>
+      </div>
+      <div class="text-secondary small mt-4">Only replicas marked successful are audited. <span id="skipped-replicas">{{ status_payload.skipped_replicas }}</span> unfinished or failed replica record(s) were skipped.</div>
+    </div>
+  </div>
+
+  <div id="issues-card" class="card mt-4{% if not status_payload.issues %} d-none{% endif %}">
+    <h2 class="card-header">Problems found</h2>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr><th>Device</th><th>Revision</th><th>File</th><th>Problem</th></tr></thead>
+        <tbody id="issues-body"></tbody>
+      </table>
+    </div>
+    <div id="issues-truncated" class="card-footer text-secondary d-none">Only the first 100 problems are shown.</div>
+  </div>
+
+  <div class="card mt-4"><h2 class="card-header">Task details</h2><div class="card-body"><dl class="row mb-0"><dt class="col-sm-3">Destination</dt><dd class="col-sm-9">{{ destination|linkify }}</dd><dt class="col-sm-3">Server</dt><dd class="col-sm-9"><code>{{ destination.host }}:{{ destination.port }}</code></dd><dt class="col-sm-3">Queued</dt><dd id="created" class="col-sm-9">{{ job.created }}</dd><dt class="col-sm-3">Started</dt><dd id="started" class="col-sm-9">{{ job.started|placeholder }}</dd><dt class="col-sm-3">Finished</dt><dd id="completed" class="col-sm-9">{{ job.completed|placeholder }}</dd></dl></div></div>
+  <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
+    {% if can_view_job %}<a class="btn btn-outline-secondary" href="{{ job.get_absolute_url }}"><i class="mdi mdi-clipboard-text-clock-outline"></i> Background task</a>{% endif %}
+    <a class="btn btn-secondary" href="{{ destination.get_absolute_url }}"><i class="mdi mdi-arrow-left"></i> Back to destination</a>
+    {% if can_manage %}<form id="run-again" method="post" action="{% url 'plugins:netbox_config_backup:backupdestination_reconcile' pk=destination.pk %}"{% if not status_payload.terminal %} class="d-none"{% endif %}>{% csrf_token %}<button class="btn btn-primary"><i class="mdi mdi-refresh"></i> Run audit again</button></form>{% endif %}
+  </div>
+</div>
+{{ status_payload|json_script:'destination-audit-state' }}
+<script>
+document.addEventListener('DOMContentLoaded',()=>{const card=document.getElementById('audit-card'),again=document.getElementById('run-again'),issuesCard=document.getElementById('issues-card'),issuesBody=document.getElementById('issues-body');let timer=null;const date=v=>v?new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'medium'}).format(new Date(v)):'Not yet';const setText=(id,value)=>document.getElementById(id).textContent=value;const problem={missing:'Missing',size_mismatch:'Size mismatch',hash_mismatch:'SHA-256 mismatch',unreadable:'Could not read'};const renderIssues=s=>{issuesBody.replaceChildren();for(const issue of s.issues||[]){const row=document.createElement('tr');for(const value of [issue.device,issue.revision_uuid,issue.filename,problem[issue.problem]||issue.problem]){const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell)}issuesBody.appendChild(row)}issuesCard.classList.toggle('d-none',!(s.issues||[]).length);document.getElementById('issues-truncated').classList.toggle('d-none',!s.issues_truncated)};const apply=s=>{card.classList.toggle('is-active',!s.terminal);card.setAttribute('aria-busy',s.terminal?'false':'true');setText('headline',s.headline);setText('message',s.message);const badge=document.getElementById('badge');badge.textContent=s.label;badge.className=`badge text-bg-${s.color}`;document.getElementById('audit-icon').className=`audit-icon text-${s.color}`;document.getElementById('audit-glyph').className=`mdi ${s.icon}`;document.getElementById('error').classList.toggle('d-none',!s.error_code);setText('error-code',s.error_code||'');setText('checked-replicas',s.checked_replicas);setText('healthy-replicas',s.healthy_replicas);setText('failed-replicas',s.failed_replicas);setText('checked-files',s.checked_files);setText('verified-bytes',`${Number(s.verified_bytes||0).toLocaleString()} bytes`);setText('skipped-replicas',s.skipped_replicas);setText('created',date(s.created_at));setText('started',date(s.started_at));setText('completed',date(s.completed_at));renderIssues(s);again?.classList.toggle('d-none',!s.terminal);if(s.terminal&&timer)clearTimeout(timer)};const poll=async()=>{try{const response=await fetch('{{ status_url|escapejs }}',{credentials:'same-origin',headers:{Accept:'application/json'},cache:'no-store'});if(!response.ok)throw new Error();const state=await response.json();apply(state);if(!state.terminal)timer=setTimeout(poll,1500)}catch{timer=setTimeout(poll,3000)}};const initial=JSON.parse(document.getElementById('destination-audit-state').textContent);apply(initial);if(!initial.terminal)timer=setTimeout(poll,1000)});
+</script>
+{% endblock %}

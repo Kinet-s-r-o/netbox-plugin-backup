@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from uuid import uuid4
+
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+
+from netbox_config_backup.choices import RunStatusChoices
+from netbox_config_backup.models import (
+    BackupRun,
+    BackupTarget,
+    ConfigArtifact,
+    ConfigRevision,
+    RetentionPolicy,
+)
+from netbox_config_backup.storage.base import StorageError
+from netbox_config_backup.storage.factory import build_config_storage
+
+from .retention import (
+    RevisionCandidate,
+    RunCandidate,
+    build_retention_plan,
+    settings_from_policy,
+)
+
+
+class RetentionCleanupError(RuntimeError):
+    """A retention cleanup was aborted with a message safe for the job log."""
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionCleanupSummary:
+    target_id: int
+    run_count: int
+    revision_count: int
+    artifact_count: int
+    artifact_bytes: int
+    missing_artifact_count: int
+    quarantine_purge_failures: int
+
+
+def _default_storage():
+    return build_config_storage(settings.PLUGINS_CONFIG["netbox_config_backup"])
+
+
+def execute_retention_cleanup(
+    target_id: int,
+    *,
+    storage=None,
+    now=None,
+) -> RetentionCleanupSummary:
+    """Recompute and execute one target's retention plan with reversible file staging."""
+    target_storage = storage or _default_storage()
+    generated_at = now or timezone.now()
+    namespace = f"retention-{target_id}-{uuid4().hex}"
+    staged: list[tuple[str, str]] = []
+
+    try:
+        with transaction.atomic():
+            target = (
+                BackupTarget.objects.select_for_update(of=("self",))
+                .select_related("policy_override")
+                .get(pk=target_id)
+            )
+            if BackupRun.objects.filter(
+                target=target,
+                status__in=(RunStatusChoices.QUEUED, RunStatusChoices.RUNNING),
+            ).exists():
+                raise RetentionCleanupError(
+                    "Retention cleanup cannot run while the target has an active backup."
+                )
+
+            policy_id = target.retention_override_id
+            if not policy_id and target.policy_override_id:
+                policy_id = target.policy_override.retention_policy_id
+            if not policy_id:
+                raise RetentionCleanupError("The backup target has no effective retention policy.")
+            policy = RetentionPolicy.objects.select_for_update().get(pk=policy_id)
+
+            revisions = list(
+                ConfigRevision.objects.select_for_update()
+                .filter(target=target)
+                .order_by("-created", "-pk")
+            )
+            runs = list(
+                BackupRun.objects.select_for_update()
+                .filter(target=target)
+                .order_by("-queued_at", "-pk")
+            )
+            plan = build_retention_plan(
+                settings_from_policy(policy),
+                revisions=(
+                    RevisionCandidate(
+                        object_id=revision.pk,
+                        created=revision.created,
+                        protected=revision.protected,
+                        content_changed=revision.content_changed,
+                    )
+                    for revision in revisions
+                ),
+                runs=(
+                    RunCandidate(
+                        object_id=run.pk,
+                        timestamp=run.finished_at or run.queued_at,
+                        status=run.status,
+                    )
+                    for run in runs
+                ),
+                now=generated_at,
+            )
+            revision_ids = {
+                decision.object_id for decision in plan.revision_decisions if not decision.keep
+            }
+            run_ids = {decision.object_id for decision in plan.run_decisions if not decision.keep}
+            artifacts = list(
+                ConfigArtifact.objects.select_for_update().filter(revision_id__in=revision_ids)
+            )
+
+            missing_artifact_count = 0
+            for artifact in artifacts:
+                staged_key = target_storage.stage_delete(artifact.storage_key, namespace)
+                if staged_key is None:
+                    missing_artifact_count += 1
+                else:
+                    staged.append((artifact.storage_key, staged_key))
+
+            _relink_kept_revisions(target, revisions, revision_ids)
+            BackupRun.objects.filter(pk__in=run_ids).delete()
+            ConfigRevision.objects.filter(pk__in=revision_ids).delete()
+
+            summary = RetentionCleanupSummary(
+                target_id=target.pk,
+                run_count=len(run_ids),
+                revision_count=len(revision_ids),
+                artifact_count=len(artifacts),
+                artifact_bytes=sum(artifact.size for artifact in artifacts),
+                missing_artifact_count=missing_artifact_count,
+                quarantine_purge_failures=0,
+            )
+    except Exception as exc:
+        restore_failed = _restore_staged(target_storage, staged)
+        if restore_failed:
+            raise RetentionCleanupError(
+                "Retention cleanup failed and quarantined files could not be fully restored."
+            ) from exc
+        if isinstance(exc, RetentionCleanupError):
+            raise
+        if isinstance(exc, StorageError):
+            raise RetentionCleanupError(
+                "Retention cleanup could not stage stored configuration files. Nothing was deleted."
+            ) from exc
+        raise RetentionCleanupError(
+            "Retention cleanup failed before the database transaction committed."
+        ) from exc
+
+    purge_failures = 0
+    for _original_key, staged_key in staged:
+        try:
+            target_storage.purge_staged_delete(staged_key)
+        except StorageError:
+            purge_failures += 1
+    if purge_failures:
+        summary = RetentionCleanupSummary(
+            target_id=summary.target_id,
+            run_count=summary.run_count,
+            revision_count=summary.revision_count,
+            artifact_count=summary.artifact_count,
+            artifact_bytes=summary.artifact_bytes,
+            missing_artifact_count=summary.missing_artifact_count,
+            quarantine_purge_failures=purge_failures,
+        )
+    return summary
+
+
+def _relink_kept_revisions(target, revisions, deleted_ids: set[int]) -> None:
+    kept = sorted(
+        (revision for revision in revisions if revision.pk not in deleted_ids),
+        key=lambda revision: (revision.created, revision.pk),
+    )
+    previous = None
+    for revision in kept:
+        previous_id = previous.pk if previous else None
+        if revision.previous_revision_id != previous_id:
+            revision.previous_revision_id = previous_id
+            revision.save(update_fields=("previous_revision", "last_updated"))
+        previous = revision
+    latest_id = kept[-1].pk if kept else None
+    if target.last_revision_id != latest_id:
+        target.last_revision_id = latest_id
+        target.save(update_fields=("last_revision", "last_updated"))
+
+
+def _restore_staged(storage, staged: list[tuple[str, str]]) -> bool:
+    failed = False
+    for original_key, staged_key in reversed(staged):
+        try:
+            storage.restore_staged_delete(original_key, staged_key)
+        except StorageError:
+            failed = True
+    return failed

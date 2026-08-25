@@ -1,0 +1,94 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+{% if can_view_content or can_change_protection %}
+<div class="d-flex justify-content-end gap-2 mb-3">
+  {% if can_change_protection %}
+  <form method="post" action="{% url 'plugins:netbox_config_backup:configrevision_set_protection' pk=object.pk %}">
+    {% csrf_token %}
+    <input type="hidden" name="protected" value="{% if object.protected %}false{% else %}true{% endif %}">
+    <button class="btn {% if object.protected %}btn-outline-warning{% else %}btn-warning{% endif %}" type="submit">
+      <i class="mdi {% if object.protected %}mdi-shield-off-outline{% else %}mdi-shield-lock-outline{% endif %}"></i>
+      {% if object.protected %}Unprotect revision{% else %}Protect revision{% endif %}
+    </button>
+  </form>
+  {% endif %}
+  {% if can_view_content %}
+  <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:configrevision_content' pk=object.pk %}">
+    <i class="mdi mdi-file-document-outline"></i> View configuration
+  </a>
+  <a class="btn btn-secondary" href="{% url 'plugins:netbox_config_backup:configrevision_diff' pk=object.pk %}">
+    <i class="mdi mdi-file-compare"></i> Compare revisions
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+<div class="row">
+  <div class="col-md-6"><div class="card"><h2 class="card-header">Revision</h2><table class="table table-hover attr-table">
+    <tr><th scope="row">Target</th><td>{{ object.target|linkify }}</td></tr>
+    <tr><th scope="row">Device</th><td>{{ object.target.device|linkify }}</td></tr>
+    <tr><th scope="row">UUID</th><td><code>{{ object.revision_uuid }}</code></td></tr>
+    <tr><th scope="row">Driver</th><td>{{ object.driver_id }}</td></tr>
+    <tr><th scope="row">Normalizer</th><td>{{ object.normalizer_version }}</td></tr>
+    <tr><th scope="row">Previous</th><td>{{ object.previous_revision|linkify|placeholder }}</td></tr>
+  </table></div></div>
+  <div class="col-md-6"><div class="card"><h2 class="card-header">Integrity</h2><table class="table table-hover attr-table">
+    <tr><th scope="row">Normalized hash</th><td><code>{{ object.normalized_hash }}</code></td></tr>
+    <tr><th scope="row">Content changed</th><td>{{ object.content_changed|yesno:"Yes,No" }}</td></tr>
+    <tr><th scope="row">Protected</th><td>{{ object.protected|yesno:"Yes,No" }}</td></tr>
+    <tr><th scope="row">Label</th><td>{{ object.label|placeholder }}</td></tr>
+    <tr><th scope="row">Comments</th><td>{{ object.comments|placeholder }}</td></tr>
+  </table></div></div>
+</div>
+<div class="card"><h2 class="card-header">Artifacts</h2><div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Type</th><th>Format</th><th>Size</th><th>Primary</th><th>Storage key</th><th>Raw hash</th>{% if can_view_content %}<th class="text-end">Action</th>{% endif %}</tr></thead><tbody>
+  {% for artifact in object.artifacts.all %}<tr><td>{{ artifact.artifact_type }}</td><td>{{ artifact.format }}</td><td>{{ artifact.size|filesizeformat }}</td><td>{{ artifact.is_primary|yesno:"Yes,No" }}</td><td><code>{{ artifact.storage_key }}</code></td><td><code>{{ artifact.raw_hash }}</code></td>{% if can_view_content %}<td class="text-end">{% if artifact.artifact_type == "native_backup" %}<a class="btn btn-sm btn-outline-primary" href="{% url 'plugins:netbox_config_backup:configrevision_artifact_download' pk=object.pk artifact_pk=artifact.pk %}"><i class="mdi mdi-download"></i> Download native artifact</a>{% endif %}</td>{% endif %}</tr>{% empty %}<tr><td colspan="7" class="text-muted">No artifacts.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% if can_prepare_ftp_recovery and ftp_replicas %}
+<div class="card">
+  <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <div>
+      <h2 class="card-title mb-1">Verified FTP copies</h2>
+      <p class="text-secondary mb-0">
+        Prepare a temporary ZIP from an existing FTP copy. Nothing is sent to the device.
+      </p>
+    </div>
+    <span class="badge text-bg-secondary">Manual recovery</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Destination</th>
+          <th>Copied</th>
+          <th>FTP path</th>
+          <th class="text-end">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for replica in ftp_replicas %}
+        <tr>
+          <td>{{ replica.destination|linkify }}</td>
+          <td>{{ replica.finished_at|placeholder }}</td>
+          <td><code>{{ replica.remote_path }}</code></td>
+          <td class="text-end">
+            <form method="post" action="{% url 'plugins:netbox_config_backup:configrevision_ftp_recovery_prepare' pk=object.pk replica_pk=replica.pk %}">
+              {% csrf_token %}
+              <button class="btn btn-sm btn-primary" type="submit">
+                <i class="mdi mdi-package-down" aria-hidden="true"></i>
+                Prepare verified ZIP
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-secondary">
+    The worker downloads this exact revision from FTP, verifies every file size and SHA256,
+    and keeps the ZIP for a limited time. Import to the device remains a manual operation.
+  </div>
+</div>
+{% endif %}
+{% endblock %}

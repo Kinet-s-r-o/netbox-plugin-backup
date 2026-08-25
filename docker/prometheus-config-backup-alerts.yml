@@ -1,0 +1,47 @@
+groups:
+  - name: netbox-config-backup
+    rules:
+      - alert: NetBoxConfigBackupMetricsDown
+        expr: up{job="netbox"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: NetBox configuration backup metrics are unavailable
+          description: Prometheus cannot scrape the NetBox /metrics endpoint for five minutes.
+
+      - alert: NetBoxConfigBackupFailedTargets
+        expr: netbox_config_backup_targets{status="failed"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: One or more configuration backup targets are failed
+          description: Check Config Backup Overview and the most recent failed runs.
+
+      - alert: NetBoxConfigBackupStaleTargets
+        expr: netbox_config_backup_targets{status="stale"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: One or more configuration backup targets are stale
+          description: A target has missed its expected successful-backup deadline.
+
+      - alert: NetBoxConfigBackupStuckRuns
+        expr: netbox_config_backup_stuck_runs > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: A configuration backup run is stuck
+          description: A queued or running backup exceeded the configured stuck-run timeout.
+
+      - alert: NetBoxConfigBackupNoRecentSuccess
+        expr: netbox_config_backup_last_success_timestamp_seconds == 0 or (time() - netbox_config_backup_last_success_timestamp_seconds) > 93600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: No recent successful configuration backup
+          description: No successful backup has been recorded within the last 26 hours.

@@ -1,0 +1,24 @@
+FROM alpine:3.23
+
+RUN apk add --no-cache \
+      ca-certificates \
+      jq \
+      postgresql-client \
+      restic \
+      tzdata \
+    && install -d -o 999 -g 0 -m 0700 /work /status
+
+ENV HOME=/work \
+    RESTIC_CACHE_DIR=/work/cache
+
+COPY docker/nas-backup-run /usr/local/bin/nas-backup-run
+COPY docker/nas-backup-entrypoint /usr/local/bin/nas-backup-entrypoint
+COPY docker/nas-backup-healthcheck /usr/local/bin/nas-backup-healthcheck
+COPY docker/nas-backup-restore-check /usr/local/bin/nas-backup-restore-check
+
+RUN chmod 0755 /usr/local/bin/nas-backup-*
+
+USER 999:0
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/nas-backup-entrypoint"]
+CMD ["schedule"]

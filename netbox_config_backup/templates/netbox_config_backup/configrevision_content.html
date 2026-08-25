@@ -1,0 +1,68 @@
+{% extends 'generic/object.html' %}
+
+{% block content %}
+<style>
+  .ncb-code-shell { max-height: 72vh; overflow: auto; background: var(--tblr-bg-surface-dark, #081824); }
+  .ncb-code-table { width: 100%; border-collapse: collapse; font: .82rem/1.55 var(--tblr-font-monospace, monospace); }
+  .ncb-code-table td { border: 0; vertical-align: top; }
+  .ncb-line-number { width: 1%; min-width: 4.5rem; padding: 0 .9rem; text-align: right; user-select: none; color: var(--tblr-secondary-color); border-right: 1px solid var(--tblr-border-color) !important; }
+  .ncb-code-line { padding: 0 1rem; white-space: pre; color: var(--tblr-body-color); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2 class="mb-1">Configuration preview</h2>
+    <div class="text-secondary">Redacted browser preview with integrity verification.</div>
+  </div>
+  <div class="d-flex gap-2">
+    {% for artifact in downloadable_artifacts %}
+    <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:configrevision_artifact_download' pk=object.pk artifact_pk=artifact.pk %}">
+      <i class="mdi mdi-download"></i> Download restore package
+    </a>
+    {% endfor %}
+    <a class="btn btn-secondary" href="{% url 'plugins:netbox_config_backup:configrevision_diff' pk=object.pk %}">
+      <i class="mdi mdi-file-compare"></i> Compare
+    </a>
+    <a class="btn btn-outline-secondary" href="{{ object.get_absolute_url }}">Back to revision</a>
+  </div>
+</div>
+
+{% if display_error %}
+<div class="alert alert-danger" role="alert"><i class="mdi mdi-alert-circle-outline"></i> {{ display_error }}</div>
+{% elif content %}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <div>
+      <strong>{{ content.artifact.artifact_type }}</strong>
+      <span class="text-secondary ms-2">{{ content.artifact.format }}</span>
+    </div>
+    <div class="text-secondary">
+      {{ content.lines|length }} lines
+      {% if content.truncated %}shown from {{ content.size|filesizeformat }}{% else %}{{ content.size|filesizeformat }}{% endif %}
+    </div>
+  </div>
+  <div class="ncb-code-shell">
+    <table class="ncb-code-table" aria-label="Redacted configuration">
+      <tbody>
+      {% for line in content.lines %}
+        <tr><td class="ncb-line-number">{{ line.number }}</td><td class="ncb-code-line"><code>{{ line.text }}</code></td></tr>
+      {% empty %}
+        <tr><td class="ncb-code-line text-secondary">The stored configuration is empty.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% if content.truncated %}
+<div class="alert alert-warning mt-3" role="status">
+  <i class="mdi mdi-text-box-search-outline"></i>
+  This preview shows the first {{ content.displayed_size|filesizeformat }} of {{ content.size|filesizeformat }}.
+  The complete native backup is available from the download button.
+</div>
+{% endif %}
+<div class="alert alert-info mt-3 mb-0" role="note">
+  <i class="mdi mdi-shield-check-outline"></i>
+  Sensitive assignments are redacted for display. The stored artifact itself is not modified.
+</div>
+{% endif %}
+{% endblock %}
