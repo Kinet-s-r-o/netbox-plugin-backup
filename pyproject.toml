@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,7 @@ name = "netbox-config-backup"
 version = "0.4.0"
 description = "A NetBox plugin for auditable network device configuration backups."
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12,<3.15"
 dependencies = [
   "asyncssh>=2.21,<3",

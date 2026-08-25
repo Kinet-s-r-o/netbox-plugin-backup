@@ -520,3 +520,8 @@ docker compose -p netbox-config-backup-test `
   -f .\docker\docker-compose.integration.yml `
   down
 ```
+
+## License
+
+NetBox Config Backup is licensed under the
+[Apache License 2.0](LICENSE).
