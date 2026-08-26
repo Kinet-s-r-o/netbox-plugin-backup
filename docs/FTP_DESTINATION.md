@@ -51,11 +51,11 @@ plugin falls back to `device-<NetBox ID>`. Existing replicas created by older
 versions remain in their original directories.
 
 The primary backup file uses the same readable device-and-time stem, for
-example `core-router-01_2026-08-26_12-35-08-123456Z.txt`. Supporting artifacts
-append their artifact type before the original extension. The `Z` suffix means
-UTC; microseconds keep names unique even when backups are created close
-together. Existing FTP replicas keep their older UUID paths and filenames and
-remain fully supported by integrity audits and recovery downloads.
+example `core-router-01_2026-08-26_12-35-08.txt`. Supporting artifacts append
+their artifact type before the original extension. Timestamps use UTC and are
+shown to whole-second precision. Existing FTP replicas keep their older UUID
+paths and filenames and remain fully supported by integrity audits and recovery
+downloads.
 
 A `_netbox_manifest.json` file records the device name and ID, remote device
 directory, revision UUID, driver, sizes, and SHA-256 hashes. Uploads use a

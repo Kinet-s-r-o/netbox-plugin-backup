@@ -55,7 +55,7 @@ def backup_creation_timestamp(created_at: datetime) -> str:
     """Format one revision creation time for a portable FTP path segment."""
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=UTC)
-    return created_at.astimezone(UTC).strftime("%Y-%m-%d_%H-%M-%S-%fZ")
+    return created_at.astimezone(UTC).strftime("%Y-%m-%d_%H-%M-%S")
 
 
 def ftp_revision_destination_path(

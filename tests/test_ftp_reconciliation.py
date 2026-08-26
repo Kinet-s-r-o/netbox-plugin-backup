@@ -108,7 +108,7 @@ class FtpReconciliationTests(unittest.TestCase):
 
         expected = _expected_revision_files(replica.revision, readable_names=True)
 
-        self.assertEqual(expected[0].filename, "router-01_2026-08-24_10-00-00-000000Z.txt")
+        self.assertEqual(expected[0].filename, "router-01_2026-08-24_10-00-00.txt")
         self.assertEqual(expected[-1].filename, "_netbox_manifest.json")
         manifest = _build_manifest(
             replica.revision,

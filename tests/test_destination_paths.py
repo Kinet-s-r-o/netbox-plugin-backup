@@ -52,7 +52,7 @@ class DestinationPathTests(unittest.TestCase):
             123456,
             tzinfo=timezone(timedelta(hours=2)),
         )
-        stem = "core-router-01_2026-08-26_12-35-08-123456Z"
+        stem = "core-router-01_2026-08-26_12-35-08"
 
         self.assertEqual(backup_filename_stem("core-router-01", 187, created), stem)
         self.assertEqual(
@@ -63,7 +63,7 @@ class DestinationPathTests(unittest.TestCase):
                 created_at=created,
             ),
             "/netbox-config-backup/devices/core-router-01/backups/"
-            "2026-08-26_12-35-08-123456Z",
+            "2026-08-26_12-35-08",
         )
 
 
