@@ -1,9 +1,9 @@
-# Internal FTP destination
+# Internal FTP storage
 
-An FTP destination creates an additional immutable copy of configuration
+An FTP storage creates an additional immutable copy of configuration
 artifacts after the primary backup has completed. It is different from a
 **native backup receiver**: a receiver accepts an export pushed by a device,
-while the FTP destination receives an already completed Config Backup revision
+while the FTP storage receives an already completed Config Backup revision
 from the worker.
 
 An unavailable FTP server never changes a successful device backup to failed.
@@ -13,20 +13,35 @@ state and retry schedule.
 FTP is unencrypted. Use this feature only on an isolated, trusted internal
 management network.
 
-## Configure the destination
+## Storages in the UI
+
+**Config Backup → Storages** always contains one system-managed **Local
+storage**. It represents the deployment's configured `storage_root`, is always
+enabled, and cannot be deleted, disabled, or converted to FTP. Administrators
+can add one or more FTP storages as independent secondary locations.
+
+The Local storage and each FTP storage may have their own typed retention
+policy. A selected policy is normally a fallback for devices which do not have
+an override. **Always use this storage's retention profile** makes it mandatory
+for that storage and ignores the corresponding device override.
+
+## Configure an FTP storage
 
 1. Create a dedicated password account on the FTP server. Restrict it to one
    directory and do not grant administrator access.
 2. In **Config Backup → Settings → Credentials**, create an encrypted database
    password credential or a supported environment reference.
-3. Open **Settings → FTP destination → Add**.
+3. Open **Config Backup → Storages → Add**. The Add form creates an FTP
+   storage; the protected Local storage is created only by the plugin.
 4. Enter the server, port, remote base directory, credential profile, timeouts,
    retry limits, and artifact size limit. Port 21 is the normal FTP default;
    use a different port when the server is configured for it.
-5. Confirm that the destination is on a trusted internal network. FTP sends
+5. Confirm that the storage is on a trusted internal network. FTP sends
    credentials and configuration data without transport encryption.
-6. Leave **Copy new revisions automatically** enabled for normal operation.
-7. Save and select **Test FTP destination**.
+6. Optionally choose this storage's FTP retention fallback and decide whether
+   it must be enforced for every device.
+7. Leave **Copy new revisions automatically** enabled for normal operation.
+8. Save and select **Test FTP storage**.
 
 The test creates a unique probe file, reads it back, verifies its content, and
 deletes it. A successful test therefore confirms TCP connectivity,
@@ -34,13 +49,13 @@ authentication, directory creation, upload, download, verification, and
 deletion.
 
 Use **Copy existing revisions** once when historical revisions must also be
-sent to a new or emptied destination. This action queues only revisions which
-do not yet have a replica record for the destination.
+sent to a new or emptied storage. This action queues only revisions which do
+not yet have a replica record for the storage.
 
-After the first copy is recorded, the destination host, port, base path, and
+After the first copy is recorded, the storage host, port, base path, and
 credential-profile assignment are locked. This prevents retention from
 following an edited record to a different server or directory. Rotate the
-password inside the assigned credential profile; create a new destination when
+password inside the assigned credential profile; create a new storage when
 moving to another FTP endpoint.
 
 ## Remote layout and integrity
@@ -87,7 +102,7 @@ creating a duplicate revision.
 
 ## Retry and repair
 
-- Failed copies retain a safe error code and message on the FTP destination
+- Failed copies retain a safe error code and message on the FTP storage
   detail page.
 - Automatic retries follow the configured retry count and delay.
 - An operator can select **Retry** for a failed revision copy.
@@ -97,29 +112,36 @@ creating a duplicate revision.
 
 ## FTP retention
 
-FTP retention is independent from local retention. Assign an **FTP retention
-profile** on each backup device whose remote history should be cleaned up. The
-device's FTP profile applies to its copies on every configured automatic FTP
-destination. Leaving the profile empty means **keep FTP copies indefinitely**;
-the local retention profile is never reused implicitly for FTP.
+FTP retention is independent from Local retention and is planned separately for
+every FTP storage. The effective profile for one device on one FTP storage is
+selected in this exact order:
 
-The profile's maximum is the number of remote **revisions** retained for one
-backup device. It does not count each physical artifact or each destination as
-a separate item: a revision copied to several FTP destinations consumes one
-position in the retention plan.
+1. the FTP storage policy when **Always use this storage's retention profile**
+   is enabled;
+2. the device's FTP retention override;
+3. the FTP storage's retention fallback;
+4. no policy, which means keep copies indefinitely.
+
+The Local or backup-policy retention is never reused implicitly for FTP. An FTP
+profile's `max_copies_per_target` is the maximum number of remote **revisions
+for one device on one FTP storage**. Artifact files inside a revision do not
+count separately. If a revision is copied to two FTP storages, it consumes one
+position in each storage's independent plan.
 
 Use **Retention preview** on the backup device before applying either scope.
-The preview lists local artifacts/runs and FTP revision copies separately. A
-protected revision and the latest usable revision remain protected in both
-locations. Pending, queued, running, and retryable failed transfers are not
-remote cleanup candidates. An exhausted failed transfer which still has a
-recorded remote path is included: a previous copy or partial repair may still
-exist at that exact path and must not become an untracked orphan. Copies on a
-disabled FTP destination are left untouched until that destination is enabled
-again; disabling a destination is therefore a deletion kill switch.
+The preview lists Local artifacts/runs and every FTP storage plan separately,
+including whether the effective policy came from storage enforcement, a device
+override, or the storage fallback. A protected revision and the latest usable
+revision remain protected in every location. Pending, queued, running, and
+retryable failed transfers are not remote cleanup candidates. An exhausted
+failed transfer which still has a recorded remote path is included: a previous
+copy or partial repair may still exist at that exact path and must not become
+an untracked orphan. Copies on a disabled FTP storage are left untouched until
+that storage is enabled again; disabling it is therefore a deletion kill
+switch.
 
 FTP cleanup deletes only the recorded immutable revision directory below the
-destination's configured base path. It does not connect to the network device
+storage's configured base path. It does not connect to the network device
 and it does not alter the local artifact. The operation is irreversible because
 FTP has no quarantine or recycle bin. A partial or unavailable-server failure
 is retained as an auditable, retryable cleanup result; it does not change the
@@ -127,11 +149,13 @@ status of the original device backup.
 
 Automatic FTP cleanup has its own opt-in switch under **Config Backup →
 Settings** and is disabled by default. Enabling automatic local cleanup does
-not enable FTP cleanup. Existing installations and devices without an FTP
-profile therefore keep all existing remote copies after an upgrade.
+not enable FTP cleanup. After an upgrade, existing FTP storages have no storage
+policy and enforcement is disabled; existing device overrides keep their
+behavior. A device/storage pair with no effective FTP policy keeps all remote
+copies indefinitely.
 
 Before the first FTP cleanup on an existing installation, run the read-only
-integrity audit on every destination and resolve every missing or mismatched
+integrity audit on every FTP storage and resolve every missing or mismatched
 historical replica recorded as successful. Do this before assigning/enabling a
 cleanup schedule; retention is not a substitute for inventory verification.
 
@@ -146,16 +170,16 @@ permanent audit log.
 
 ## Automatic FTP integrity audit
 
-Open an FTP destination and enable **Run integrity audits automatically**.
+Open an FTP storage and enable **Run integrity audits automatically**.
 Choose a daily or weekly schedule and a start time. The time is interpreted in
 the NetBox server timezone displayed by the UI.
 
-The scheduler queues at most one active audit per destination. The backup
+The scheduler queues at most one active audit per storage. The backup
 worker downloads every artifact belonging to a successful replica and compares
 its size and SHA-256 hash with the NetBox record. The audit is read-only: it
 does not upload, rename, or delete remote files.
 
-The last result and the next scheduled run are shown on the destination detail
+The last result and the next scheduled run are shown on the storage detail
 and list pages. Automatic auditing is disabled by default. A manual audit is
 available through **Check stored copies**.
 
@@ -172,7 +196,7 @@ temporary ZIP only if every check succeeds. The ZIP also contains
 download is recorded in the NetBox Job data with user and time.
 
 The action requires view permission for the revision, all its artifacts, the
-replica, and the FTP destination. It never connects to a device and has no
+replica, and the FTP storage. It never connects to a device and has no
 restore/import/apply operation. Native recovery remains vendor-specific and is
 performed manually by an authorized operator.
 
@@ -197,7 +221,7 @@ removes its database objects, local artifacts, and unique remote test directory
 afterwards.
 
 The test requires the backup worker and exactly one enabled automatic FTP
-destination. Run it from the `netbox-docker` directory in PowerShell:
+storage. Run it from the `netbox-docker` directory in PowerShell:
 
 ```powershell
 Get-Content C:\dev\netbox-plugin-backup\tests\integration\docker_ftp_e2e_smoke.py -Raw |

@@ -29,7 +29,9 @@ class ReplicationDispatchSummary:
 def create_revision_replicas(revision_id: int) -> int:
     """Create and queue replicas only after the primary revision transaction commits."""
     destination_ids = BackupDestination.objects.filter(
-        enabled=True, auto_replicate=True
+        enabled=True,
+        auto_replicate=True,
+        protocol=DestinationProtocolChoices.FTP,
     ).values_list("pk", flat=True)
     created_ids: list[int] = []
     for destination_id in destination_ids:
@@ -53,7 +55,11 @@ def ensure_revision_replicas(revision_id: int) -> int:
     or no longer matches its recorded size/hash.
     """
 
-    destinations = BackupDestination.objects.filter(enabled=True, auto_replicate=True)
+    destinations = BackupDestination.objects.filter(
+        enabled=True,
+        auto_replicate=True,
+        protocol=DestinationProtocolChoices.FTP,
+    )
     queued = 0
     for destination in destinations:
         replica, created = RevisionReplica.objects.get_or_create(
@@ -100,6 +106,8 @@ def enqueue_revision_replica(replica_id: int, *, user=None, force: bool = False)
     replica = (
         RevisionReplica.objects.select_for_update().select_related("destination").get(pk=replica_id)
     )
+    if replica.destination.protocol != DestinationProtocolChoices.FTP:
+        return None
     if not replica.destination.enabled:
         return None
     if replica.remote_deleted_at is not None:
@@ -162,7 +170,12 @@ def execute_revision_replica(replica_id: int):
 @transaction.atomic
 def _mark_running(replica_id: int) -> RevisionReplica:
     replica = (
-        RevisionReplica.objects.select_for_update()
+        # credential_profile is nullable for the protected Local storage. Even
+        # though replicas are FTP-only, PostgreSQL sees the select_related()
+        # credential join as nullable and refuses FOR UPDATE on that side of
+        # the outer join. Lock only the replica row; related values remain
+        # eagerly loaded for the transport.
+        RevisionReplica.objects.select_for_update(of=("self",))
         .select_related(
             "destination__credential_profile",
             "revision__target__device",
@@ -277,6 +290,7 @@ def dispatch_due_replicas(*, limit: int = 100) -> ReplicationDispatchSummary:
     candidate_ids = list(
         RevisionReplica.objects.filter(
             destination__enabled=True,
+            destination__protocol=DestinationProtocolChoices.FTP,
             remote_deleted_at__isnull=True,
         )
         .filter(
@@ -323,6 +337,8 @@ def reconcile_stale_replicas(*, stale_after_minutes: int = 120) -> int:
 
 
 def backfill_destination(destination: BackupDestination, *, user=None, limit: int = 1000) -> int:
+    if destination.protocol != DestinationProtocolChoices.FTP:
+        raise ValueError("Only FTP storage can receive revision replicas.")
     revision_ids = (
         ConfigRevision.objects.filter(artifacts__local_available=True)
         .exclude(replicas__destination=destination)

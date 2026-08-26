@@ -269,13 +269,6 @@
           <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
         </a>
         {% endif %}
-        {% if perms.netbox_config_backup.view_backupdestination %}
-        <a class="settings-link" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">
-          <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-server-network"></i></span>
-          <span class="settings-link-copy"><strong>FTP destination</strong><span>Copy completed revisions to the internal FTP server.</span></span>
-          <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-        </a>
-        {% endif %}
       </div>
 
       <details class="settings-advanced">

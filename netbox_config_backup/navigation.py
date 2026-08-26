@@ -17,6 +17,11 @@ menu = PluginMenu(
                     permissions=("netbox_config_backup.view_backuptarget",),
                 ),
                 PluginMenuItem(
+                    link="plugins:netbox_config_backup:backupdestination_list",
+                    link_text="Storages",
+                    permissions=("netbox_config_backup.view_backupdestination",),
+                ),
+                PluginMenuItem(
                     link="plugins:netbox_config_backup:backuprun_list",
                     link_text="Runs",
                     permissions=("netbox_config_backup.view_backuprun",),

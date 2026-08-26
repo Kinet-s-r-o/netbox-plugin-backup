@@ -8,7 +8,7 @@
     {% if local_policy and can_apply_retention and local_plan.revisions_to_delete or local_policy and can_apply_retention and local_plan.runs_to_delete %}
     <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_retention_cleanup' pk=object.pk %}"><i class="mdi mdi-delete-clock-outline"></i> Apply local retention</a>
     {% endif %}
-    {% if remote_policy and can_apply_remote_retention and remote_plan.revisions_to_delete %}
+    {% if remote_has_policy and can_apply_remote_retention and remote_revisions_to_delete %}
     <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_remote_retention_cleanup' pk=object.pk %}"><i class="mdi mdi-server-minus-outline"></i> Apply FTP retention</a>
     {% endif %}
     <a class="btn btn-outline-secondary" href="{{ object.get_absolute_url }}"><i class="mdi mdi-arrow-left"></i> Back to device</a>
@@ -19,10 +19,10 @@
 
 <h3 class="mt-4">Local storage and run history</h3>
 {% if not local_policy %}
-<div class="alert alert-warning">Assign a local retention profile to this device first.</div>
+<div class="alert alert-warning">No Local retention profile is configured on the device, backup policy, or Local storage. Local history is kept indefinitely.</div>
 {% else %}
 <div class="row row-cards mb-3">
-  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Local profile</div><div class="h3 mb-0">{{ local_policy|linkify }}</div></div></div></div>
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Local profile</div><div class="h3 mb-0">{{ local_policy|linkify }}</div><div class="small text-secondary">{{ local_policy_source }}</div></div></div></div>
   <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Revisions kept</div><div class="h3 mb-0 text-success">{{ local_plan.revisions_to_keep }}</div></div></div></div>
   <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Local revisions expired</div><div class="h3 mb-0 text-danger">{{ local_plan.revisions_to_delete }}</div><div class="text-secondary">{{ expired_artifact_count }} artifacts · {{ expired_artifact_bytes|filesizeformat }}</div></div></div></div>
   <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Runs kept / expired</div><div class="h3 mb-0"><span class="text-success">{{ local_plan.runs_to_keep }}</span> / <span class="text-danger">{{ local_plan.runs_to_delete }}</span></div></div></div></div>
@@ -38,19 +38,20 @@
 {% endif %}
 
 <h3 class="mt-4">Remote FTP copies</h3>
-<p class="text-secondary">Only available copies on enabled FTP destinations participate in this plan. Disabling a destination pauses its automatic deletion.</p>
-{% if not remote_policy %}
-<div class="alert alert-secondary">No FTP retention profile is assigned. Existing FTP copies are kept indefinitely and automatic FTP cleanup skips this device.</div>
-{% else %}
-<div class="row row-cards mb-3">
-  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">FTP profile</div><div class="h3 mb-0">{{ remote_policy|linkify }}</div></div></div></div>
-  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Revisions kept</div><div class="h3 mb-0 text-success">{{ remote_plan.revisions_to_keep }}</div></div></div></div>
-  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Revisions expired</div><div class="h3 mb-0 text-danger">{{ remote_plan.revisions_to_delete }}</div></div></div></div>
-  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">FTP copies / bytes expired</div><div class="h3 mb-0 text-danger">{{ remote_expired_copy_count }}</div><div class="text-secondary">{{ remote_expired_bytes|filesizeformat }}</div></div></div></div>
+<p class="text-secondary">Only available copies on enabled FTP storages participate in this plan. Disabling a storage pauses its automatic deletion.</p>
+{% for item in remote_storage_plans %}
+<div class="card mb-3">
+  <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+    <h2 class="card-title mb-0"><i class="mdi mdi-server-network"></i> {{ item.storage|linkify }}</h2>
+    <div>{% if item.policy %}{{ item.policy|linkify }} <span class="badge text-bg-secondary">{{ item.policy_source }}</span>{% else %}<span class="badge text-bg-secondary">Keep indefinitely</span>{% endif %}</div>
+  </div>
+  {% if item.plan %}
+  <div class="card-body py-2"><span class="text-success me-3">{{ item.plan.revisions_to_keep }} kept</span><span class="text-danger me-3">{{ item.plan.revisions_to_delete }} expired</span><span class="text-secondary">{{ item.expired_copy_count }} copies · {{ item.expired_bytes|filesizeformat }}</span></div>
+  <div class="table-responsive"><table class="table table-vcenter table-hover mb-0">
+    <thead><tr><th>Created</th><th>Revision</th><th>Copies</th><th>Protected</th><th>Decision</th><th>Reason</th></tr></thead>
+    <tbody>{% for revision, decision, replicas in item.revision_rows %}<tr><td>{{ revision.created }}</td><td><a href="{{ revision.get_absolute_url }}"><code>{{ revision.revision_uuid }}</code></a></td><td>{{ replicas|length }}</td><td>{{ revision.protected|yesno:"Yes,No" }}</td><td>{% if decision.keep %}<span class="badge text-bg-success">Keep</span>{% else %}<span class="badge text-bg-danger">Delete from this storage</span>{% endif %}</td><td>{% for reason in decision.reasons %}<span class="badge text-bg-secondary me-1">{{ reason }}</span>{% endfor %}</td></tr>{% empty %}<tr><td colspan="6" class="text-secondary">No active FTP copies.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="card-body text-secondary">No effective profile. Copies on this storage are kept indefinitely.</div>{% endif %}
 </div>
-<div class="card"><h2 class="card-header"><i class="mdi mdi-server-network"></i> FTP revision copies</h2><div class="table-responsive"><table class="table table-vcenter table-hover mb-0">
-  <thead><tr><th>Created</th><th>Revision</th><th>Available copies</th><th>Protected</th><th>Decision</th><th>Reason</th></tr></thead>
-  <tbody>{% for revision, decision, replicas in remote_revision_rows %}<tr><td>{{ revision.created }}</td><td><a href="{{ revision.get_absolute_url }}"><code>{{ revision.revision_uuid }}</code></a></td><td>{{ replicas|length }}</td><td>{{ revision.protected|yesno:"Yes,No" }}</td><td>{% if decision.keep %}<span class="badge text-bg-success">Keep on FTP</span>{% else %}<span class="badge text-bg-danger">Delete from FTP</span>{% endif %}</td><td>{% for reason in decision.reasons %}<span class="badge text-bg-secondary me-1">{{ reason }}</span>{% endfor %}</td></tr>{% empty %}<tr><td colspan="6" class="text-secondary">No active FTP copies.</td></tr>{% endfor %}</tbody>
-</table></div></div>
-{% endif %}
+{% empty %}<div class="alert alert-secondary">No active copies exist on an enabled FTP storage.</div>{% endfor %}
 {% endblock %}

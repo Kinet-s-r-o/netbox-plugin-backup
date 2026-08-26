@@ -2,7 +2,7 @@
 
 ## Supported release line
 
-Security fixes are applied to the current `0.5.x` release line. The supported
+Security fixes are applied to the current `0.6.x` release line. The supported
 NetBox and Python versions are listed in [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ## Reporting a vulnerability

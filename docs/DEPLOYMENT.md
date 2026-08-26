@@ -13,7 +13,7 @@ Install the wheel into NetBox's virtual environment. A source checkout also
 works, but a pinned wheel is recommended for production.
 
 ```shell
-/opt/netbox/venv/bin/pip install netbox_config_backup-0.5.0-py3-none-any.whl
+/opt/netbox/venv/bin/pip install netbox_config_backup-0.6.0-py3-none-any.whl
 ```
 
 The package installs its runtime dependencies, including Netmiko, Paramiko,
@@ -24,7 +24,7 @@ For netbox-docker, build a non-editable image directly from the repository:
 ```shell
 docker build -f docker/Dockerfile.release \
   --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
-  -t netbox-config-backup:0.5.0 .
+  -t netbox-config-backup:0.6.0 .
 ```
 
 Use that same image for the NetBox web, normal worker, dedicated backup worker,
@@ -116,27 +116,43 @@ including development deployments which bind-mount changed Python source.
 Local and FTP retention use the same dedicated backup queue but are dispatched
 independently. In **Config Backup > Settings**, enable the local scheduler and
 FTP scheduler separately only after reviewing representative device previews.
-Both schedulers are disabled by default. An upgrade preserves existing local
-policy assignments and leaves the FTP retention profile empty, which keeps all
-existing remote copies indefinitely.
+Both schedulers are disabled by default.
+
+The storage-profile migration creates exactly one protected **Local storage**
+row representing the deployment's configured `storage_root`. It is always
+enabled and cannot be deleted, disabled, or changed to FTP. Existing FTP rows
+remain FTP storages with their transport and replication behavior unchanged.
+Their new retention-policy fields are empty and policy enforcement is disabled,
+so the migration alone cannot make existing history eligible for deletion.
 
 Before enabling FTP cleanup for the first time on an upgraded installation,
-run the read-only integrity audit for every destination. Resolve each missing
+run the read-only integrity audit for every FTP storage. Resolve each missing
 object, size/hash mismatch, and unexpected path among historical replica rows
 recorded as successful before assigning/enabling FTP cleanup.
 
-Each backup device selects its own local and FTP retention profiles. The local
-profile controls primary artifacts, revision history, and completed run
-records. The FTP profile controls successful remote copies on all automatic FTP
-destinations for that device. A protected revision and the latest usable copy
-are retained in both scopes.
+Retention is resolved separately for the Local storage and for every FTP
+storage. A storage policy is normally a fallback; **Always use this storage's
+retention profile** makes it mandatory and prevents device overrides. The exact
+precedence is:
 
-FTP cleanup requires the destination account to delete files and remove the
+1. Local: enforced storage policy, device Local override, backup-policy
+   retention, Local-storage fallback, then keep indefinitely.
+2. Each FTP storage: enforced storage policy, device FTP override, that
+   storage's fallback, then keep indefinitely.
+
+The Local policy controls primary artifacts, revision history, and completed
+run records. Each FTP plan controls only copies on that FTP storage. The
+`max_copies_per_target` limit therefore applies per device per FTP storage: one
+revision on two storages consumes one slot on each, while multiple artifact
+files in the revision still consume one slot. A protected revision and the
+latest usable copy are retained in every scope.
+
+FTP cleanup requires the storage account to delete files and remove the
 unique revision directory in addition to the upload, download, listing, rename,
 and directory-creation operations used by normal replication and testing.
-Grant these rights only inside the destination's dedicated chroot/base path.
+Grant these rights only inside the storage's dedicated chroot/base path.
 The plugin validates the recorded path before deletion and never deletes the
-destination base, device directory, or unrelated objects.
+storage base, device directory, or unrelated objects.
 
 FTP deletion has no quarantine and is irreversible. Failed or partial deletion
 is recorded and retried safely; it never changes a successful BackupRun to
@@ -187,7 +203,7 @@ Compose files. Put the two master-key variables into the existing protected
 and adjust the published receiver port when needed:
 
 ```shell
-NETBOX_IMAGE=netbox-config-backup:0.5.0 docker compose \
+NETBOX_IMAGE=netbox-config-backup:0.6.0 docker compose \
   -f docker-compose.yml \
   -f /path/to/netbox-plugin-backup/docker/docker-compose.receiver.yml \
   up -d
@@ -280,11 +296,17 @@ Before enabling schedules:
 4. Verify that the resulting ZIP revision is downloadable/viewable only by the
    intended NetBox roles.
 5. Enable schedules gradually and monitor Failed, Stale, and Stuck counts.
-6. Assign different local and FTP retention profiles to a test device, inspect
-   both preview sections, and verify that protected/latest revisions are kept.
-7. Enable local and FTP automatic cleanup separately. Confirm that a device
-   without an FTP profile keeps its remote copies and that an expired test copy
-   is not recreated by an unchanged backup.
+6. Verify **Config Backup > Storages** contains exactly one enabled default Local
+   storage which cannot be deleted. Configure a fallback policy on a test FTP
+   storage and inspect its retention preview.
+7. Test both storage modes: with enforcement disabled, confirm the device
+   override wins; with **Always use this storage's retention profile** enabled,
+   confirm the storage policy wins. Verify protected/latest revisions are kept.
+8. If two FTP storages are available, verify their plans and
+   `max_copies_per_target` counts are independent for the same device.
+9. Enable local and FTP automatic cleanup separately. Confirm that a
+   device/storage pair with no effective FTP policy keeps its copies and that an
+   expired test copy is not recreated by an unchanged backup.
 
 For upgrades, back up PostgreSQL, the backup-storage volume, the receiver host
 key, and the master key. Install the same new wheel everywhere, run migrations

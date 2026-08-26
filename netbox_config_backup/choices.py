@@ -39,6 +39,7 @@ class ReceiverProtocolChoices(models.TextChoices):
 
 
 class DestinationProtocolChoices(models.TextChoices):
+    LOCAL = "local", "Local (primary storage)"
     SFTP = "sftp", "SFTP (recommended, encrypted)"
     FTP = "ftp", "FTP (unencrypted)"
 

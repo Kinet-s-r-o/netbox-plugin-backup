@@ -11,11 +11,12 @@ from django.db.models import Q
 from django.utils import timezone
 
 from netbox_config_backup.choices import ReplicaStatusChoices, RunStatusChoices
-from netbox_config_backup.models import BackupRun, BackupTarget, RevisionReplica
+from netbox_config_backup.models import BackupDestination, BackupRun, BackupTarget, RevisionReplica
 
 from .retention import (
     RevisionCandidate,
     build_retention_plan,
+    effective_remote_retention_policy,
     settings_from_remote_policy,
 )
 
@@ -38,7 +39,7 @@ def dispatch_expired_remote_targets(
     now: datetime | None = None,
     limit: int = 25,
 ) -> RemoteRetentionDispatchSummary:
-    """Queue FTP cleanup only for devices with an explicit remote profile."""
+    """Queue FTP cleanup for targets expired on at least one FTP storage."""
 
     if limit <= 0:
         raise ValueError("FTP retention dispatcher limit must be positive.")
@@ -46,7 +47,15 @@ def dispatch_expired_remote_targets(
     summary = RemoteRetentionDispatchSummary()
     content_type = ContentType.objects.get_for_model(BackupTarget)
     candidate_ids = (
-        BackupTarget.objects.filter(remote_retention_policy__isnull=False)
+        BackupTarget.objects.filter(
+            Q(remote_retention_policy__isnull=False)
+            | Q(
+                revisions__replicas__destination__protocol="ftp",
+                revisions__replicas__destination__enabled=True,
+                revisions__replicas__destination__remote_retention_policy__isnull=False,
+            )
+        )
+        .distinct()
         .order_by("pk")
         .values_list("pk", flat=True)
     )
@@ -77,43 +86,60 @@ def dispatch_expired_remote_targets(
                     summary.skipped_active_cleanup += 1
                     continue
 
-                candidate_revision_ids = (
-                    RevisionReplica.objects.filter(
-                        revision__target=target,
-                        destination__protocol="ftp",
-                        destination__enabled=True,
-                        remote_deleted_at__isnull=True,
+                destinations = (
+                    BackupDestination.objects.filter(
+                        protocol="ftp",
+                        enabled=True,
+                        replicas__revision__target=target,
+                        replicas__remote_deleted_at__isnull=True,
                     )
-                    .filter(
-                        Q(status=ReplicaStatusChoices.SUCCESS, remote_available=True)
-                        | Q(
-                            status=ReplicaStatusChoices.FAILED,
-                            remote_path__gt="",
-                            next_retry_at__isnull=True,
+                    .select_related("remote_retention_policy")
+                    .distinct()
+                )
+                target_expired = False
+                for destination in destinations:
+                    policy = effective_remote_retention_policy(target, destination)
+                    if policy is None:
+                        continue
+                    candidate_revision_ids = (
+                        RevisionReplica.objects.filter(
+                            revision__target=target,
+                            destination=destination,
+                            remote_deleted_at__isnull=True,
+                        )
+                        .filter(
+                            Q(status=ReplicaStatusChoices.SUCCESS, remote_available=True)
+                            | Q(
+                                status=ReplicaStatusChoices.FAILED,
+                                remote_path__gt="",
+                                next_retry_at__isnull=True,
+                            )
+                        )
+                        .values_list("revision_id", flat=True)
+                    )
+                    revisions = list(
+                        target.revisions.filter(pk__in=candidate_revision_ids).order_by(
+                            "-created", "-pk"
                         )
                     )
-                    .values_list("revision_id", flat=True)
-                )
-                revisions = list(
-                    target.revisions.filter(pk__in=candidate_revision_ids).order_by(
-                        "-created", "-pk"
+                    plan = build_retention_plan(
+                        settings_from_remote_policy(policy),
+                        revisions=(
+                            RevisionCandidate(
+                                object_id=revision.pk,
+                                created=revision.created,
+                                protected=revision.protected,
+                                content_changed=revision.content_changed,
+                            )
+                            for revision in revisions
+                        ),
+                        runs=(),
+                        now=now,
                     )
-                )
-                plan = build_retention_plan(
-                    settings_from_remote_policy(target.remote_retention_policy),
-                    revisions=(
-                        RevisionCandidate(
-                            object_id=revision.pk,
-                            created=revision.created,
-                            protected=revision.protected,
-                            content_changed=revision.content_changed,
-                        )
-                        for revision in revisions
-                    ),
-                    runs=(),
-                    now=now,
-                )
-                if not plan.revisions_to_delete:
+                    if plan.revisions_to_delete:
+                        target_expired = True
+                        break
+                if not target_expired:
                     continue
                 summary.expired += 1
 

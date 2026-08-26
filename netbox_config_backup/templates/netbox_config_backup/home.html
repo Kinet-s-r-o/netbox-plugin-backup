@@ -11,7 +11,7 @@
       Backup freshness, active run health, and recent failures.
     </p>
   </div>
-  {% if perms.netbox_config_backup.add_backuptarget %}
+  {% if perms.netbox_config_backup.add_backuptarget and can_add_target %}
   <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:backuptarget_add' %}">
     <i class="mdi mdi-plus-thick" aria-hidden="true"></i> Add device
   </a>
@@ -109,14 +109,14 @@
           {% endif %}
         </div>
         <div class="text-secondary mt-1">
-          {{ ftp_healthy_destination_count }} of {{ ftp_enabled_destination_count }} enabled destinations healthy ·
+          {{ ftp_healthy_destination_count }} of {{ ftp_enabled_destination_count }} enabled FTP storages healthy ·
           {{ ftp_automatic_audit_count }} automatic audit{{ ftp_automatic_audit_count|pluralize }}
           {% if ftp_next_audit_at %} · next {{ ftp_next_audit_at }}{% endif %}
         </div>
       </div>
     </div>
     <a class="btn btn-outline-primary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">
-      View FTP destinations
+      View storages
     </a>
   </div>
   {% if recent_ftp_failures %}

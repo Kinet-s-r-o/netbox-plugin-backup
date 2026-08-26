@@ -17,6 +17,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.generic import FormView, TemplateView, View
+from netbox.object_actions import AddObject, BulkExport
 from netbox.views import generic
 from utilities.forms import BulkDeleteForm, DeleteForm
 from utilities.jobs import is_background_request, process_request_as_job
@@ -86,7 +87,11 @@ from .services.retention import (
     RevisionCandidate,
     RunCandidate,
     build_retention_plan,
+    effective_local_retention_policy,
+    effective_remote_retention_policy,
     effective_retention_policy,
+    local_retention_policy_source,
+    remote_retention_policy_source,
     settings_from_policy,
     settings_from_remote_policy,
 )
@@ -204,6 +209,7 @@ class ConfigBackupHomeView(PermissionRequiredMixin, LoginRequiredMixin, Template
                 "recent_ftp_failures": period_replicas.filter(status="failed").select_related(
                     "destination", "revision__target__device"
                 )[:5],
+                "can_add_target": _can_assign_target_retention(self.request.user),
             }
         )
         return context
@@ -378,7 +384,18 @@ def _remote_retention_replicas(target):
 
 
 def _retention_preview_context(target, *, now, user=None):
-    local_policy = effective_retention_policy(target)
+    local_storages = BackupDestination.objects.filter(
+        protocol=DestinationProtocolChoices.LOCAL,
+        is_default=True,
+    ).select_related("local_retention_policy")
+    if user is not None:
+        local_storages = local_storages.restrict(user, "view")
+    local_storage = local_storages.first()
+    local_policy = (
+        effective_local_retention_policy(target, local_storage)
+        if local_storage is not None
+        else effective_retention_policy(target)
+    )
     revisions_queryset = (
         target.revisions.filter(artifacts__local_available=True)
         .distinct()
@@ -429,49 +446,84 @@ def _retention_preview_context(target, *, now, user=None):
         if artifact.local_available
     )
 
-    remote_policy = target.remote_retention_policy
     available_ftp_replicas = _remote_retention_replicas(target).select_related("destination")
     if user is not None:
         available_ftp_replicas = available_ftp_replicas.restrict(user, "view")
-    remote_revisions_queryset = (
-        target.revisions.filter(pk__in=available_ftp_replicas.values("revision_id"))
-        .prefetch_related(
-            Prefetch(
-                "replicas",
-                queryset=available_ftp_replicas,
-                to_attr="available_ftp_replicas",
-            )
+    ftp_storages = (
+        BackupDestination.objects.filter(
+            protocol=DestinationProtocolChoices.FTP,
+            enabled=True,
+            replicas__in=available_ftp_replicas,
         )
-        .order_by("-created")
+        .select_related("remote_retention_policy")
+        .distinct()
     )
     if user is not None:
-        remote_revisions_queryset = remote_revisions_queryset.restrict(user, "view")
-    remote_revisions = list(remote_revisions_queryset)
-    remote_plan = None
-    if remote_policy is not None:
-        remote_plan = build_retention_plan(
-            settings_from_remote_policy(remote_policy),
-            revisions=(
-                RevisionCandidate(
-                    object_id=revision.pk,
-                    created=revision.created,
-                    protected=revision.protected,
-                    content_changed=revision.content_changed,
-                )
-                for revision in remote_revisions
-            ),
-            runs=(),
-            now=now,
-        )
-    remote_revision_by_id = {revision.pk: revision for revision in remote_revisions}
-    remote_rows = []
+        ftp_storages = ftp_storages.restrict(user, "view")
+    remote_storage_plans = []
     remote_expired_bytes = 0
-    for decision in remote_plan.revision_decisions if remote_plan else ():
-        revision = remote_revision_by_id[decision.object_id]
-        available_replicas = tuple(revision.available_ftp_replicas)
-        if not decision.keep:
-            remote_expired_bytes += sum(replica.bytes_transferred for replica in available_replicas)
-        remote_rows.append((revision, decision, available_replicas))
+    remote_expired_copy_count = 0
+    remote_revisions_to_delete = 0
+    remote_has_policy = False
+    for storage in ftp_storages.order_by("name"):
+        storage_replicas = available_ftp_replicas.filter(destination=storage)
+        storage_revisions_queryset = (
+            target.revisions.filter(pk__in=storage_replicas.values("revision_id"))
+            .prefetch_related(
+                Prefetch(
+                    "replicas",
+                    queryset=storage_replicas,
+                    to_attr="available_storage_replicas",
+                )
+            )
+            .order_by("-created")
+        )
+        if user is not None:
+            storage_revisions_queryset = storage_revisions_queryset.restrict(user, "view")
+        storage_revisions = list(storage_revisions_queryset)
+        policy = effective_remote_retention_policy(target, storage)
+        plan = None
+        if policy is not None:
+            remote_has_policy = True
+            plan = build_retention_plan(
+                settings_from_remote_policy(policy),
+                revisions=(
+                    RevisionCandidate(
+                        object_id=revision.pk,
+                        created=revision.created,
+                        protected=revision.protected,
+                        content_changed=revision.content_changed,
+                    )
+                    for revision in storage_revisions
+                ),
+                runs=(),
+                now=now,
+            )
+        revision_by_id_for_storage = {revision.pk: revision for revision in storage_revisions}
+        storage_rows = []
+        storage_expired_bytes = 0
+        storage_expired_copies = 0
+        for decision in plan.revision_decisions if plan else ():
+            revision = revision_by_id_for_storage[decision.object_id]
+            replicas = tuple(revision.available_storage_replicas)
+            if not decision.keep:
+                storage_expired_bytes += sum(replica.bytes_transferred for replica in replicas)
+                storage_expired_copies += len(replicas)
+            storage_rows.append((revision, decision, replicas))
+        remote_expired_bytes += storage_expired_bytes
+        remote_expired_copy_count += storage_expired_copies
+        remote_revisions_to_delete += plan.revisions_to_delete if plan else 0
+        remote_storage_plans.append(
+            {
+                "storage": storage,
+                "policy": policy,
+                "policy_source": remote_retention_policy_source(target, storage),
+                "plan": plan,
+                "revision_rows": tuple(storage_rows),
+                "expired_bytes": storage_expired_bytes,
+                "expired_copy_count": storage_expired_copies,
+            }
+        )
 
     return {
         # Compatibility aliases used by the existing local confirmation view.
@@ -488,14 +540,18 @@ def _retention_preview_context(target, *, now, user=None):
         "expired_artifact_count": len(expired_artifacts),
         "expired_artifact_bytes": sum(artifact.size for artifact in expired_artifacts),
         "local_policy": local_policy,
-        "local_plan": local_plan,
-        "remote_policy": remote_policy,
-        "remote_plan": remote_plan,
-        "remote_revision_rows": tuple(remote_rows),
-        "remote_expired_bytes": remote_expired_bytes,
-        "remote_expired_copy_count": sum(
-            len(replicas) for _revision, decision, replicas in remote_rows if not decision.keep
+        "local_storage": local_storage,
+        "local_policy_source": (
+            local_retention_policy_source(target, local_storage)
+            if local_storage is not None
+            else "Device configuration"
         ),
+        "local_plan": local_plan,
+        "remote_has_policy": remote_has_policy,
+        "remote_storage_plans": tuple(remote_storage_plans),
+        "remote_revisions_to_delete": remote_revisions_to_delete,
+        "remote_expired_bytes": remote_expired_bytes,
+        "remote_expired_copy_count": remote_expired_copy_count,
     }
 
 
@@ -763,26 +819,55 @@ class CredentialProfileDeleteView(generic.ObjectDeleteView):
 @register_model_view(BackupDestination, "list", path="", detail=False)
 class BackupDestinationListView(generic.ObjectListView):
     queryset = BackupDestination.objects.filter(
-        protocol=DestinationProtocolChoices.FTP
-    ).select_related("credential_profile")
+        protocol__in=(DestinationProtocolChoices.LOCAL, DestinationProtocolChoices.FTP)
+    ).select_related(
+        "credential_profile",
+        "local_retention_policy",
+        "remote_retention_policy",
+    )
     table = tables.BackupDestinationTable
+    # Per-row edit/delete controls below understand the protected Local row.
+    # Omitting bulk mutation also prevents selecting the system storage for a
+    # generic bulk-delete or bulk-edit request.
+    actions = (AddObject, BulkExport)
 
 
 @register_model_view(BackupDestination)
 class BackupDestinationView(generic.ObjectView):
     queryset = BackupDestination.objects.filter(
-        protocol=DestinationProtocolChoices.FTP
-    ).select_related("credential_profile")
+        protocol__in=(DestinationProtocolChoices.LOCAL, DestinationProtocolChoices.FTP)
+    ).select_related(
+        "credential_profile",
+        "local_retention_policy",
+        "remote_retention_policy",
+    )
     template_name = "netbox_config_backup/backupdestination.html"
 
+    def get_permitted_actions(self, user, model=None):
+        actions = super().get_permitted_actions(user, model=model)
+        if getattr(model, "protocol", None) == DestinationProtocolChoices.LOCAL:
+            # A Local storage may be edited only to select its retention
+            # profile/precedence. It cannot be cloned or deleted.
+            return tuple(action for action in actions if action.name not in {"add", "delete"})
+        return actions
+
     def get_extra_context(self, request, instance):
-        replicas = instance.replicas.restrict(request.user, "view").select_related(
-            "revision__target__device"
-        )[:25]
+        is_ftp = instance.protocol == DestinationProtocolChoices.FTP
+        replicas = (
+            instance.replicas.restrict(request.user, "view").select_related(
+                "revision__target__device"
+            )[:25]
+            if is_ftp
+            else RevisionReplica.objects.none()
+        )
         latest_reconciliation_job = (
             DestinationReconciliationJob.get_jobs(instance).order_by("-created").first()
+            if is_ftp
+            else None
         )
         return {
+            "is_local_storage": not is_ftp,
+            "is_ftp_storage": is_ftp,
             "replicas": replicas,
             "latest_reconciliation_job": latest_reconciliation_job,
             "latest_reconciliation": (
@@ -790,11 +875,16 @@ class BackupDestinationView(generic.ObjectView):
                 if latest_reconciliation_job
                 else None
             ),
-            "audit_schedule_form": forms.FtpIntegrityAuditScheduleForm(instance=instance),
+            "audit_schedule_form": (
+                forms.FtpIntegrityAuditScheduleForm(instance=instance) if is_ftp else None
+            ),
             "audit_timezone": settings.TIME_ZONE,
-            "can_test": request.user.has_perm("netbox_config_backup.change_backupdestination"),
-            "can_reconcile": request.user.has_perm("netbox_config_backup.change_backupdestination"),
-            "can_backfill": request.user.has_perms(
+            "can_test": is_ftp
+            and request.user.has_perm("netbox_config_backup.change_backupdestination"),
+            "can_reconcile": is_ftp
+            and request.user.has_perm("netbox_config_backup.change_backupdestination"),
+            "can_backfill": is_ftp
+            and request.user.has_perms(
                 (
                     "netbox_config_backup.change_backupdestination",
                     "netbox_config_backup.add_revisionreplica",
@@ -807,13 +897,56 @@ class BackupDestinationView(generic.ObjectView):
 @register_model_view(BackupDestination, "add", detail=False)
 @register_model_view(BackupDestination, "edit")
 class BackupDestinationEditView(generic.ObjectEditView):
-    queryset = BackupDestination.objects.filter(protocol=DestinationProtocolChoices.FTP)
+    queryset = BackupDestination.objects.filter(
+        protocol__in=(DestinationProtocolChoices.LOCAL, DestinationProtocolChoices.FTP)
+    )
     form = forms.BackupDestinationForm
+
+    def form_valid(self, form):
+        if form.instance.pk:
+            original = BackupDestination.objects.get(pk=form.instance.pk)
+            protocol = original.protocol
+            local_changed = protocol == DestinationProtocolChoices.LOCAL and (
+                original.local_retention_policy_id
+                != getattr(form.cleaned_data.get("local_retention_policy"), "pk", None)
+                or original.enforce_retention_policy
+                != form.cleaned_data.get("enforce_retention_policy", False)
+            )
+            remote_changed = protocol == DestinationProtocolChoices.FTP and (
+                original.remote_retention_policy_id
+                != getattr(form.cleaned_data.get("remote_retention_policy"), "pk", None)
+                or original.enforce_retention_policy
+                != form.cleaned_data.get("enforce_retention_policy", False)
+            )
+        else:
+            local_changed = False
+            remote_changed = bool(
+                form.cleaned_data.get("remote_retention_policy")
+                or form.cleaned_data.get("enforce_retention_policy")
+            )
+        _assert_target_retention_assignment_permissions(
+            self.request.user,
+            local_retention_changed=local_changed,
+            remote_retention_changed=remote_changed,
+        )
+        return super().form_valid(form)
 
 
 @register_model_view(BackupDestination, "delete")
 class BackupDestinationDeleteView(generic.ObjectDeleteView):
-    queryset = BackupDestination.objects.filter(protocol=DestinationProtocolChoices.FTP)
+    queryset = BackupDestination.objects.filter(
+        protocol=DestinationProtocolChoices.FTP,
+        is_default=False,
+    )
+
+
+@register_model_view(BackupDestination, "bulk_delete", detail=False)
+class BackupDestinationBulkDeleteView(generic.BulkDeleteView):
+    queryset = BackupDestination.objects.filter(
+        protocol=DestinationProtocolChoices.FTP,
+        is_default=False,
+    )
+    table = tables.BackupDestinationTable
 
 
 @register_model_view(BackupDestination, "test_connection", path="test-connection")
@@ -1078,7 +1211,7 @@ class RevisionReplicaRetryView(PermissionRequiredMixin, LoginRequiredMixin, View
         if job:
             messages.success(request, "The FTP replication retry was queued.")
         else:
-            messages.warning(request, "The FTP destination is disabled.")
+            messages.warning(request, "The FTP storage is disabled.")
         return redirect(destination.get_absolute_url())
 
 
@@ -1173,6 +1306,12 @@ class BackupTargetListView(generic.ObjectListView):
     filterset = filtersets.BackupTargetFilterSet
     filterset_form = forms.BackupTargetFilterForm
 
+    def get_permitted_actions(self, user, model=None):
+        actions = super().get_permitted_actions(user, model=model)
+        if not _can_assign_target_retention(user):
+            return tuple(action for action in actions if action.name != "add")
+        return actions
+
 
 @register_model_view(BackupTarget)
 class BackupTargetView(generic.ObjectView):
@@ -1192,6 +1331,19 @@ class BackupTargetView(generic.ObjectView):
     def get_extra_context(self, request, instance):
         now = timezone.now()
         plugin_settings = settings.PLUGINS_CONFIG["netbox_config_backup"]
+        local_storage = (
+            BackupDestination.objects.filter(
+                protocol=DestinationProtocolChoices.LOCAL,
+                is_default=True,
+            )
+            .select_related("local_retention_policy")
+            .first()
+        )
+        local_policy = (
+            effective_local_retention_policy(instance, local_storage)
+            if local_storage is not None
+            else None
+        )
         visible_runs = instance.runs.all().restrict(request.user, "view")
         visible_revisions = instance.revisions.all().restrict(request.user, "view")
         health = evaluate_target_health(
@@ -1212,6 +1364,12 @@ class BackupTargetView(generic.ObjectView):
             "latest_failure": latest_failure,
             "stuck_run": stuck_run,
             "stuck_run_minutes": plugin_settings["stale_run_minutes"],
+            "effective_local_policy": local_policy,
+            "effective_local_policy_source": (
+                local_retention_policy_source(instance, local_storage)
+                if local_storage is not None
+                else "Keep indefinitely"
+            ),
             "can_run": request.user.has_perm("netbox_config_backup.add_backuprun"),
             "can_test": request.user.has_perm("netbox_config_backup.add_backuprun"),
             "can_preview_retention": request.user.has_perms(
@@ -1221,6 +1379,7 @@ class BackupTargetView(generic.ObjectView):
                     "netbox_config_backup.view_retentionpolicy",
                     "netbox_config_backup.view_remoteretentionpolicy",
                     "netbox_config_backup.view_revisionreplica",
+                    "netbox_config_backup.view_backupdestination",
                 )
             ),
         }
@@ -1286,16 +1445,30 @@ def _assert_target_retention_assignment_permissions(
             "netbox_config_backup.delete_configartifact",
             "netbox_config_backup.delete_configrevision",
             "netbox_config_backup.delete_backuprun",
+            "netbox_config_backup.delete_revisionreplica",
         )
     ):
         raise PermissionDenied
     if remote_retention_changed and not user.has_perms(
         (
+            "netbox_config_backup.delete_configartifact",
             "netbox_config_backup.delete_revisionreplica",
             "netbox_config_backup.delete_configrevision",
         )
     ):
         raise PermissionDenied
+
+
+def _can_assign_target_retention(user) -> bool:
+    try:
+        _assert_target_retention_assignment_permissions(
+            user,
+            local_retention_changed=True,
+            remote_retention_changed=False,
+        )
+    except PermissionDenied:
+        return False
+    return True
 
 
 @register_model_view(BackupTarget, "add", detail=False)
@@ -1309,10 +1482,20 @@ class BackupTargetQuickSetupView(LoginRequiredMixin, PermissionRequiredMixin, Fo
         "netbox_config_backup.add_storedcredential",
         "netbox_config_backup.add_backuppolicy",
         "netbox_config_backup.add_retentionpolicy",
+        "netbox_config_backup.change_operationalsettings",
+        "netbox_config_backup.delete_backuprun",
+        "netbox_config_backup.delete_configartifact",
+        "netbox_config_backup.delete_configrevision",
+        "netbox_config_backup.delete_revisionreplica",
     )
     raise_exception = True
 
     def form_valid(self, form):
+        _assert_target_retention_assignment_permissions(
+            self.request.user,
+            local_retention_changed=True,
+            remote_retention_changed=bool(form.cleaned_data.get("remote_retention_days")),
+        )
         if form.cleaned_data.get("remote_retention_days") and not self.request.user.has_perm(
             "netbox_config_backup.add_remoteretentionpolicy"
         ):
@@ -1919,6 +2102,7 @@ class BackupTargetRetentionPreviewView(PermissionRequiredMixin, LoginRequiredMix
         "netbox_config_backup.view_retentionpolicy",
         "netbox_config_backup.view_remoteretentionpolicy",
         "netbox_config_backup.view_revisionreplica",
+        "netbox_config_backup.view_backupdestination",
     )
     raise_exception = True
     template_name = "netbox_config_backup/retention_preview.html"
@@ -1933,7 +2117,8 @@ class BackupTargetRetentionPreviewView(PermissionRequiredMixin, LoginRequiredMix
             ),
             pk=pk,
         )
-        policy = effective_retention_policy(target)
+        context = _retention_preview_context(target, now=timezone.now(), user=request.user)
+        policy = context["local_policy"]
         if (
             policy
             and not RetentionPolicy.objects.restrict(request.user, "view")
@@ -1941,17 +2126,21 @@ class BackupTargetRetentionPreviewView(PermissionRequiredMixin, LoginRequiredMix
             .exists()
         ):
             raise PermissionDenied
-        if (
-            target.remote_retention_policy_id
-            and not RemoteRetentionPolicy.objects.restrict(request.user, "view")
-            .filter(pk=target.remote_retention_policy_id)
-            .exists()
-        ):
-            raise PermissionDenied
         active_ftp_replicas = _remote_retention_replicas(target)
         if not _queryset_fully_permitted(active_ftp_replicas, request.user, "view"):
             raise PermissionDenied
-        context = _retention_preview_context(target, now=timezone.now(), user=request.user)
+        visible_remote_policy_ids = {
+            item["policy"].pk
+            for item in context["remote_storage_plans"]
+            if item["policy"] is not None
+        }
+        if visible_remote_policy_ids and (
+            RemoteRetentionPolicy.objects.restrict(request.user, "view")
+            .filter(pk__in=visible_remote_policy_ids)
+            .count()
+            != len(visible_remote_policy_ids)
+        ):
+            raise PermissionDenied
         revisions = target.revisions.all()
         runs = target.runs.all()
         artifacts = ConfigArtifact.objects.filter(revision__target=target)
@@ -1959,20 +2148,32 @@ class BackupTargetRetentionPreviewView(PermissionRequiredMixin, LoginRequiredMix
             {
                 "object": target,
                 "can_apply_retention": (
-                    _queryset_fully_permitted(revisions, request.user, "delete")
+                    request.user.has_perm("netbox_config_backup.delete_revisionreplica")
+                    and _queryset_fully_permitted(
+                        RevisionReplica.objects.filter(revision__target=target),
+                        request.user,
+                        "delete",
+                    )
+                    and _queryset_fully_permitted(revisions, request.user, "delete")
                     and _queryset_fully_permitted(runs, request.user, "delete")
                     and _queryset_fully_permitted(artifacts, request.user, "delete")
                 ),
                 "can_apply_remote_retention": (
                     request.user.has_perm("netbox_config_backup.delete_revisionreplica")
                     and request.user.has_perm("netbox_config_backup.delete_configrevision")
+                    and request.user.has_perm("netbox_config_backup.delete_configartifact")
                     and _queryset_fully_permitted(
-                        _remote_retention_replicas(target),
+                        RevisionReplica.objects.filter(revision__target=target),
                         request.user,
                         "delete",
                     )
                     and _queryset_fully_permitted(
                         target.revisions.all(),
+                        request.user,
+                        "delete",
+                    )
+                    and _queryset_fully_permitted(
+                        ConfigArtifact.objects.filter(revision__target=target),
                         request.user,
                         "delete",
                     )
@@ -1996,6 +2197,7 @@ class BackupTargetRetentionCleanupView(PermissionRequiredMixin, LoginRequiredMix
         "netbox_config_backup.delete_configrevision",
         "netbox_config_backup.delete_configartifact",
         "netbox_config_backup.delete_backuprun",
+        "netbox_config_backup.delete_revisionreplica",
     )
     raise_exception = True
     template_name = "netbox_config_backup/retention_cleanup_confirm.html"
@@ -2018,12 +2220,29 @@ class BackupTargetRetentionCleanupView(PermissionRequiredMixin, LoginRequiredMix
             (target.runs.all(), "view"),
             (target.runs.all(), "delete"),
             (ConfigArtifact.objects.filter(revision__target=target), "delete"),
+            (RevisionReplica.objects.filter(revision__target=target), "delete"),
         )
         if not all(
             _queryset_fully_permitted(queryset, request.user, action) for queryset, action in checks
         ):
             raise PermissionDenied
         policy = effective_retention_policy(target)
+        local_storage = (
+            BackupDestination.objects.filter(
+                protocol=DestinationProtocolChoices.LOCAL,
+                is_default=True,
+            )
+            .select_related("local_retention_policy")
+            .first()
+        )
+        if local_storage is not None:
+            if (
+                not BackupDestination.objects.restrict(request.user, "view")
+                .filter(pk=local_storage.pk)
+                .exists()
+            ):
+                raise PermissionDenied
+            policy = effective_local_retention_policy(target, local_storage)
         if (
             policy
             and not RetentionPolicy.objects.restrict(request.user, "view")
@@ -2094,6 +2313,7 @@ class BackupTargetRemoteRetentionCleanupView(PermissionRequiredMixin, LoginRequi
         "netbox_config_backup.view_configrevision",
         "netbox_config_backup.view_remoteretentionpolicy",
         "netbox_config_backup.view_revisionreplica",
+        "netbox_config_backup.delete_configartifact",
         "netbox_config_backup.delete_revisionreplica",
         "netbox_config_backup.delete_configrevision",
     )
@@ -2114,16 +2334,37 @@ class BackupTargetRemoteRetentionCleanupView(PermissionRequiredMixin, LoginRequi
     @staticmethod
     def _assert_permissions(request, target):
         replicas = _remote_retention_replicas(target)
-        if not _queryset_fully_permitted(replicas, request.user, "delete"):
+        cascade_checks = (
+            (target.revisions.all(), "delete"),
+            (ConfigArtifact.objects.filter(revision__target=target), "delete"),
+            (RevisionReplica.objects.filter(revision__target=target), "delete"),
+        )
+        if not all(
+            _queryset_fully_permitted(queryset, request.user, action)
+            for queryset, action in cascade_checks
+        ):
             raise PermissionDenied
-        if not _queryset_fully_permitted(target.revisions.all(), request.user, "delete"):
+        storages = (
+            BackupDestination.objects.filter(
+                protocol=DestinationProtocolChoices.FTP,
+                enabled=True,
+                replicas__in=replicas,
+            )
+            .select_related("remote_retention_policy")
+            .distinct()
+        )
+        if not _queryset_fully_permitted(storages, request.user, "view"):
             raise PermissionDenied
-        policy = target.remote_retention_policy
-        if (
-            policy
-            and not RemoteRetentionPolicy.objects.restrict(request.user, "view")
-            .filter(pk=policy.pk)
-            .exists()
+        policy_ids = {
+            policy.pk
+            for storage in storages
+            if (policy := effective_remote_retention_policy(target, storage)) is not None
+        }
+        if policy_ids and (
+            RemoteRetentionPolicy.objects.restrict(request.user, "view")
+            .filter(pk__in=policy_ids)
+            .count()
+            != len(policy_ids)
         ):
             raise PermissionDenied
 
@@ -2147,10 +2388,10 @@ class BackupTargetRemoteRetentionCleanupView(PermissionRequiredMixin, LoginRequi
         if not form.is_valid():
             context.update({"object": target, "form": form})
             return render(request, self.template_name, context, status=400)
-        if context["remote_policy"] is None:
-            messages.error(request, "This device has no FTP retention profile.")
+        if not context["remote_has_policy"]:
+            messages.error(request, "No enabled FTP storage has an effective retention profile.")
             return redirect(target.get_absolute_url())
-        if not context["remote_plan"].revisions_to_delete:
+        if not context["remote_revisions_to_delete"]:
             messages.info(request, "The current FTP retention plan has nothing to delete.")
             return redirect(
                 "plugins:netbox_config_backup:backuptarget_retention_preview",

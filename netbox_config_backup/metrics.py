@@ -111,7 +111,7 @@ class ConfigBackupCollector:
         )
         yield GaugeMetricFamily(
             "netbox_config_backup_replica_destinations",
-            "Current number of external backup destinations by health state.",
+            "Current number of FTP storages by health state.",
             labels=["status"],
         )
         yield GaugeMetricFamily(
@@ -238,13 +238,11 @@ class ConfigBackupCollector:
         yield latest_success
 
         destination_counts = {state: 0 for state in DESTINATION_STATES}
-        for destination in BackupDestination.objects.only(
-            "enabled", "host_key_approved_at", "host_key_public", "last_error_code"
+        for destination in BackupDestination.objects.filter(protocol="ftp").only(
+            "enabled", "last_error_code"
         ):
             if not destination.enabled:
                 state = "disabled"
-            elif not destination.host_key_is_trusted:
-                state = "unverified"
             elif destination.last_error_code:
                 state = "failed"
             else:
@@ -252,7 +250,7 @@ class ConfigBackupCollector:
             destination_counts[state] += 1
         destinations = GaugeMetricFamily(
             "netbox_config_backup_replica_destinations",
-            "Current number of external backup destinations by health state.",
+            "Current number of FTP storages by health state.",
             labels=["status"],
         )
         for state in DESTINATION_STATES:

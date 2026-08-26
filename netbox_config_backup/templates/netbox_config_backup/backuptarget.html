@@ -73,12 +73,11 @@
         <tr>
           <th scope="row">Local retention</th>
           <td>
-            {% if object.retention_override %}
-              {{ object.retention_override|linkify }} <span class="text-secondary">device override</span>
-            {% elif object.policy_override and object.policy_override.retention_policy %}
-              {{ object.policy_override.retention_policy|linkify }} <span class="text-secondary">from backup policy</span>
+            {% if effective_local_policy %}
+              {{ effective_local_policy|linkify }}
+              <span class="badge text-bg-secondary">{{ effective_local_policy_source }}</span>
             {% else %}
-              <span class="text-secondary">—</span>
+              <span class="text-secondary">Keep indefinitely</span>
             {% endif %}
           </td>
         </tr>
@@ -87,8 +86,11 @@
           <td>
             {% if object.remote_retention_policy %}
               {{ object.remote_retention_policy|linkify }}
+              <span class="text-secondary">device override; an enforced storage profile wins</span>
             {% else %}
-              <span class="text-secondary">Keep indefinitely</span>
+              <span class="text-secondary">
+                Uses each FTP storage profile; a storage without a profile keeps copies indefinitely.
+              </span>
             {% endif %}
           </td>
         </tr>

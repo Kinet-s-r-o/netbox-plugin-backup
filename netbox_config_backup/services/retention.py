@@ -108,12 +108,82 @@ def settings_from_remote_policy(policy) -> RetentionSettings:
     )
 
 
-def effective_retention_policy(target):
+def effective_retention_policy(target, storage=None):
+    """Return the policy for the protected local storage.
+
+    A storage may either provide a fallback policy or enforce that policy.  The
+    optional ``storage`` argument keeps the resolver usable by the pure planner
+    tests while callers which own a database transaction can pass the locked
+    Local storage row explicitly.
+    """
+
+    if (
+        storage is not None
+        and storage.enforce_retention_policy
+        and storage.local_retention_policy_id
+    ):
+        return storage.local_retention_policy
     if target.retention_override_id:
         return target.retention_override
     if target.policy_override_id:
         return target.policy_override.retention_policy
+    if storage is not None and storage.local_retention_policy_id:
+        return storage.local_retention_policy
     return None
+
+
+def effective_local_retention_policy(target, storage):
+    """Resolve Local retention with an explicit storage row."""
+
+    return effective_retention_policy(target, storage=storage)
+
+
+def effective_remote_retention_policy(target, destination):
+    """Resolve FTP retention independently for one destination.
+
+    An enforced storage policy wins.  Otherwise the device profile remains an
+    override for backward compatibility, and the storage profile is a fallback.
+    """
+
+    if destination.enforce_retention_policy and destination.remote_retention_policy_id:
+        return destination.remote_retention_policy
+    if target.remote_retention_policy_id:
+        return target.remote_retention_policy
+    if destination.remote_retention_policy_id:
+        return destination.remote_retention_policy
+    return None
+
+
+def effective_remote_retention_policy_id(target, destination):
+    """Resolve the effective FTP policy ID without dereferencing its row."""
+
+    if destination.enforce_retention_policy and destination.remote_retention_policy_id:
+        return destination.remote_retention_policy_id
+    if target.remote_retention_policy_id:
+        return target.remote_retention_policy_id
+    return destination.remote_retention_policy_id
+
+
+def local_retention_policy_source(target, storage) -> str:
+    if storage.enforce_retention_policy and storage.local_retention_policy_id:
+        return "Storage enforced"
+    if target.retention_override_id:
+        return "Device override"
+    if target.policy_override_id:
+        return "Backup policy"
+    if storage.local_retention_policy_id:
+        return "Storage default"
+    return "Keep indefinitely"
+
+
+def remote_retention_policy_source(target, destination) -> str:
+    if destination.enforce_retention_policy and destination.remote_retention_policy_id:
+        return "Storage enforced"
+    if target.remote_retention_policy_id:
+        return "Device override"
+    if destination.remote_retention_policy_id:
+        return "Storage default"
+    return "Keep indefinitely"
 
 
 def has_recorded_remote_copy(replicas: Iterable[object]) -> bool:

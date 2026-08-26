@@ -1,17 +1,17 @@
 services:
   # Point every NetBox process at the image which contains the installed plugin.
   netbox:
-    image: ${NETBOX_IMAGE:-netbox-config-backup:0.5.0}
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.6.0}
     volumes:
       - netbox-config-backup-data:/var/lib/netbox-config-backup
 
   netbox-worker:
-    image: ${NETBOX_IMAGE:-netbox-config-backup:0.5.0}
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.6.0}
     volumes:
       - netbox-config-backup-data:/var/lib/netbox-config-backup
 
   config-backup-worker:
-    image: ${NETBOX_IMAGE:-netbox-config-backup:0.5.0}
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.6.0}
     depends_on:
       netbox:
         condition: service_healthy
@@ -28,7 +28,7 @@ services:
       - netbox-config-backup-data:/var/lib/netbox-config-backup
 
   config-backup-receiver:
-    image: ${NETBOX_IMAGE:-netbox-config-backup:0.5.0}
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.6.0}
     depends_on:
       netbox:
         condition: service_healthy
@@ -63,7 +63,7 @@ services:
   # explicitly with: docker compose --profile legacy-alfoplus up -d
   config-backup-legacy-ftp-receiver:
     profiles: ["legacy-alfoplus"]
-    image: ${NETBOX_IMAGE:-netbox-config-backup:0.5.0}
+    image: ${NETBOX_IMAGE:-netbox-config-backup:0.6.0}
     depends_on:
       netbox:
         condition: service_healthy

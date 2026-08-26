@@ -29,7 +29,7 @@ procedure. A direct installation is also possible:
 
 ```shell
 sudo /opt/netbox/venv/bin/python -m pip install \
-  /path/to/netbox_config_backup-0.5.0-py3-none-any.whl
+  /path/to/netbox_config_backup-0.6.0-py3-none-any.whl
 ```
 
 For netbox-docker, build the non-editable release image:
@@ -37,7 +37,7 @@ For netbox-docker, build the non-editable release image:
 ```shell
 docker build -f docker/Dockerfile.release \
   --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
-  -t netbox-config-backup:0.5.0 .
+  -t netbox-config-backup:0.6.0 .
 ```
 
 Use this same image for `netbox`, the normal NetBox worker, and the dedicated
@@ -123,23 +123,30 @@ replication, audit, and recovery jobs use NetBox's background job system.
    users deliberately.
 3. Create a credential profile and verify that the master-key status is
    current.
-4. Create connection and platform mappings, or use **Add device** for one test
-   device.
+4. As a Config Backup Administrator, create connection and platform mappings,
+   or use **Add device** for one test device. Quick Setup assigns a Local
+   retention policy and therefore requires retention/runtime authority.
 5. Use **Save & test connection** before enabling automatic scheduling.
 6. Run one manual backup and verify the revision content and download
    permissions with a non-superuser account.
-7. If required, add an internal FTP destination, test it, and only then enable
-   automatic replication and integrity audits.
-8. On each backup device, select the **Local retention profile**. Select an
-   independent **FTP retention profile** only when remote copies should be
-   removed automatically. An empty FTP profile keeps remote copies indefinitely.
-9. Review the device's retention preview. Enable the local cleanup scheduler
+7. Open **Config Backup → Storages** and verify the system-managed **Local
+   storage**. It represents `storage_root`, is always enabled, and cannot be
+   deleted or changed to FTP.
+8. If required, add an internal FTP storage, optionally select its FTP retention
+   policy, test it, and only then enable automatic replication and integrity
+   audits. Enable **Always use this storage's retention profile** only when
+   devices must not override that storage policy.
+9. Use the Local and FTP retention selections on a backup device only as
+   overrides. With enforcement disabled, a blank device selection falls back
+   to the corresponding storage policy; with no effective policy, history is
+   kept indefinitely.
+10. Review the device's retention preview. Enable the local cleanup scheduler
    only after confirming its local plan; its default completed-run ceiling is
    500 per device.
-10. On an existing installation, run the read-only integrity audit on every FTP
-    destination and resolve all missing or mismatched historical replicas
+11. On an existing installation, run the read-only integrity audit on every FTP
+    storage and resolve all missing or mismatched historical replicas
     recorded as successful.
-11. Review the FTP plan separately before enabling the FTP cleanup scheduler.
+12. Review every FTP storage plan separately before enabling the FTP cleanup scheduler.
     FTP deletion is irreversible and the FTP scheduler is a separate opt-in;
     enabling local cleanup never enables it.
 
@@ -161,13 +168,17 @@ Confirm that:
 - every plugin migration is marked `[X]`;
 - the web process and both worker types use the same plugin version;
 - the artifact directory is writable only by the service account;
+- **Storages** contains exactly one enabled, undeletable default Local storage;
 - a connection test and a real backup both finish successfully;
 - only authorized NetBox users can view or download revision content;
 - an FTP test creates and removes its probe object;
 - a real revision is copied to FTP and passes the integrity audit.
-- a retention preview clearly separates local and FTP decisions;
-- devices without an FTP retention profile keep their remote copies;
-- protected and latest revisions are kept in both retention scopes.
+- a retention preview clearly separates Local and each FTP storage decision;
+- a device/FTP-storage pair with neither an override nor a storage policy keeps
+  its remote copies indefinitely;
+- `max_copies_per_target` is enforced independently for each device on each FTP
+  storage;
+- protected and latest revisions are kept in every applicable storage scope.
 
 Before enabling or re-enabling automatic FTP cleanup after an upgrade, run the
 read-only FTP integrity audit and resolve every missing object, hash mismatch,

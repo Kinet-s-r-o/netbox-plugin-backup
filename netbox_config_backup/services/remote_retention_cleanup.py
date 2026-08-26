@@ -12,6 +12,7 @@ from netbox_config_backup.models import (
     BackupRun,
     BackupTarget,
     ConfigRevision,
+    RemoteRetentionPolicy,
     RevisionReplica,
 )
 
@@ -20,6 +21,7 @@ from .destination_types import DestinationError
 from .retention import (
     RevisionCandidate,
     build_retention_plan,
+    effective_remote_retention_policy_id,
     settings_from_remote_policy,
 )
 
@@ -63,11 +65,6 @@ def execute_remote_retention_cleanup(
                 .select_related("remote_retention_policy")
                 .get(pk=target_id)
             )
-            policy = target.remote_retention_policy
-            if policy is None:
-                raise RemoteRetentionCleanupError(
-                    "The backup target has no FTP retention profile. FTP copies are kept indefinitely."
-                )
             if BackupRun.objects.filter(
                 target=target,
                 status__in=(RunStatusChoices.QUEUED, RunStatusChoices.RUNNING),
@@ -76,39 +73,13 @@ def execute_remote_retention_cleanup(
                     "FTP retention cannot run while the target has an active backup."
                 )
 
-            candidate_revision_ids = (
-                RevisionReplica.objects.filter(
-                    revision__target=target,
-                    destination__protocol="ftp",
-                    destination__enabled=True,
-                    remote_deleted_at__isnull=True,
-                )
-                .filter(
-                    Q(
-                        status=ReplicaStatusChoices.SUCCESS,
-                        remote_available=True,
-                    )
-                    | Q(
-                        status=ReplicaStatusChoices.FAILED,
-                        remote_path__gt="",
-                        next_retry_at__isnull=True,
-                    )
-                )
-                .values_list("revision_id", flat=True)
-            )
-            revisions = list(
-                ConfigRevision.objects.select_for_update()
-                .filter(target=target, pk__in=candidate_revision_ids)
-                .prefetch_related("artifacts")
-                .order_by("-created", "-pk")
-            )
             # Serialize retention with enqueue/retry workers. Without row locks,
             # a retry can upload while retention is deleting the same path and
             # then clear the tombstone in _mark_success().
             locked_replicas = list(
                 RevisionReplica.objects.select_for_update()
                 .filter(
-                    revision_id__in=(revision.pk for revision in revisions),
+                    revision__target=target,
                     destination__protocol="ftp",
                     remote_deleted_at__isnull=True,
                 )
@@ -121,35 +92,53 @@ def execute_remote_retention_cleanup(
             # object cache with the locked, current row. This makes disabling
             # a destination a real deletion kill switch without introducing a
             # replica/destination lock-order inversion.
+            destination_ids = {replica.destination_id for replica in locked_replicas}
             locked_destinations = (
-                BackupDestination.objects.select_for_update()
-                .filter(pk__in={replica.destination_id for replica in locked_replicas})
+                BackupDestination.objects.select_for_update(of=("self",))
+                .select_related("remote_retention_policy")
+                .filter(pk__in=destination_ids, protocol="ftp")
+                .order_by("pk")
                 .in_bulk()
             )
             for replica in locked_replicas:
                 replica.destination = locked_destinations[replica.destination_id]
-            replicas_by_revision: dict[int, list[RevisionReplica]] = {}
-            for replica in locked_replicas:
-                replicas_by_revision.setdefault(replica.revision_id, []).append(replica)
-            plan = build_retention_plan(
-                settings_from_remote_policy(policy),
-                revisions=(
-                    RevisionCandidate(
-                        object_id=revision.pk,
-                        created=revision.created,
-                        protected=revision.protected,
-                        content_changed=revision.content_changed,
-                    )
-                    for revision in revisions
-                ),
-                runs=(),
-                now=generated_at,
-            )
-            expired_ids = {
-                decision.object_id for decision in plan.revision_decisions if not decision.keep
-            }
 
-            revision_count = 0
+            # A retention profile controls irreversible FTP deletion. Lock
+            # every effective row before calculating a plan so an administrator
+            # cannot change its windows or cap halfway through cleanup.
+            policy_ids_by_destination = {
+                destination_id: effective_remote_retention_policy_id(target, destination)
+                for destination_id, destination in locked_destinations.items()
+            }
+            locked_policies = (
+                RemoteRetentionPolicy.objects.select_for_update()
+                .filter(
+                    pk__in={
+                        policy_id
+                        for policy_id in policy_ids_by_destination.values()
+                        if policy_id is not None
+                    }
+                )
+                .order_by("pk")
+                .in_bulk()
+            )
+            replicas_by_destination: dict[int, dict[int, list[RevisionReplica]]] = {}
+            for replica in locked_replicas:
+                replicas_by_destination.setdefault(replica.destination_id, {}).setdefault(
+                    replica.revision_id, []
+                ).append(replica)
+
+            revisions = list(
+                ConfigRevision.objects.select_for_update()
+                .filter(
+                    target=target,
+                    pk__in={replica.revision_id for replica in locked_replicas},
+                )
+                .prefetch_related("artifacts", "replicas")
+                .order_by("-created", "-pk")
+            )
+            revision_by_id = {revision.pk: revision for revision in revisions}
+
             replica_count = 0
             cancelled_replica_count = 0
             deleted_file_count = 0
@@ -158,30 +147,26 @@ def execute_remote_retention_cleanup(
             removed_directory_count = 0
             deferred_revision_count = 0
             completed_revision_ids: set[int] = set()
+            configured_policy_count = 0
 
-            for revision in revisions:
-                if revision.pk not in expired_ids:
+            for destination_id, destination in locked_destinations.items():
+                if not destination.enabled:
                     continue
-                revision_replicas = replicas_by_revision.get(revision.pk, [])
-                if any(
-                    replica.destination.enabled
-                    and (
-                        replica.status
-                        in (ReplicaStatusChoices.QUEUED, ReplicaStatusChoices.RUNNING)
-                        or (
-                            replica.status == ReplicaStatusChoices.FAILED
-                            and replica.next_retry_at is not None
-                        )
+                policy_id = policy_ids_by_destination[destination_id]
+                if policy_id is None:
+                    continue
+                policy = locked_policies.get(policy_id)
+                if policy is None:
+                    raise RemoteRetentionCleanupError(
+                        "The effective FTP retention policy no longer exists."
                     )
-                    for replica in revision_replicas
-                ):
-                    deferred_revision_count += 1
-                    continue
-                replicas = [
-                    replica
-                    for replica in revision_replicas
-                    if replica.destination.enabled
-                    and (
+                configured_policy_count += 1
+                replicas_by_revision = replicas_by_destination.get(destination_id, {})
+                candidate_revisions = [
+                    revision_by_id[revision_id]
+                    for revision_id, replicas in replicas_by_revision.items()
+                    if revision_id in revision_by_id
+                    and any(
                         (
                             replica.status == ReplicaStatusChoices.SUCCESS
                             and replica.remote_available
@@ -191,37 +176,87 @@ def execute_remote_retention_cleanup(
                             and replica.remote_path
                             and replica.next_retry_at is None
                         )
+                        for replica in replicas
                     )
                 ]
-                # The candidate may have changed while this transaction was
-                # waiting for its row lock. Never create a tombstone unless a
-                # confirmed available copy was locked and is still eligible.
-                if not replicas:
-                    continue
-
-                for replica in replicas:
-                    result = delete_revision_replica_ftp(replica)
-                    replica_count += 1
-                    deleted_file_count += result.deleted_file_count
-                    missing_file_count += result.missing_file_count
-                    deleted_bytes += result.deleted_bytes
-                    removed_directory_count += int(result.directory_removed)
-
-                    replica.remote_available = False
-                    replica.remote_deleted_at = generated_at
-                    replica.next_retry_at = None
-                    replica.job_id = None
-                    replica.save(
-                        update_fields=(
-                            "remote_available",
-                            "remote_deleted_at",
-                            "next_retry_at",
-                            "job_id",
-                            "last_updated",
+                plan = build_retention_plan(
+                    settings_from_remote_policy(policy),
+                    revisions=(
+                        RevisionCandidate(
+                            object_id=revision.pk,
+                            created=revision.created,
+                            protected=revision.protected,
+                            content_changed=revision.content_changed,
                         )
-                    )
-                revision_count += 1
-                completed_revision_ids.add(revision.pk)
+                        for revision in candidate_revisions
+                    ),
+                    runs=(),
+                    now=generated_at,
+                )
+                expired_ids = {
+                    decision.object_id for decision in plan.revision_decisions if not decision.keep
+                }
+
+                for revision_id in expired_ids:
+                    revision_replicas = replicas_by_revision.get(revision_id, [])
+                    if any(
+                        replica.status
+                        in (ReplicaStatusChoices.QUEUED, ReplicaStatusChoices.RUNNING)
+                        or (
+                            replica.status == ReplicaStatusChoices.FAILED
+                            and replica.next_retry_at is not None
+                        )
+                        for replica in revision_replicas
+                    ):
+                        deferred_revision_count += 1
+                        continue
+                    replicas = [
+                        replica
+                        for replica in revision_replicas
+                        if (
+                            replica.status == ReplicaStatusChoices.SUCCESS
+                            and replica.remote_available
+                        )
+                        or (
+                            replica.status == ReplicaStatusChoices.FAILED
+                            and replica.remote_path
+                            and replica.next_retry_at is None
+                        )
+                    ]
+                    # The candidate may have changed while this transaction was
+                    # waiting for its row lock. Never create a tombstone unless a
+                    # confirmed available copy was locked and is still eligible.
+                    if not replicas:
+                        continue
+
+                    for replica in replicas:
+                        result = delete_revision_replica_ftp(replica)
+                        replica_count += 1
+                        deleted_file_count += result.deleted_file_count
+                        missing_file_count += result.missing_file_count
+                        deleted_bytes += result.deleted_bytes
+                        removed_directory_count += int(result.directory_removed)
+
+                        replica.remote_available = False
+                        replica.remote_deleted_at = generated_at
+                        replica.next_retry_at = None
+                        replica.job_id = None
+                        replica.save(
+                            update_fields=(
+                                "remote_available",
+                                "remote_deleted_at",
+                                "next_retry_at",
+                                "job_id",
+                                "last_updated",
+                            )
+                        )
+                    completed_revision_ids.add(revision_id)
+
+            if configured_policy_count == 0:
+                raise RemoteRetentionCleanupError(
+                    "No enabled FTP storage has an effective retention policy. "
+                    "FTP copies are kept indefinitely."
+                )
 
             metadata_revision_ids = {
                 revision.pk
@@ -252,7 +287,7 @@ def execute_remote_retention_cleanup(
 
             return RemoteRetentionCleanupSummary(
                 target_id=target.pk,
-                revision_count=revision_count,
+                revision_count=len(completed_revision_ids),
                 replica_count=replica_count,
                 cancelled_replica_count=cancelled_replica_count,
                 deleted_file_count=deleted_file_count,

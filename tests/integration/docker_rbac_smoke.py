@@ -76,6 +76,7 @@ try:
     operator.groups.add(Group.objects.get(name="Config Backup Operators"))
     client = Client()
     client.force_login(operator)
+    assert b"Add device" not in client.get("/plugins/config-backup/").content
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 200
     assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 200
     assert operator.has_perm("netbox_config_backup.view_remoteretentionpolicy")
@@ -123,6 +124,7 @@ try:
     administrator.groups.add(Group.objects.get(name="Config Backup Administrators"))
     client = Client()
     client.force_login(administrator)
+    assert b"Add device" in client.get("/plugins/config-backup/").content
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 200
     assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 200
     assert administrator.has_perm("netbox_config_backup.add_remoteretentionpolicy")

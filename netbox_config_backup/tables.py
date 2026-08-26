@@ -1,4 +1,5 @@
 import django_tables2 as tables
+from django.utils.html import format_html
 from netbox.tables import NetBoxTable, columns
 
 from .models import (
@@ -37,15 +38,33 @@ TEST_CONNECTION_BUTTON = """
 """
 
 TEST_DESTINATION_BUTTON = """
-{% if perms.netbox_config_backup.view_backupdestination and perms.netbox_config_backup.change_backupdestination %}
-<button type="submit" class="btn btn-sm btn-outline-info" title="Test destination"
-        aria-label="Test destination {{ record.name }}"
+{% if record.protocol == 'ftp' and perms.netbox_config_backup.view_backupdestination and perms.netbox_config_backup.change_backupdestination %}
+<button type="submit" class="btn btn-sm btn-outline-info" title="Test storage"
+        aria-label="Test storage {{ record.name }}"
         formaction="{% url 'plugins:netbox_config_backup:backupdestination_test_connection' pk=record.pk %}"
         formmethod="post" formnovalidate>
   <i class="mdi mdi-lan-connect"></i>
 </button>
 {% endif %}
 """
+
+STORAGE_ACTION_BUTTONS = (
+    TEST_DESTINATION_BUTTON
+    + """
+{% if perms.netbox_config_backup.change_backupdestination %}
+<a class="btn btn-sm btn-warning" title="Edit storage"
+   href="{% url 'plugins:netbox_config_backup:backupdestination_edit' pk=record.pk %}">
+  <i class="mdi mdi-pencil" aria-hidden="true"></i>
+</a>
+{% endif %}
+{% if record.protocol == 'ftp' and not record.is_default and perms.netbox_config_backup.delete_backupdestination %}
+<a class="btn btn-sm btn-danger" title="Delete storage"
+   href="{% url 'plugins:netbox_config_backup:backupdestination_delete' pk=record.pk %}">
+  <i class="mdi mdi-trash-can-outline" aria-hidden="true"></i>
+</a>
+{% endif %}
+"""
+)
 
 
 class RetentionPolicyTable(NetBoxTable):
@@ -182,19 +201,57 @@ class CredentialProfileTable(NetBoxTable):
 
 class BackupDestinationTable(NetBoxTable):
     name = tables.Column(linkify=True)
+    storage_type = tables.Column(empty_values=(), verbose_name="Type", orderable=False)
+    retention_policy = tables.TemplateColumn(
+        template_code="""
+        {% load helpers %}
+        {% if record.protocol == 'local' %}
+          {{ record.local_retention_policy|linkify|placeholder }}
+        {% else %}
+          {{ record.remote_retention_policy|linkify|placeholder }}
+        {% endif %}
+        """,
+        verbose_name="Retention",
+        orderable=False,
+    )
+    precedence = tables.Column(empty_values=(), verbose_name="Precedence", orderable=False)
     enabled = columns.BooleanColumn()
     auto_replicate = columns.BooleanColumn()
     integrity_audit_enabled = columns.BooleanColumn(verbose_name="Automatic audit")
     next_integrity_audit_at = columns.DateTimeColumn(verbose_name="Next audit")
-    actions = columns.ActionsColumn(extra_buttons=TEST_DESTINATION_BUTTON)
+    actions = columns.ActionsColumn(actions=(), extra_buttons=STORAGE_ACTION_BUTTONS)
+
+    @staticmethod
+    def render_storage_type(record):
+        if record.protocol == "local":
+            return format_html(
+                '<span class="badge text-bg-primary">{}</span> '
+                '<span class="badge text-bg-secondary"><i class="mdi mdi-lock-outline"></i> '
+                "{}</span>",
+                "Local",
+                "Default",
+            )
+        return format_html('<span class="badge text-bg-info">{}</span>', "FTP")
+
+    @staticmethod
+    def render_precedence(record):
+        if record.enforce_retention_policy:
+            return format_html(
+                '<span class="badge text-bg-warning">{}</span>',
+                "Storage policy enforced",
+            )
+        return format_html('<span class="text-secondary">{}</span>', "Device may override")
 
     class Meta(NetBoxTable.Meta):
         model = BackupDestination
         fields = (
             "pk",
             "name",
+            "storage_type",
             "enabled",
             "auto_replicate",
+            "retention_policy",
+            "precedence",
             "integrity_audit_enabled",
             "host",
             "port",
@@ -207,8 +264,11 @@ class BackupDestinationTable(NetBoxTable):
         )
         default_columns = (
             "name",
+            "storage_type",
             "enabled",
             "auto_replicate",
+            "retention_policy",
+            "precedence",
             "integrity_audit_enabled",
             "host",
             "port",

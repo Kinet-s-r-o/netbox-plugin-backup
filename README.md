@@ -34,8 +34,8 @@ Implemented:
 - idempotent least-privilege Reader, Operator, and Administrator NetBox groups
 - permission-aware dashboard, nested history, actions, revision content, and diffs
 - target/run list filters for status, failure, stuck execution, device, site, and time
-- separate local and FTP retention profiles assigned per backup device
-- conservative local/FTP retention previews with per-record decisions and storage estimates
+- UI-managed storage profiles with a protected default Local storage and additional FTP storages
+- per-storage retention defaults, optional enforcement, and conservative per-storage previews
 - protected/latest revision safeguards, confirmed cleanup, and reversible local quarantine
 - separately opt-in local and FTP retention dispatchers with deduplication and batch limiting
 - list/detail views for targets, runs, revisions, policies, mappings, and profiles
@@ -56,7 +56,7 @@ Deferred by design:
 
 ## Install in NetBox
 
-The supported production path for release `0.5.x` is NetBox 4.6, local primary
+The supported production path for release `0.6.x` is NetBox 4.6, local primary
 artifact storage, and optional FTP replication configured from the UI. Vault,
 S3, and external SFTP replication are not required for a standard installation.
 The S3 and Vault client libraries are optional package extras; install
@@ -165,13 +165,13 @@ The plugin registers eight event types for NetBox Event Rules:
 - **Configuration backup recovered** for the first later successful backup
 - **Configuration backup target is stale** when a target crosses its expected deadline
 - **Configuration backup run is stuck** when an abandoned run is reconciled
-- **Configuration backup replica failed** when an external destination first fails
+- **Configuration backup replica failed** when an FTP storage first fails
 - **Configuration backup replica recovered** after the next successful copy
 - **FTP integrity audit found problems** when a scheduled audit fails or detects damage
-- **FTP integrity audit recovered** after the destination passes a later audit
+- **FTP integrity audit recovered** after the storage passes a later audit
 
 Create Event Rules in NetBox and select the matching Config Backup **Backup run**,
-**Backup target**, **Revision replica**, or **Backup destination** object type. NetBox can deliver matching events to a
+**Backup target**, **Revision replica**, or **Storage** object type. NetBox can deliver matching events to a
 Notification Group, webhook, or custom script. The event payload is an explicit
 allowlist: IDs, device display name, state, error code, failure count, and
 timestamps. It never includes an address, credential, driver option, or
@@ -379,15 +379,21 @@ additionally guarded by the `add/change/delete_storedcredential` permissions.
 
 The normal workflow starts from **Overview** or **Devices > Add**. One form
 selects the NetBox device and backup driver, stores an encrypted
-username/password, and selects a simple schedule plus independent local and FTP
-retention presets. Leaving the FTP preset empty keeps remote copies
-indefinitely. **Save & test connection** creates the complete configuration and
-immediately queues the non-persistent connection test.
+username/password, and selects a simple schedule plus a Local and optional FTP
+retention override. Leaving an override empty uses the policy configured on
+the corresponding storage; if neither the device nor the storage supplies a
+policy, that history is kept indefinitely. A storage whose **Always use this
+storage's retention profile** checkbox is enabled ignores the device override.
+**Save & test connection** creates the complete configuration and immediately
+queues the non-persistent connection test.
 
 Quick Setup creates the target, per-device connection and credential profiles,
 and reusable `[Quick]` schedule/retention policies in a single transaction. It
 can resolve the driver automatically from an enabled platform mapping. The
 individual profile and policy pages remain available from **Settings**.
+Because it assigns a Local retention policy, Quick Setup requires the
+Administrator retention and runtime permissions; Operators can run, test, and
+reschedule existing targets but cannot indirectly authorize future deletion.
 
 Deleting a backup device is an explicit cascade within this plugin: the
 confirmation page lists its runs, revisions, and artifacts, then removes their
@@ -428,41 +434,55 @@ python manage.py config_backup_backfill_ceragon_content --apply
 
 ## Retention preview and cleanup
 
-Retention has two independent scopes. A backup device can select one profile
-for **local storage** and another for its **FTP copies**. The local profile
-controls primary artifacts, revision history, and completed backup runs. The
-FTP profile controls only successful copies stored below the configured FTP
-destination. One FTP profile applies to that device on every automatic FTP
-destination.
+**Config Backup > Storages** contains exactly one system-managed **Local
+storage** plus any FTP storages created by administrators. The Local row
+represents the primary `storage_root` configured for the deployment. It is
+created by the migration, is always enabled, and cannot be deleted, disabled,
+or converted to FTP. FTP storages are independent secondary copies and retain
+their own connection, audit, replication, and retention settings.
 
-The existing backup policy remains the fallback for local retention when the
-device has no local override. FTP retention has no implicit fallback: leaving
-the FTP profile empty means that its remote copies are retained indefinitely.
-This safe default also applies after an upgrade, so installing the feature does
-not delete an existing FTP backup.
+Each storage can provide a retention policy as a fallback. Enabling **Always
+use this storage's retention profile** makes that policy mandatory for the
+storage and prevents a device-specific override. Effective retention is
+resolved in this exact order:
 
-Assigning or changing either effective retention profile requires retention
+1. **Local storage:** enforced Local-storage policy; device Local override;
+   the device's backup-policy retention; Local-storage fallback; otherwise
+   keep indefinitely.
+2. **Each FTP storage independently:** enforced FTP-storage policy; device FTP
+   override; that FTP-storage fallback; otherwise keep indefinitely.
+
+The local policy controls primary artifacts, revision history, and completed
+backup runs. Each FTP policy controls only copies on that one FTP storage.
+Installing the migration creates the protected Local row and leaves existing
+FTP storages, device overrides, and their behavior intact. New storage policy
+fields start empty and enforcement starts disabled, so an upgrade cannot by
+itself delete existing history.
+
+Assigning or changing any effective retention profile requires retention
 runtime administration plus the matching delete permissions. Managed Operators
 can adjust backup scheduling, but cannot indirectly enable more aggressive
 history deletion.
 
-The FTP profile's hard ceiling is the maximum number of remote **revisions**
-retained for one device. It is not a count of physical artifact files: one
-revision replicated to multiple FTP destinations still consumes one position
-in the retention plan.
+An FTP profile's `max_copies_per_target` ceiling is evaluated **per device, per
+FTP storage**. Physical artifact files inside one revision do not consume
+separate positions. If the same revision is copied to two FTP storages, it
+consumes one position on each storage's independent retention plan.
 
 Each backup device provides a permission-gated **Retention preview** action.
-The dry-run reports local and FTP decisions separately, including what would be
-kept or deleted and why. It also estimates the local artifact and remote-copy
-space affected by a future cleanup. A preview never mutates the database or
-either storage location.
+The dry-run reports the Local decision and every FTP storage decision
+separately, including the effective policy source, what would be kept or
+deleted, and why. It also estimates the local artifact and remote-copy space
+affected by a future cleanup. A preview never mutates the database or any
+storage location.
 
-Protected revisions and the latest usable revision are retained in both
-scopes. The configured minimum number of changed revisions is also retained.
+Protected revisions and the latest usable revision are retained in every
+applicable storage scope. The configured minimum number of changed revisions is
+also retained.
 Active runs and runs with an unknown future status are always kept locally;
 pending, queued, running, or failed FTP transfers are not candidates for remote
-deletion. Disabled FTP destinations are excluded from both automatic and manual
-FTP retention plans.
+deletion. Disabled FTP storages are excluded from automatic and manual FTP
+retention plans.
 
 Each local retention profile defines a hard per-target ceiling for completed
 backup runs (500 by default). Time-based retention remains the primary rule;
@@ -475,7 +495,7 @@ from its detail page. Applying local or FTP retention is explicitly confirmed
 and permission-gated. Local cleanup stages files in an internal quarantine and
 restores them if its database transaction fails. FTP deletion is irreversible:
 it removes only the recorded immutable revision directory below the configured
-destination path and records failures for a safe retry.
+storage path and records failures for a safe retry.
 
 Local cleanup and FTP cleanup have separate opt-in schedulers under
 **Config Backup → Settings**. Both are disabled by default and require an
@@ -485,13 +505,13 @@ cleanup never enables FTP deletion, and a failed FTP cleanup does not turn a
 successful device backup into a failure.
 
 Before enabling FTP cleanup for the first time on an existing installation, run
-the read-only integrity audit for every FTP destination and resolve all missing
+the read-only integrity audit for every FTP storage and resolve all missing
 or mismatched historical replicas recorded as successful. Cleanup must not be
 used to discover or repair an unverified legacy inventory.
 
-After a destination contains a recorded copy, its host, port, base path, and
+After a storage contains a recorded copy, its host, port, base path, and
 credential-profile assignment are immutable. Rotate the password inside that
-credential profile, or create a new destination when moving to another FTP
+credential profile, or create a new storage when moving to another FTP
 endpoint. This keeps historical retention deletes bound to the server and path
 where the copy was originally written.
 

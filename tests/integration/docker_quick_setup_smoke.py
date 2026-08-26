@@ -88,7 +88,7 @@ assert b"Advanced settings" in response.content
 assert b"Usually not required" in response.content
 assert b"Technical defaults are applied automatically" in response.content
 assert b'name="remote_retention_days"' in response.content
-assert b"Never automatically delete" in response.content
+assert b"Use FTP storage profile" in response.content
 assert b"Allow the device to create and send a backup file" in response.content
 assert b'<details class="card advanced-settings mt-4">' in response.content
 
@@ -195,8 +195,8 @@ assert automatic_target.connection_override_id == target.connection_override_id
 assert automatic_target.credential_override_id == target.credential_override_id
 assert automatic_target.remote_retention_policy_id is None
 
-# A user who may create a normal backup target must not need FTP-retention
-# administration rights unless the optional FTP profile is actually selected.
+# Quick Setup always creates a Local retention policy. A user without runtime
+# and destructive-retention authority must not be able to assign it indirectly.
 limited_user = get_user_model().objects.create_user(
     username=f"{prefix}-limited-admin",
     password=uuid4().hex,
@@ -219,7 +219,7 @@ limited_add_permission.object_types.set(
 limited_user.object_permissions.add(limited_add_permission)
 limited_client = Client()
 limited_client.force_login(limited_user)
-assert limited_client.get(add_url).status_code == 200
+assert limited_client.get(add_url).status_code == 403
 
 limited_device = make_device(f"{prefix}-limited", platform=platform)
 limited_payload = {
@@ -234,9 +234,8 @@ limited_payload = {
     "_create": "",
 }
 response = limited_client.post(add_url, limited_payload)
-assert response.status_code == 302, response.context and response.context["form"].errors
-limited_target = BackupTarget.objects.get(device=limited_device)
-assert limited_target.remote_retention_policy_id is None
+assert response.status_code == 403, response.status_code
+assert not BackupTarget.objects.filter(device=limited_device).exists()
 
 denied_remote_device = make_device(f"{prefix}-limited-ftp", platform=platform)
 response = limited_client.post(
@@ -348,7 +347,7 @@ print(
         "schedule_minutes": target.policy_override.interval_minutes,
         "retention_days": target.policy_override.retention_policy.daily_days,
         "remote_retention_days": target.remote_retention_policy.daily_days,
-        "remote_retention_indefinite_when_blank": True,
+        "remote_retention_uses_storage_when_blank": True,
         "remote_retention_permission_is_conditional": True,
         "duplicate_validation": True,
         "atomic_rollback": True,

@@ -438,7 +438,7 @@ class QuickSetupForm(forms.Form):
     )
     remote_retention_days = forms.TypedChoiceField(
         choices=(
-            ("", "Never automatically delete"),
+            ("", "Use FTP storage profile"),
             (90, "90 days"),
             (365, "365 days"),
             (730, "730 days"),
@@ -851,7 +851,7 @@ class FtpIntegrityAuditScheduleForm(forms.ModelForm):
         if self.cleaned_data.get("integrity_audit_enabled") and not self.instance.enabled:
             self.add_error(
                 "integrity_audit_enabled",
-                "Enable the FTP destination before enabling automatic audits.",
+                "Enable the FTP storage before enabling automatic audits.",
             )
         return self.cleaned_data
 
@@ -884,12 +884,20 @@ class FtpIntegrityAuditScheduleForm(forms.ModelForm):
 
 
 class BackupDestinationForm(NetBoxModelForm):
+    enforce_retention_policy = forms.BooleanField(
+        required=False,
+        label="Always use this storage's retention profile",
+        help_text=(
+            "When enabled, a retention profile selected on a device cannot override the "
+            "profile configured on this storage."
+        ),
+    )
     allow_insecure_ftp = forms.BooleanField(
         required=False,
         label=(
             "I understand that FTP sends the password and backup configuration without encryption"
         ),
-        help_text="Required because this FTP destination is intended for a trusted internal network.",
+        help_text="Required because this FTP storage is intended for a trusted internal network.",
     )
     credential_profile = forms.ModelChoiceField(
         queryset=CredentialProfile.objects.filter(auth_type="password").exclude(
@@ -900,37 +908,71 @@ class BackupDestinationForm(NetBoxModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.instance.protocol = DestinationProtocolChoices.FTP
         if not self.instance.pk:
+            # Additional storages created from the UI are FTP storages. The
+            # singleton Local storage is provisioned by the plugin migration.
+            self.instance.protocol = DestinationProtocolChoices.FTP
             self.fields["port"].initial = 21
+        self.is_local_storage = self.instance.protocol == DestinationProtocolChoices.LOCAL
+        if self.is_local_storage:
+            # The Local storage represents the built-in primary backend. Its
+            # endpoint, state, identity, and tags are system-managed.
+            for field_name in (
+                "name",
+                "enabled",
+                "auto_replicate",
+                "allow_insecure_ftp",
+                "host",
+                "port",
+                "base_path",
+                "credential_profile",
+                "connect_timeout",
+                "max_retries",
+                "retry_delay_minutes",
+                "max_artifact_size",
+                "remote_retention_policy",
+                "tags",
+            ):
+                self.fields.pop(field_name, None)
+        else:
+            self.fields.pop("local_retention_policy", None)
 
     def clean(self):
         super().clean()
         cleaned = self.cleaned_data
-        if not cleaned.get("allow_insecure_ftp"):
+        if not self.is_local_storage and not cleaned.get("allow_insecure_ftp"):
             self.add_error(
                 "allow_insecure_ftp",
-                "Confirm that this internal destination may use unencrypted FTP.",
+                "Confirm that this internal storage may use unencrypted FTP.",
+            )
+        retention_field = (
+            "local_retention_policy" if self.is_local_storage else "remote_retention_policy"
+        )
+        if cleaned.get("enforce_retention_policy") and not cleaned.get(retention_field):
+            self.add_error(
+                retention_field,
+                "Select a retention profile before enforcing storage-level retention.",
             )
         return cleaned
 
     def save(self, commit=True):
         destination = super().save(commit=False)
-        destination.protocol = DestinationProtocolChoices.FTP
-        destination.host_key_type = ""
-        destination.host_key_public = ""
-        destination.host_key_fingerprint_sha256 = ""
-        destination.host_key_fingerprint_md5 = ""
-        destination.host_key_approved_at = None
-        destination.host_key_approved_by = None
-        if not destination.enabled or not destination.integrity_audit_enabled:
-            destination.next_integrity_audit_at = None
-        elif destination.next_integrity_audit_at is None:
-            destination.next_integrity_audit_at = calculate_destination_next_ftp_audit(
-                destination,
-                now=timezone.now(),
-                timezone_name=settings.TIME_ZONE,
-            )
+        if not self.is_local_storage:
+            destination.protocol = DestinationProtocolChoices.FTP
+            destination.host_key_type = ""
+            destination.host_key_public = ""
+            destination.host_key_fingerprint_sha256 = ""
+            destination.host_key_fingerprint_md5 = ""
+            destination.host_key_approved_at = None
+            destination.host_key_approved_by = None
+            if not destination.enabled or not destination.integrity_audit_enabled:
+                destination.next_integrity_audit_at = None
+            elif destination.next_integrity_audit_at is None:
+                destination.next_integrity_audit_at = calculate_destination_next_ftp_audit(
+                    destination,
+                    now=timezone.now(),
+                    timezone_name=settings.TIME_ZONE,
+                )
         if commit:
             destination.save()
             self.save_m2m()
@@ -942,6 +984,9 @@ class BackupDestinationForm(NetBoxModelForm):
             "name",
             "enabled",
             "auto_replicate",
+            "local_retention_policy",
+            "remote_retention_policy",
+            "enforce_retention_policy",
             "allow_insecure_ftp",
             "host",
             "port",
@@ -1030,12 +1075,19 @@ class BackupTargetForm(NetBoxModelForm):
         queryset=RetentionPolicy.objects.all(),
         required=False,
         label="Local retention profile",
+        help_text=(
+            "Leave blank to use the backup policy or Local storage profile. "
+            "An enforced Local storage profile always wins."
+        ),
     )
     remote_retention_policy = forms.ModelChoiceField(
         queryset=RemoteRetentionPolicy.objects.all(),
         required=False,
         label="FTP retention profile",
-        help_text="Leave blank to keep this device's FTP copies indefinitely.",
+        help_text=(
+            "Leave blank to use each FTP storage profile. Copies are kept indefinitely "
+            "only on a storage which also has no profile."
+        ),
     )
     credential_override = forms.ModelChoiceField(
         queryset=CredentialProfile.objects.exclude(provider_id="vault_kv2"), required=False

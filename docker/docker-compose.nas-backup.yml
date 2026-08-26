@@ -3,7 +3,7 @@ services:
     build:
       context: ${NETBOX_CONFIG_BACKUP_PLUGIN_PATH:-../netbox-plugin-backup}
       dockerfile: docker/Dockerfile.backup
-    image: netbox-config-backup-nas:0.5.0
+    image: netbox-config-backup-nas:0.6.0
     profiles:
       - nas-backup
     restart: unless-stopped

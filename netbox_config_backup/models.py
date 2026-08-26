@@ -8,6 +8,9 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
+from django.db.models.deletion import ProtectedError
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
 from netbox.models import NetBoxModel
@@ -93,8 +96,7 @@ class RemoteRetentionPolicy(NetBoxModel):
         default=1000,
         validators=(MinValueValidator(1), MaxValueValidator(100000)),
         help_text=(
-            "Maximum number of remote revisions retained for one backup device; "
-            "physical artifact copies on multiple FTP destinations are not counted separately."
+            "Maximum number of revisions retained for one backup device on each FTP storage."
         ),
     )
 
@@ -229,9 +231,10 @@ class CredentialProfile(NetBoxModel):
 
 
 class BackupDestination(JobsMixin, NetBoxModel):
-    """An off-site replica destination for completed revisions."""
+    """A primary local storage or an external completed-revision destination."""
 
     name = models.CharField(max_length=100, unique=True)
+    is_default = models.BooleanField(default=False, editable=False)
     enabled = models.BooleanField(default=True)
     auto_replicate = models.BooleanField(
         default=True,
@@ -280,37 +283,72 @@ class BackupDestination(JobsMixin, NetBoxModel):
             "without transport encryption."
         ),
     )
-    host = models.CharField(max_length=255)
+    host = models.CharField(max_length=255, blank=True, default="")
     port = models.PositiveIntegerField(
         default=22,
+        null=True,
+        blank=True,
         validators=(MinValueValidator(1), MaxValueValidator(65535)),
     )
     base_path = models.CharField(
         max_length=500,
         default="netbox-config-backup",
+        blank=True,
         help_text="Remote directory below which immutable revision copies are stored.",
     )
     credential_profile = models.ForeignKey(
         CredentialProfile,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="backup_destinations",
     )
     connect_timeout = models.PositiveIntegerField(
         default=15,
+        null=True,
+        blank=True,
         validators=(MinValueValidator(1), MaxValueValidator(300)),
     )
     max_retries = models.PositiveSmallIntegerField(
         default=3,
+        null=True,
+        blank=True,
         validators=(MinValueValidator(0), MaxValueValidator(20)),
     )
     retry_delay_minutes = models.PositiveIntegerField(
         default=15,
+        null=True,
+        blank=True,
         validators=(MinValueValidator(1), MaxValueValidator(10080)),
     )
     max_artifact_size = models.PositiveBigIntegerField(
         default=1024 * 1024 * 1024,
+        null=True,
+        blank=True,
         validators=(MinValueValidator(1024), MaxValueValidator(10 * 1024 * 1024 * 1024)),
         help_text="Maximum size of one artifact copied to this destination.",
+    )
+    local_retention_policy = models.ForeignKey(
+        RetentionPolicy,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="local_storages",
+        verbose_name="local retention profile",
+    )
+    remote_retention_policy = models.ForeignKey(
+        RemoteRetentionPolicy,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="remote_storages",
+        verbose_name="FTP retention profile",
+    )
+    enforce_retention_policy = models.BooleanField(
+        default=False,
+        help_text=(
+            "Always use this storage's retention profile instead of a device retention override."
+        ),
     )
     host_key_type = models.CharField(max_length=64, blank=True, editable=False)
     host_key_public = models.TextField(blank=True, editable=False)
@@ -332,9 +370,183 @@ class BackupDestination(JobsMixin, NetBoxModel):
 
     class Meta:
         ordering = ("name",)
+        verbose_name = "storage"
+        verbose_name_plural = "storages"
+        constraints = (
+            models.UniqueConstraint(
+                fields=("protocol",),
+                condition=Q(protocol=DestinationProtocolChoices.LOCAL),
+                name="ncb_destination_one_local",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        protocol=DestinationProtocolChoices.LOCAL,
+                        is_default=True,
+                        remote_retention_policy__isnull=True,
+                    )
+                    | (
+                        ~Q(protocol=DestinationProtocolChoices.LOCAL)
+                        & Q(is_default=False, local_retention_policy__isnull=True)
+                    )
+                ),
+                name="ncb_destination_typed_retention",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(protocol=DestinationProtocolChoices.LOCAL)
+                    | Q(
+                        enabled=True,
+                        auto_replicate=False,
+                        integrity_audit_enabled=False,
+                        allow_insecure_ftp=False,
+                        base_path="",
+                        connect_timeout__isnull=True,
+                        credential_profile__isnull=True,
+                        host="",
+                        max_artifact_size__isnull=True,
+                        max_retries__isnull=True,
+                        port__isnull=True,
+                        retry_delay_minutes__isnull=True,
+                    )
+                ),
+                name="ncb_destination_local_invariants",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(protocol=DestinationProtocolChoices.LOCAL)
+                    | (
+                        Q(
+                            credential_profile__isnull=False,
+                            port__isnull=False,
+                            connect_timeout__isnull=False,
+                            max_retries__isnull=False,
+                            retry_delay_minutes__isnull=False,
+                            max_artifact_size__isnull=False,
+                        )
+                        & ~Q(host="")
+                        & ~Q(base_path="")
+                    )
+                ),
+                name="ncb_destination_remote_transport",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(enforce_retention_policy=False)
+                    | Q(
+                        protocol=DestinationProtocolChoices.LOCAL,
+                        local_retention_policy__isnull=False,
+                    )
+                    | Q(
+                        protocol__in=(
+                            DestinationProtocolChoices.FTP,
+                            DestinationProtocolChoices.SFTP,
+                        ),
+                        remote_retention_policy__isnull=False,
+                    )
+                ),
+                name="ncb_destination_enforced_policy",
+            ),
+        )
 
     def clean(self) -> None:
         super().clean()
+        if self.pk:
+            original_identity = (
+                type(self).objects.filter(pk=self.pk).values("protocol", "is_default").first()
+            )
+            if (
+                original_identity
+                and original_identity["protocol"] == DestinationProtocolChoices.LOCAL
+                and (self.protocol != DestinationProtocolChoices.LOCAL or not self.is_default)
+            ):
+                raise ValidationError(
+                    {"protocol": "The default Local storage type cannot be changed."}
+                )
+            if (
+                original_identity
+                and original_identity["protocol"] != DestinationProtocolChoices.LOCAL
+                and self.protocol == DestinationProtocolChoices.LOCAL
+            ):
+                raise ValidationError(
+                    {"protocol": "The system default Local storage already exists."}
+                )
+
+        if self.protocol == DestinationProtocolChoices.LOCAL:
+            local_errors = {}
+            if not self.is_default:
+                local_errors["is_default"] = "The Local storage must be the system default."
+            if not self.enabled:
+                local_errors["enabled"] = "The default Local storage cannot be disabled."
+            if self.auto_replicate:
+                local_errors["auto_replicate"] = (
+                    "The primary Local storage is written directly, not replicated."
+                )
+            if self.integrity_audit_enabled:
+                local_errors["integrity_audit_enabled"] = (
+                    "FTP integrity audits do not apply to the Local storage."
+                )
+            if self.credential_profile_id:
+                local_errors["credential_profile"] = (
+                    "The Local storage does not use remote credentials."
+                )
+            if self.host:
+                local_errors["host"] = "The Local storage does not use a remote host."
+            if self.port is not None:
+                local_errors["port"] = "The Local storage does not use a remote port."
+            if self.base_path:
+                local_errors["base_path"] = "The Local storage path is managed by the deployment."
+            for field_name in (
+                "connect_timeout",
+                "max_retries",
+                "retry_delay_minutes",
+                "max_artifact_size",
+            ):
+                if getattr(self, field_name) is not None:
+                    local_errors[field_name] = (
+                        "This FTP transport setting does not apply to the Local storage."
+                    )
+            if self.remote_retention_policy_id:
+                local_errors["remote_retention_policy"] = (
+                    "Select a local retention profile for the Local storage."
+                )
+            if self.enforce_retention_policy and not self.local_retention_policy_id:
+                local_errors["local_retention_policy"] = (
+                    "Select a local retention profile before enforcing it."
+                )
+            if local_errors:
+                raise ValidationError(local_errors)
+            return
+
+        remote_errors = {}
+        if self.is_default:
+            remote_errors["is_default"] = "Only the Local storage can be the system default."
+        if self.local_retention_policy_id:
+            remote_errors["local_retention_policy"] = (
+                "Select an FTP retention profile for a remote storage."
+            )
+        if self.enforce_retention_policy and not self.remote_retention_policy_id:
+            remote_errors["remote_retention_policy"] = (
+                "Select an FTP retention profile before enforcing it."
+            )
+        for field_name in (
+            "port",
+            "credential_profile",
+            "connect_timeout",
+            "max_retries",
+            "retry_delay_minutes",
+            "max_artifact_size",
+        ):
+            value = (
+                self.credential_profile_id
+                if field_name == "credential_profile"
+                else getattr(self, field_name)
+            )
+            if value is None:
+                remote_errors[field_name] = "This remote-storage field is required."
+        if remote_errors:
+            raise ValidationError(remote_errors)
+
         if (
             self.pk
             and self.replicas.filter(
@@ -434,6 +646,17 @@ class BackupDestination(JobsMixin, NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_config_backup:backupdestination", args=(self.pk,))
+
+
+@receiver(pre_delete, sender=BackupDestination)
+def protect_default_local_storage(sender, instance, using, **kwargs) -> None:
+    """Prevent deletion through both Model.delete() and QuerySet.delete()."""
+
+    if instance.protocol == DestinationProtocolChoices.LOCAL or instance.is_default:
+        raise ProtectedError(
+            "The system default Local storage cannot be deleted.",
+            {instance},
+        )
 
 
 class SftpReceiverProfile(NetBoxModel):
@@ -646,7 +869,10 @@ class BackupTarget(JobsMixin, NetBoxModel):
         blank=True,
         related_name="target_overrides",
         verbose_name="FTP retention profile",
-        help_text="Leave blank to keep this device's FTP copies indefinitely.",
+        help_text=(
+            "Leave blank to use each FTP storage profile. Copies are kept indefinitely "
+            "only on a storage which also has no profile."
+        ),
     )
     credential_override = models.ForeignKey(
         CredentialProfile,

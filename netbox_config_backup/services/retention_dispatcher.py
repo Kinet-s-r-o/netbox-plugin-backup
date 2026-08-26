@@ -10,13 +10,14 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from netbox_config_backup.choices import RunStatusChoices
-from netbox_config_backup.models import BackupRun, BackupTarget
+from netbox_config_backup.choices import DestinationProtocolChoices, RunStatusChoices
+from netbox_config_backup.models import BackupDestination, BackupRun, BackupTarget
 
 from .retention import (
     RevisionCandidate,
     RunCandidate,
     build_retention_plan,
+    effective_local_retention_policy,
     effective_retention_policy,
     settings_from_policy,
 )
@@ -46,13 +47,20 @@ def dispatch_expired_targets(
     now = now or timezone.now()
     summary = RetentionDispatchSummary()
     content_type = ContentType.objects.get_for_model(BackupTarget)
-    candidate_ids = (
-        BackupTarget.objects.filter(
+    local_storage = (
+        BackupDestination.objects.filter(
+            protocol=DestinationProtocolChoices.LOCAL,
+            is_default=True,
+        )
+        .select_related("local_retention_policy")
+        .first()
+    )
+    candidate_targets = BackupTarget.objects.all()
+    if local_storage is None or local_storage.local_retention_policy_id is None:
+        candidate_targets = candidate_targets.filter(
             Q(retention_override__isnull=False) | Q(policy_override__retention_policy__isnull=False)
         )
-        .order_by("pk")
-        .values_list("pk", flat=True)
-    )
+    candidate_ids = candidate_targets.order_by("pk").values_list("pk", flat=True)
 
     for target_id in candidate_ids.iterator():
         if summary.queued >= limit:
@@ -83,7 +91,11 @@ def dispatch_expired_targets(
                     summary.skipped_active_cleanup += 1
                     continue
 
-                policy = effective_retention_policy(target)
+                policy = (
+                    effective_local_retention_policy(target, local_storage)
+                    if local_storage is not None
+                    else effective_retention_policy(target)
+                )
                 if policy is None:
                     continue
                 revisions = list(

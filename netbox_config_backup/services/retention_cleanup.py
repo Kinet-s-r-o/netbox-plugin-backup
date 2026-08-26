@@ -7,8 +7,13 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from netbox_config_backup.choices import ReplicaStatusChoices, RunStatusChoices
+from netbox_config_backup.choices import (
+    DestinationProtocolChoices,
+    ReplicaStatusChoices,
+    RunStatusChoices,
+)
 from netbox_config_backup.models import (
+    BackupDestination,
     BackupRun,
     BackupTarget,
     ConfigArtifact,
@@ -23,6 +28,7 @@ from .retention import (
     RevisionCandidate,
     RunCandidate,
     build_retention_plan,
+    effective_local_retention_policy,
     has_recorded_remote_copy,
     settings_from_policy,
 )
@@ -75,12 +81,18 @@ def execute_retention_cleanup(
                     "Retention cleanup cannot run while the target has an active backup."
                 )
 
-            policy_id = target.retention_override_id
-            if not policy_id and target.policy_override_id:
-                policy_id = target.policy_override.retention_policy_id
-            if not policy_id:
+            local_storage = (
+                BackupDestination.objects.select_for_update(of=("self",))
+                .select_related("local_retention_policy")
+                .get(
+                    protocol=DestinationProtocolChoices.LOCAL,
+                    is_default=True,
+                )
+            )
+            effective_policy = effective_local_retention_policy(target, local_storage)
+            if effective_policy is None:
                 raise RetentionCleanupError("The backup target has no effective retention policy.")
-            policy = RetentionPolicy.objects.select_for_update().get(pk=policy_id)
+            policy = RetentionPolicy.objects.select_for_update().get(pk=effective_policy.pk)
 
             revisions = list(
                 ConfigRevision.objects.select_for_update()

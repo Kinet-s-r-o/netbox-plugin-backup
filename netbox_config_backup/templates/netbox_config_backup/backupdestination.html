@@ -7,7 +7,7 @@
   <form method="post" action="{% url 'plugins:netbox_config_backup:backupdestination_test_connection' pk=object.pk %}">
     {% csrf_token %}
     <button class="btn btn-primary" type="submit">
-      <i class="mdi mdi-lan-connect" aria-hidden="true"></i> Test FTP destination
+      <i class="mdi mdi-lan-connect" aria-hidden="true"></i> Test FTP storage
     </button>
   </form>
   {% endif %}
@@ -29,13 +29,58 @@
   {% endif %}
 </div>
 
+{% if is_local_storage %}
+<div class="alert alert-info d-flex gap-3 align-items-start" role="status">
+  <i class="mdi mdi-lock-outline fs-2" aria-hidden="true"></i>
+  <div>
+    <strong>Default primary storage</strong>
+    <div>This storage is created and protected by the plugin, is used by every backup device, and cannot be deleted.</div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-8">
+    <div class="card">
+      <h2 class="card-header">Local storage</h2>
+      <table class="table table-hover attr-table mb-0">
+        <tr><th scope="row">Type</th><td><span class="badge text-bg-primary">Local</span> <span class="badge text-bg-secondary">Default</span></td></tr>
+        <tr><th scope="row">Enabled</th><td>{{ object.enabled|yesno:"Yes,No" }}</td></tr>
+        <tr><th scope="row">Retention profile</th><td>{{ object.local_retention_policy|linkify|placeholder }}</td></tr>
+        <tr>
+          <th scope="row">Retention precedence</th>
+          <td>
+            {% if object.enforce_retention_policy %}
+              <span class="badge text-bg-warning">Storage policy enforced</span>
+              <div class="form-hint">A device-level retention profile cannot override this storage.</div>
+            {% else %}
+              <span class="text-secondary">A device-level profile may override the storage profile.</span>
+            {% endif %}
+          </td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% else %}
 <div class="row">
   <div class="col-lg-6">
     <div class="card">
-      <h2 class="card-header">FTP destination</h2>
+      <h2 class="card-header">FTP storage</h2>
       <table class="table table-hover attr-table mb-0">
+        <tr><th scope="row">Type</th><td><span class="badge text-bg-info">FTP</span></td></tr>
         <tr><th scope="row">Enabled</th><td>{{ object.enabled|yesno:"Yes,No" }}</td></tr>
         <tr><th scope="row">Copy new revisions</th><td>{{ object.auto_replicate|yesno:"Automatically,Manually" }}</td></tr>
+        <tr><th scope="row">Retention profile</th><td>{{ object.remote_retention_policy|linkify|placeholder }}</td></tr>
+        <tr>
+          <th scope="row">Retention precedence</th>
+          <td>
+            {% if object.enforce_retention_policy %}
+              <span class="badge text-bg-warning">Storage policy enforced</span>
+            {% else %}
+              <span class="text-secondary">A device-level profile may override.</span>
+            {% endif %}
+          </td>
+        </tr>
         <tr><th scope="row">Server</th><td><code>{{ object.host }}:{{ object.port }}</code></td></tr>
         <tr><th scope="row">Remote directory</th><td><code>{{ object.base_path }}</code></td></tr>
         <tr><th scope="row">Credential profile</th><td>{{ object.credential_profile|linkify }}</td></tr>
@@ -129,7 +174,7 @@
 <div class="card mt-3">
   <div class="card-header d-flex justify-content-between align-items-center">
     <h2 class="card-title mb-0">Recent revision copies</h2>
-    <span class="text-secondary small">Remote copies are immutable; configure long-term retention on the NAS.</span>
+    <span class="text-secondary small">Remote copies are immutable and use this storage's effective retention profile.</span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0">
@@ -162,4 +207,5 @@
 <script>
 document.addEventListener('DOMContentLoaded',()=>{const enabled=document.getElementById('{{ audit_schedule_form.integrity_audit_enabled.id_for_label }}'),frequency=document.getElementById('{{ audit_schedule_form.integrity_audit_frequency.id_for_label }}'),fields=document.getElementById('audit-schedule-fields'),weekday=document.getElementById('audit-weekday-field');const sync=()=>{fields?.classList.toggle('d-none',!enabled?.checked);weekday?.classList.toggle('d-none',frequency?.value!=='weekly')};enabled?.addEventListener('change',sync);frequency?.addEventListener('change',sync);sync()});
 </script>
+{% endif %}
 {% endblock %}

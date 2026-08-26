@@ -1,4 +1,4 @@
-"""Exercise legacy destination data isolation and the FTP-only destination UI."""
+"""Exercise legacy destination isolation and the Local/FTP Storages UI."""
 
 from django.core.exceptions import ValidationError
 from django.test import Client
@@ -131,17 +131,23 @@ try:
     assert destination_list.status_code == 200
     assert destination.get_absolute_url().encode() not in destination_list.content
     assert ftp_destination.name.encode() in destination_list.content
+    assert b"Local" in destination_list.content
+    assert b"Default" in destination_list.content
     detail = client.get(destination.get_absolute_url())
     assert detail.status_code == 404
     ftp_detail = client.get(ftp_destination.get_absolute_url())
     assert ftp_detail.status_code == 200
-    assert b"FTP is not encrypted" in ftp_detail.content
+    assert b"FTP storage" in ftp_detail.content
+    assert b"FTP is not encrypted" not in ftp_detail.content
     add_page = client.get("/plugins/config-backup/destinations/add/")
     assert add_page.status_code == 200
     assert b'name="protocol"' not in add_page.content
+    assert b'name="remote_retention_policy"' in add_page.content
+    assert b'name="enforce_retention_policy"' in add_page.content
+    assert b'name="local_retention_policy"' not in add_page.content
     settings_page = client.get("/plugins/config-backup/settings/")
     assert settings_page.status_code == 200
-    assert b"FTP destination" in settings_page.content
+    assert b"FTP destination" not in settings_page.content
 finally:
     replica.delete()
     if "ftp_replica" in locals():
