@@ -18,7 +18,12 @@ from netbox_config_backup.credentials.base import SecretProviderError
 from netbox_config_backup.storage import build_config_storage
 from netbox_config_backup.storage.base import StorageError
 
-from .destination_paths import device_directory_name, revision_destination_path
+from .destination_paths import (
+    backup_filename_stem,
+    device_directory_name,
+    ftp_revision_destination_path,
+    revision_destination_path,
+)
 from .destination_types import DestinationError, ReplicationResult
 
 if TYPE_CHECKING:
@@ -91,7 +96,10 @@ def reconcile_ftp_destination(
                 device_id=revision.target.device_id,
                 revision_uuid=revision.revision_uuid,
             )
-            expected_files = _expected_revision_files(revision)
+            expected_files = _expected_revision_files(
+                revision,
+                readable_names=_uses_readable_ftp_layout(revision_path),
+            )
             summary["checked_replicas"] += 1
             replica_failed = False
 
@@ -210,15 +218,15 @@ def replicate_revision_ftp(
     if not artifacts:
         raise DestinationError("NO_ARTIFACTS", "The revision contains no backup artifacts.")
 
-    revision_path = revision_destination_path(
+    revision_path = ftp_revision_destination_path(
         destination.base_path,
         device_name=revision.target.device.name,
         device_id=revision.target.device_id,
-        revision_uuid=revision.revision_uuid,
+        created_at=revision.created,
     )
     ftp = _connect(destination)
     transferred = 0
-    expected_files = _expected_revision_files(revision)
+    expected_files = _expected_revision_files(revision, readable_names=True)
     expected_by_type = {
         item.artifact_type: item for item in expected_files if item.artifact_type != "manifest"
     }
@@ -249,7 +257,7 @@ def replicate_revision_ftp(
             if _put_immutable(ftp, remote_file, content, digest):
                 transferred += len(content)
 
-        manifest = _build_manifest(revision, artifacts)
+        manifest = _build_manifest(revision, artifacts, readable_names=True)
         manifest_path = _join(revision_path, "_netbox_manifest.json")
         if _put_immutable(ftp, manifest_path, manifest, hashlib.sha256(manifest).hexdigest()):
             transferred += len(manifest)
@@ -307,20 +315,22 @@ def write_verified_ftp_replica_to_archive(
             "The recovery archive path could not be generated safely.",
         )
 
-    expected_files = _expected_revision_files(revision)
-    total_expected = sum(item.size for item in expected_files)
-    if max_total_bytes <= 0 or total_expected > max_total_bytes:
-        raise DestinationError(
-            "RECOVERY_PACKAGE_TOO_LARGE",
-            "The FTP revision copy exceeds the configured recovery package size limit.",
-        )
-
     revision_path = replica.remote_path or revision_destination_path(
         destination.base_path,
         device_name=revision.target.device.name,
         device_id=revision.target.device_id,
         revision_uuid=revision.revision_uuid,
     )
+    expected_files = _expected_revision_files(
+        revision,
+        readable_names=_uses_readable_ftp_layout(revision_path),
+    )
+    total_expected = sum(item.size for item in expected_files)
+    if max_total_bytes <= 0 or total_expected > max_total_bytes:
+        raise DestinationError(
+            "RECOVERY_PACKAGE_TOO_LARGE",
+            "The FTP revision copy exceeds the configured recovery package size limit.",
+        )
     ftp = _connect(destination)
     verified_bytes = 0
     try:
@@ -430,12 +440,20 @@ def write_verified_ftp_replica_to_archive(
     )
 
 
-def _expected_revision_files(revision: ConfigRevision) -> tuple[ExpectedRemoteFile, ...]:
+def _expected_revision_files(
+    revision: ConfigRevision,
+    *,
+    readable_names: bool = False,
+) -> tuple[ExpectedRemoteFile, ...]:
     artifacts = tuple(revision.artifacts.all())
     expected: list[ExpectedRemoteFile] = []
     filenames: set[str] = set()
     for artifact in artifacts:
-        filename = _artifact_filename(artifact.storage_key, artifact.artifact_type)
+        filename = (
+            _readable_artifact_filename(revision, artifact)
+            if readable_names
+            else _artifact_filename(artifact.storage_key, artifact.artifact_type)
+        )
         if filename in filenames:
             raise DestinationError(
                 "ARTIFACT_NAME_CONFLICT",
@@ -451,7 +469,7 @@ def _expected_revision_files(revision: ConfigRevision) -> tuple[ExpectedRemoteFi
             )
         )
 
-    manifest = _build_manifest(revision, artifacts)
+    manifest = _build_manifest(revision, artifacts, readable_names=readable_names)
     expected.append(
         ExpectedRemoteFile(
             filename="_netbox_manifest.json",
@@ -463,12 +481,16 @@ def _expected_revision_files(revision: ConfigRevision) -> tuple[ExpectedRemoteFi
     return tuple(expected)
 
 
-def _build_manifest(revision: ConfigRevision, artifacts) -> bytes:
+def _build_manifest(revision: ConfigRevision, artifacts, *, readable_names: bool = False) -> bytes:
     manifest_artifacts = [
         {
             "artifact_type": artifact.artifact_type,
             "format": artifact.format,
-            "filename": _artifact_filename(artifact.storage_key, artifact.artifact_type),
+            "filename": (
+                _readable_artifact_filename(revision, artifact)
+                if readable_names
+                else _artifact_filename(artifact.storage_key, artifact.artifact_type)
+            ),
             "size": artifact.size,
             "sha256": artifact.raw_hash,
             "primary": artifact.is_primary,
@@ -477,7 +499,7 @@ def _build_manifest(revision: ConfigRevision, artifacts) -> bytes:
     ]
     return json.dumps(
         {
-            "schema": 1,
+            "schema": 2 if readable_names else 1,
             "revision_uuid": str(revision.revision_uuid),
             "device_id": revision.target.device_id,
             "device_name": revision.target.device.name,
@@ -661,6 +683,30 @@ def _remote_exists(ftp: ftplib.FTP, path: str) -> bool:
 def _artifact_filename(storage_key: str, artifact_type: str) -> str:
     filename = PurePosixPath(storage_key).name
     return filename if filename and filename not in {".", ".."} else f"{artifact_type}.bin"
+
+
+def _readable_artifact_filename(revision: ConfigRevision, artifact) -> str:
+    original = _artifact_filename(artifact.storage_key, artifact.artifact_type)
+    suffix = "".join(PurePosixPath(original).suffixes)
+    if not suffix or len(suffix) > 24 or any(
+        character not in ".abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        for character in suffix
+    ):
+        suffix = ".bin"
+    stem = backup_filename_stem(
+        revision.target.device.name,
+        revision.target.device_id,
+        revision.created,
+    )
+    if artifact.is_primary:
+        return f"{stem}{suffix}"
+    safe_type = device_directory_name(artifact.artifact_type, 0)[:48] or "artifact"
+    return f"{stem}_{safe_type}{suffix}"
+
+
+def _uses_readable_ftp_layout(remote_path: str) -> bool:
+    parts = PurePosixPath(remote_path).parts
+    return len(parts) >= 2 and parts[-2] == "backups"
 
 
 def _join(base: str, *parts: str) -> str:

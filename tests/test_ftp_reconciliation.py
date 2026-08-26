@@ -11,6 +11,7 @@ from uuid import UUID
 from netbox_config_backup.services.destination_ftp import (
     VerifiedFtpDownloadResult,
     _build_manifest,
+    _expected_revision_files,
     reconcile_ftp_destination,
     write_verified_ftp_replica_to_archive,
 )
@@ -102,6 +103,21 @@ def audit_fixture():
 
 
 class FtpReconciliationTests(unittest.TestCase):
+    def test_new_ftp_layout_uses_device_and_revision_time_in_artifact_name(self):
+        _destination, replica, _files = audit_fixture()
+
+        expected = _expected_revision_files(replica.revision, readable_names=True)
+
+        self.assertEqual(expected[0].filename, "router-01_2026-08-24_10-00-00-000000Z.txt")
+        self.assertEqual(expected[-1].filename, "_netbox_manifest.json")
+        manifest = _build_manifest(
+            replica.revision,
+            replica.revision.artifacts.all(),
+            readable_names=True,
+        )
+        self.assertIn(b'"schema":2', manifest)
+        self.assertIn(expected[0].filename.encode(), manifest)
+
     def test_verifies_successful_replica_without_remote_writes(self):
         destination, replica, files = audit_fixture()
         ftp = ReadOnlyFakeFTP(files)

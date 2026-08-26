@@ -34,7 +34,7 @@ from netbox_config_backup.models import (
 )
 from netbox_config_backup.services.destination import DestinationError
 from netbox_config_backup.services.destination_ftp import _connect, _read_remote
-from netbox_config_backup.services.destination_paths import revision_destination_path
+from netbox_config_backup.services.destination_paths import ftp_revision_destination_path
 from netbox_config_backup.services.runtime import build_backup_pipeline
 from netbox_config_backup.services.target_deletion import delete_backup_target
 
@@ -71,11 +71,11 @@ def _verify_remote_revision(
     replica: RevisionReplica,
 ) -> tuple[int, int, str]:
     artifacts = list(revision.artifacts.order_by("artifact_type"))
-    expected_path = revision_destination_path(
+    expected_path = ftp_revision_destination_path(
         destination.base_path,
         device_name=revision.target.device.name,
         device_id=revision.target.device_id,
-        revision_uuid=revision.revision_uuid,
+        created_at=revision.created,
     )
     assert replica.remote_path == expected_path, (replica.remote_path, expected_path)
 
@@ -87,7 +87,7 @@ def _verify_remote_revision(
             1024 * 1024,
         )
         manifest = json.loads(manifest_bytes.decode("utf-8"))
-        assert manifest["schema"] == 1
+        assert manifest["schema"] == 2
         assert manifest["revision_uuid"] == str(revision.revision_uuid)
         assert manifest["device_id"] == revision.target.device_id
         assert manifest["device_name"] == revision.target.device.name
@@ -99,16 +99,14 @@ def _verify_remote_revision(
 
         verified_bytes = 0
         for artifact in artifacts:
-            expected_filename = PurePosixPath(artifact.storage_key).name
             item = manifest_artifacts[artifact.artifact_type]
-            assert item == {
-                "artifact_type": artifact.artifact_type,
-                "format": artifact.format,
-                "filename": expected_filename,
-                "size": artifact.size,
-                "sha256": artifact.raw_hash,
-                "primary": artifact.is_primary,
-            }
+            assert item["artifact_type"] == artifact.artifact_type
+            assert item["format"] == artifact.format
+            assert item["size"] == artifact.size
+            assert item["sha256"] == artifact.raw_hash
+            assert item["primary"] == artifact.is_primary
+            expected_filename = item["filename"]
+            assert expected_filename.startswith(f"{revision.target.device.name}_")
             content = _read_remote(
                 ftp,
                 posixpath.join(expected_path, expected_filename),
@@ -227,11 +225,11 @@ try:
     revision = ConfigRevision.objects.get(pk=result.revision_id)
     assert revision.target_id == target.pk
     assert ConfigArtifact.objects.filter(revision=revision).exists()
-    revision_path = revision_destination_path(
+    revision_path = ftp_revision_destination_path(
         destination.base_path,
         device_name=revision.target.device.name,
         device_id=revision.target.device_id,
-        revision_uuid=revision.revision_uuid,
+        created_at=revision.created,
     )
 
     replica = _wait_for_replica(revision, destination)

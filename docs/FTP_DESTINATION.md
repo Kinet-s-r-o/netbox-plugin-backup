@@ -42,7 +42,7 @@ do not yet have a replica record for the destination.
 The worker writes revisions below:
 
 ```text
-/<base path>/devices/<device hostname>/revisions/<revision UUID>/
+/<base path>/devices/<device hostname>/backups/<UTC creation time>/
 ```
 
 The hostname comes from the NetBox device `name` field and is sanitized for use
@@ -50,8 +50,14 @@ as a safe directory name. If it is empty or contains no usable characters, the
 plugin falls back to `device-<NetBox ID>`. Existing replicas created by older
 versions remain in their original directories.
 
-Every artifact is copied under its original filename. A
-`_netbox_manifest.json` file records the device name and ID, remote device
+The primary backup file uses the same readable device-and-time stem, for
+example `core-router-01_2026-08-26_12-35-08-123456Z.txt`. Supporting artifacts
+append their artifact type before the original extension. The `Z` suffix means
+UTC; microseconds keep names unique even when backups are created close
+together. Existing FTP replicas keep their older UUID paths and filenames and
+remain fully supported by integrity audits and recovery downloads.
+
+A `_netbox_manifest.json` file records the device name and ID, remote device
 directory, revision UUID, driver, sizes, and SHA-256 hashes. Uploads use a
 random `.part-*` name, are downloaded again for hash verification, and are
 renamed only after verification. A different file at the final path is
