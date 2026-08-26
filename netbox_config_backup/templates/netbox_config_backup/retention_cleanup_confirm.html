@@ -7,12 +7,13 @@
     <div class="card border-danger">
       <div class="card-header bg-danger-lt">
         <h2 class="card-title text-danger mb-0">
-          <i class="mdi mdi-delete-alert-outline"></i> Confirm retention cleanup
+          <i class="mdi mdi-delete-alert-outline"></i> Confirm local retention cleanup
         </h2>
       </div>
       <div class="card-body">
         <p>
-          This queues a background cleanup for <strong>{{ object }}</strong>.
+          This queues cleanup of expired local artifacts and run history for <strong>{{ object }}</strong>.
+          FTP copies are not deleted by this action.
           The retention plan is recomputed after the job obtains a database lock.
         </p>
 

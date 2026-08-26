@@ -65,6 +65,7 @@ list_urls = (
     "configrevision_list",
     "backuppolicy_list",
     "retentionpolicy_list",
+    "remoteretentionpolicy_list",
     "platformmapping_list",
     "connectionprofile_list",
     "credentialprofile_list",
@@ -78,6 +79,7 @@ add_urls = (
     "backuptarget_add",
     "backuppolicy_add",
     "retentionpolicy_add",
+    "remoteretentionpolicy_add",
     "platformmapping_add",
     "connectionprofile_add",
     "credentialprofile_add",
@@ -85,6 +87,17 @@ add_urls = (
 for name in add_urls:
     response = client.get(reverse(f"plugins:netbox_config_backup:{name}"))
     assert response.status_code == 200, (name, response.status_code)
+
+response = client.get(reverse("plugins-api:netbox_config_backup-api:remoteretentionpolicy-list"))
+assert response.status_code == 200, response.status_code
+
+target_api_url = reverse(
+    "plugins-api:netbox_config_backup-api:backuptarget-detail",
+    kwargs={"pk": target.pk},
+)
+response = client.delete(target_api_url)
+assert response.status_code == 405, response.status_code
+assert BackupTarget.objects.filter(pk=target.pk).exists()
 
 response = client.post(reverse("plugins:netbox_config_backup:examples"))
 assert response.status_code == 302
@@ -135,6 +148,17 @@ assert response.status_code == 302, response.status_code
 first = wait_for_run(BackupRun.objects.filter(target=target).latest("created"))
 assert first.status == "success_changed", (first.status, first.error_code, first.error_message)
 assert first.revision_id is not None
+
+revision_api_url = reverse(
+    "plugins-api:netbox_config_backup-api:configrevision-detail",
+    kwargs={"pk": first.revision_id},
+)
+run_api_url = reverse(
+    "plugins-api:netbox_config_backup-api:backuprun-detail",
+    kwargs={"pk": first.pk},
+)
+assert client.delete(revision_api_url).status_code == 405
+assert client.delete(run_api_url).status_code == 405
 
 response = client.get(first.get_absolute_url())
 assert response.status_code == 200

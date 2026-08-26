@@ -37,12 +37,18 @@ Use **Copy existing revisions** once when historical revisions must also be
 sent to a new or emptied destination. This action queues only revisions which
 do not yet have a replica record for the destination.
 
+After the first copy is recorded, the destination host, port, base path, and
+credential-profile assignment are locked. This prevents retention from
+following an edited record to a different server or directory. Rotate the
+password inside the assigned credential profile; create a new destination when
+moving to another FTP endpoint.
+
 ## Remote layout and integrity
 
 The worker writes revisions below:
 
 ```text
-/<base path>/devices/<device hostname>/backups/<UTC creation time>/
+/<base path>/devices/<device hostname>/backups/<UTC creation time>-r<NetBox revision ID>/
 ```
 
 The hostname comes from the NetBox device `name` field and is sanitized for use
@@ -53,13 +59,23 @@ versions remain in their original directories.
 The primary backup file uses the same readable device-and-time stem, for
 example `core-router-01_2026-08-26_12-35-08.txt`. Supporting artifacts append
 their artifact type before the original extension. Timestamps use UTC and are
-shown to whole-second precision. Existing FTP replicas keep their older UUID
-paths and filenames and remain fully supported by integrity audits and recovery
-downloads.
+shown to whole-second precision. The globally unique NetBox revision ID is
+appended to the same directory segment, not the artifact filename. It prevents
+same-second collisions without a long nested UUID path. The revision UUID
+remains in the integrity manifest.
+
+The recorded remote path is immutable. Renaming a NetBox device does not move
+or rename its existing FTP copies: audit, repair, recovery, and retention keep
+using the path stored on the replica record. Both historical layouts remain
+supported: the older readable timestamp-only directory
+`.../backups/<UTC creation time>/`, the nested UUID layout
+`.../backups/<UTC creation time>/<revision UUID>/`, and the original
+`.../revisions/<revision UUID>/` layout.
 
 A `_netbox_manifest.json` file records the device name and ID, remote device
 directory, revision UUID, driver, sizes, and SHA-256 hashes. Uploads use a
-random `.part-*` name, are downloaded again for hash verification, and are
+deterministic short `.part` name in the revision's unique directory, are
+downloaded again for hash verification, and are
 renamed only after verification. A different file at the final path is
 reported as `DESTINATION_CONFLICT` and is never overwritten.
 
@@ -79,9 +95,54 @@ creating a duplicate revision.
 - A later unchanged device backup detects and repairs a missing or damaged copy
   of the latest revision.
 
-The plugin does not delete FTP revision directories when local retention
-removes a revision. Configure long-term retention and deletion protection on
-the FTP server or NAS.
+## FTP retention
+
+FTP retention is independent from local retention. Assign an **FTP retention
+profile** on each backup device whose remote history should be cleaned up. The
+device's FTP profile applies to its copies on every configured automatic FTP
+destination. Leaving the profile empty means **keep FTP copies indefinitely**;
+the local retention profile is never reused implicitly for FTP.
+
+The profile's maximum is the number of remote **revisions** retained for one
+backup device. It does not count each physical artifact or each destination as
+a separate item: a revision copied to several FTP destinations consumes one
+position in the retention plan.
+
+Use **Retention preview** on the backup device before applying either scope.
+The preview lists local artifacts/runs and FTP revision copies separately. A
+protected revision and the latest usable revision remain protected in both
+locations. Pending, queued, running, and retryable failed transfers are not
+remote cleanup candidates. An exhausted failed transfer which still has a
+recorded remote path is included: a previous copy or partial repair may still
+exist at that exact path and must not become an untracked orphan. Copies on a
+disabled FTP destination are left untouched until that destination is enabled
+again; disabling a destination is therefore a deletion kill switch.
+
+FTP cleanup deletes only the recorded immutable revision directory below the
+destination's configured base path. It does not connect to the network device
+and it does not alter the local artifact. The operation is irreversible because
+FTP has no quarantine or recycle bin. A partial or unavailable-server failure
+is retained as an auditable, retryable cleanup result; it does not change the
+status of the original device backup.
+
+Automatic FTP cleanup has its own opt-in switch under **Config Backup →
+Settings** and is disabled by default. Enabling automatic local cleanup does
+not enable FTP cleanup. Existing installations and devices without an FTP
+profile therefore keep all existing remote copies after an upgrade.
+
+Before the first FTP cleanup on an existing installation, run the read-only
+integrity audit on every destination and resolve every missing or mismatched
+historical replica recorded as successful. Do this before assigning/enabling a
+cleanup schedule; retention is not a substitute for inventory verification.
+
+Once an FTP copy has expired successfully, ordinary backfill, integrity repair,
+and an unchanged later backup do not recreate it automatically. Increasing the
+retention period changes the treatment of retained and future copies only. To
+recover deleted history, copy it back manually from another trusted backup. Its
+deletion state is retained while the revision remains in plugin history. After
+the local revision and every FTP copy have fully expired, cleanup may remove the
+revision together with its replica/deletion audit metadata; it is not a
+permanent audit log.
 
 ## Automatic FTP integrity audit
 

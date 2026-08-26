@@ -1,11 +1,14 @@
 import unittest
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from netbox_config_backup.services.retention import (
     RetentionSettings,
     RevisionCandidate,
     RunCandidate,
     build_retention_plan,
+    has_recorded_remote_copy,
+    settings_from_remote_policy,
 )
 
 NOW = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
@@ -119,6 +122,103 @@ class RetentionRevisionTests(unittest.TestCase):
                 runs=[],
                 now=NOW,
             )
+
+    def test_revision_copy_cap_keeps_newest_eligible_revisions_first(self):
+        plan = build_retention_plan(
+            settings(
+                keep_all_days=365,
+                daily_days=0,
+                weekly_weeks=0,
+                monthly_months=0,
+                minimum_changed_revisions=0,
+                max_revisions_per_target=3,
+            ),
+            revisions=[
+                revision(1, days_ago=1),
+                revision(2, days_ago=2),
+                revision(3, days_ago=3),
+                revision(4, days_ago=4),
+                revision(5, days_ago=5),
+            ],
+            runs=[],
+            now=NOW,
+        )
+
+        decisions = {item.object_id: item for item in plan.revision_decisions}
+        self.assertTrue(decisions[1].keep)
+        self.assertTrue(decisions[2].keep)
+        self.assertTrue(decisions[3].keep)
+        self.assertFalse(decisions[4].keep)
+        self.assertFalse(decisions[5].keep)
+        self.assertEqual(
+            decisions[4].reasons,
+            ("Per-target revision limit exceeded",),
+        )
+
+    def test_revision_copy_cap_never_removes_latest_or_protected_revision(self):
+        plan = build_retention_plan(
+            settings(
+                keep_all_days=365,
+                daily_days=0,
+                weekly_weeks=0,
+                monthly_months=0,
+                minimum_changed_revisions=0,
+                max_revisions_per_target=2,
+            ),
+            revisions=[
+                revision(1, days_ago=1),
+                revision(2, days_ago=2),
+                revision(3, days_ago=3, protected=True),
+            ],
+            runs=[],
+            now=NOW,
+        )
+
+        decisions = {item.object_id: item for item in plan.revision_decisions}
+        self.assertTrue(decisions[1].keep)
+        self.assertFalse(decisions[2].keep)
+        self.assertTrue(decisions[3].keep)
+        self.assertIn("Latest revision", decisions[1].reasons)
+        self.assertIn("Protected revision", decisions[3].reasons)
+
+    def test_remote_policy_maps_copy_limit_without_enabling_run_retention(self):
+        policy = SimpleNamespace(
+            keep_all_days=30,
+            daily_days=365,
+            weekly_weeks=104,
+            monthly_months=60,
+            minimum_changed_revisions=12,
+            max_copies_per_target=250,
+        )
+
+        remote_settings = settings_from_remote_policy(policy)
+
+        self.assertEqual(remote_settings.max_revisions_per_target, 250)
+        self.assertEqual(remote_settings.unchanged_run_days, 0)
+        self.assertEqual(remote_settings.changed_run_days, 0)
+        self.assertEqual(remote_settings.failed_run_days, 0)
+
+
+class RemotePointerRetentionTests(unittest.TestCase):
+    def test_exhausted_failed_replica_with_recorded_path_preserves_metadata(self):
+        replica = SimpleNamespace(
+            status="failed",
+            remote_available=False,
+            remote_path="/backup/devices/router/backups/2026-08-26_08-11-06-r42",
+            remote_deleted_at=None,
+            next_retry_at=None,
+        )
+
+        self.assertTrue(has_recorded_remote_copy((replica,)))
+
+    def test_tombstoned_remote_path_does_not_preserve_metadata(self):
+        replica = SimpleNamespace(
+            remote_available=False,
+            remote_path="/backup/devices/router/backups/2026-08-26_08-11-06-r42",
+            remote_deleted_at=NOW,
+        )
+
+        self.assertFalse(has_recorded_remote_copy((replica,)))
 
 
 class RetentionRunTests(unittest.TestCase):

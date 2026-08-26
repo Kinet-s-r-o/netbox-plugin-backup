@@ -113,6 +113,11 @@ def load_artifact_content(
 
     from netbox_config_backup.storage.factory import build_config_storage
 
+    if getattr(artifact, "local_available", True) is False:
+        raise RevisionDisplayError(
+            "The local copy has expired. Use an available verified FTP copy for recovery."
+        )
+
     target_storage = storage or build_config_storage(
         settings.PLUGINS_CONFIG["netbox_config_backup"]
     )

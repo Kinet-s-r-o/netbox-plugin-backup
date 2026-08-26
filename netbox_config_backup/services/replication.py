@@ -16,6 +16,7 @@ from netbox_config_backup.models import (
 
 from .destination import DestinationError, replicate_revision
 from .destination_ftp import reconcile_ftp_destination
+from .destination_paths import ftp_revision_destination_path
 
 
 @dataclass(slots=True)
@@ -69,6 +70,10 @@ def ensure_revision_replicas(revision_id: int) -> int:
             ReplicaStatusChoices.RUNNING,
         }:
             continue
+        if replica.remote_deleted_at is not None:
+            # An FTP retention tombstone is intentional. An unchanged backup
+            # must not silently recreate the expired remote copy.
+            continue
 
         needs_repair = replica.status != ReplicaStatusChoices.SUCCESS
         if not needs_repair and destination.protocol == DestinationProtocolChoices.FTP:
@@ -97,6 +102,8 @@ def enqueue_revision_replica(replica_id: int, *, user=None, force: bool = False)
     )
     if not replica.destination.enabled:
         return None
+    if replica.remote_deleted_at is not None:
+        return None
     if replica.status in {
         ReplicaStatusChoices.QUEUED,
         ReplicaStatusChoices.RUNNING,
@@ -111,6 +118,7 @@ def enqueue_revision_replica(replica_id: int, *, user=None, force: bool = False)
     replica.next_retry_at = None
     replica.error_code = ""
     replica.error_message = ""
+    replica.remote_available = False
     replica.save()
     job = DestinationReplicationJob.enqueue(
         replica_id=replica.pk,
@@ -127,7 +135,17 @@ def execute_revision_replica(replica_id: int):
     replica = _mark_running(replica_id)
 
     try:
-        result = replicate_revision(replica.destination, replica.revision)
+        if replica.destination.protocol == DestinationProtocolChoices.FTP and replica.remote_path:
+            # Repair the immutable copy at its recorded path. Rebuilding a path
+            # from the current device name after a NetBox rename would orphan
+            # the historical directory and lose the only database pointer to it.
+            result = replicate_revision(
+                replica.destination,
+                replica.revision,
+                recorded_remote_path=replica.remote_path,
+            )
+        else:
+            result = replicate_revision(replica.destination, replica.revision)
     except DestinationError as exc:
         _mark_failed(replica.pk, exc)
         raise
@@ -152,6 +170,16 @@ def _mark_running(replica_id: int) -> RevisionReplica:
         .prefetch_related("revision__artifacts")
         .get(pk=replica_id)
     )
+    if not replica.destination.enabled:
+        raise DestinationError(
+            "DESTINATION_DISABLED",
+            "The external destination is disabled and no network connection was attempted.",
+        )
+    if replica.remote_deleted_at is not None:
+        raise DestinationError(
+            "REPLICA_EXPIRED",
+            "The FTP revision copy has expired and cannot be uploaded again.",
+        )
     if replica.status not in {
         ReplicaStatusChoices.PENDING,
         ReplicaStatusChoices.QUEUED,
@@ -160,12 +188,24 @@ def _mark_running(replica_id: int) -> RevisionReplica:
         raise DestinationError(
             "REPLICA_STATE_CONFLICT", "The revision replica is not ready to run."
         )
+    if replica.destination.protocol == DestinationProtocolChoices.FTP and not replica.remote_path:
+        # Record the deterministic path before any network write. If the
+        # worker fails after creating a partial directory, retention and target
+        # deletion still have an exact immutable location to reconcile.
+        replica.remote_path = ftp_revision_destination_path(
+            replica.destination.base_path,
+            device_name=replica.revision.target.device.name,
+            device_id=replica.revision.target.device_id,
+            created_at=replica.revision.created,
+            revision_id=replica.revision.pk,
+        )
     replica.status = ReplicaStatusChoices.RUNNING
     replica.started_at = timezone.now()
     replica.finished_at = None
     replica.attempts += 1
     replica.error_code = ""
     replica.error_message = ""
+    replica.remote_available = False
     replica.save()
     return replica
 
@@ -183,6 +223,8 @@ def _mark_success(replica_id: int, remote_path: str, bytes_transferred: int) -> 
     replica.bytes_transferred = bytes_transferred
     replica.error_code = ""
     replica.error_message = ""
+    replica.remote_available = True
+    replica.remote_deleted_at = None
     replica.save()
     destination = replica.destination
     was_failed = bool(destination.last_error_code)
@@ -213,6 +255,7 @@ def _mark_failed(replica_id: int, exc: DestinationError) -> None:
     replica.finished_at = now
     replica.error_code = exc.error_code[:64]
     replica.error_message = exc.safe_message[:500]
+    replica.remote_available = False
     if replica.attempts <= replica.destination.max_retries:
         replica.next_retry_at = now + timedelta(minutes=replica.destination.retry_delay_minutes)
     else:
@@ -232,7 +275,10 @@ def _mark_failed(replica_id: int, exc: DestinationError) -> None:
 def dispatch_due_replicas(*, limit: int = 100) -> ReplicationDispatchSummary:
     now = timezone.now()
     candidate_ids = list(
-        RevisionReplica.objects.filter(destination__enabled=True)
+        RevisionReplica.objects.filter(
+            destination__enabled=True,
+            remote_deleted_at__isnull=True,
+        )
         .filter(
             Q(status=ReplicaStatusChoices.PENDING)
             | Q(status=ReplicaStatusChoices.FAILED, next_retry_at__lte=now)
@@ -257,7 +303,8 @@ def reconcile_stale_replicas(*, stale_after_minutes: int = 120) -> int:
     cutoff = timezone.now() - timedelta(minutes=stale_after_minutes)
     candidates = RevisionReplica.objects.filter(
         Q(status=ReplicaStatusChoices.RUNNING, started_at__lte=cutoff)
-        | Q(status=ReplicaStatusChoices.QUEUED, queued_at__lte=cutoff)
+        | Q(status=ReplicaStatusChoices.QUEUED, queued_at__lte=cutoff),
+        remote_deleted_at__isnull=True,
     ).only("pk", "job_id")
     reconciled = 0
     for replica in candidates:
@@ -276,9 +323,12 @@ def reconcile_stale_replicas(*, stale_after_minutes: int = 120) -> int:
 
 
 def backfill_destination(destination: BackupDestination, *, user=None, limit: int = 1000) -> int:
-    revision_ids = ConfigRevision.objects.exclude(replicas__destination=destination).values_list(
-        "pk", flat=True
-    )[:limit]
+    revision_ids = (
+        ConfigRevision.objects.filter(artifacts__local_available=True)
+        .exclude(replicas__destination=destination)
+        .distinct()
+        .values_list("pk", flat=True)[:limit]
+    )
     replica_ids: list[int] = []
     for revision_id in revision_ids:
         replica, created = RevisionReplica.objects.get_or_create(

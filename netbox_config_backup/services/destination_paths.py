@@ -64,12 +64,30 @@ def ftp_revision_destination_path(
     device_name: str | None,
     device_id: int,
     created_at: datetime,
+    revision_id: int | None = None,
+    revision_uuid: UUID | str | None = None,
 ) -> str:
-    """Build the readable canonical path used by new FTP revision copies."""
-    return "/" + posixpath.join(
+    """Build a readable, collision-free path for a new FTP revision copy.
+
+    New writes use the globally unique database revision ID in the readable
+    leaf (``<UTC>-r<ID>``). This prevents same-second collisions without a
+    second 36-character UUID directory, keeping paths compatible with Windows
+    FTP servers backed by conservative path-length limits. ``revision_uuid``
+    remains available only for identifying the historical v0.5 nested layout;
+    omitting both identifiers yields the older timestamp-only layout.
+    """
+
+    path = posixpath.join(
         base_path.strip("/"),
         "devices",
         device_directory_name(device_name, device_id),
         "backups",
         backup_creation_timestamp(created_at),
-    ).lstrip("/")
+    )
+    if revision_id is not None:
+        if int(revision_id) <= 0:
+            raise ValueError("revision_id must be a positive integer")
+        path = f"{path}-r{int(revision_id)}"
+    elif revision_uuid is not None:
+        path = posixpath.join(path, str(revision_uuid))
+    return "/" + path.lstrip("/")

@@ -10,6 +10,7 @@ from .models import (
     ConnectionProfile,
     CredentialProfile,
     PlatformMapping,
+    RemoteRetentionPolicy,
     RetentionPolicy,
     RevisionReplica,
     SftpReceiverProfile,
@@ -69,6 +70,31 @@ class RetentionPolicyTable(NetBoxTable):
             "weekly_weeks",
             "monthly_months",
             "max_runs_per_target",
+        )
+
+
+class RemoteRetentionPolicyTable(NetBoxTable):
+    name = tables.Column(linkify=True)
+
+    class Meta(NetBoxTable.Meta):
+        model = RemoteRetentionPolicy
+        fields = (
+            "pk",
+            "name",
+            "keep_all_days",
+            "daily_days",
+            "weekly_weeks",
+            "monthly_months",
+            "minimum_changed_revisions",
+            "max_copies_per_target",
+        )
+        default_columns = (
+            "name",
+            "keep_all_days",
+            "daily_days",
+            "weekly_weeks",
+            "monthly_months",
+            "max_copies_per_target",
         )
 
 
@@ -198,6 +224,8 @@ class RevisionReplicaTable(NetBoxTable):
     created = columns.DateTimeColumn()
     revision = tables.Column(linkify=True)
     status = columns.ChoiceFieldColumn()
+    remote_available = columns.BooleanColumn(verbose_name="Available on FTP")
+    remote_deleted_at = columns.DateTimeColumn(verbose_name="FTP expired at")
     actions = columns.ActionsColumn(actions=())
 
     class Meta(NetBoxTable.Meta):
@@ -206,6 +234,8 @@ class RevisionReplicaTable(NetBoxTable):
             "created",
             "revision",
             "status",
+            "remote_available",
+            "remote_deleted_at",
             "attempts",
             "bytes_transferred",
             "finished_at",
@@ -217,6 +247,8 @@ class RevisionReplicaTable(NetBoxTable):
             "created",
             "revision",
             "status",
+            "remote_available",
+            "remote_deleted_at",
             "attempts",
             "bytes_transferred",
             "finished_at",
@@ -284,6 +316,8 @@ class BackupTargetTable(NetBoxTable):
     device = tables.Column(linkify=True)
     enabled = columns.BooleanColumn()
     status = columns.ChoiceFieldColumn()
+    retention_override = tables.Column(verbose_name="Local retention", linkify=True)
+    remote_retention_policy = tables.Column(verbose_name="FTP retention", linkify=True)
     last_revision = tables.Column(linkify=True)
     actions = columns.ActionsColumn(extra_buttons=TEST_CONNECTION_BUTTON + RUN_BUTTON)
 
@@ -296,6 +330,8 @@ class BackupTargetTable(NetBoxTable):
             "status",
             "driver_override",
             "driver_options_override",
+            "retention_override",
+            "remote_retention_policy",
             "last_success_at",
             "last_change_at",
             "consecutive_failures",

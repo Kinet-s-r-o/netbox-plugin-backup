@@ -24,6 +24,7 @@ class RetentionSettings:
     changed_run_days: int
     failed_run_days: int
     max_runs_per_target: int
+    max_revisions_per_target: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,12 +87,52 @@ def settings_from_policy(policy) -> RetentionSettings:
     )
 
 
+def settings_from_remote_policy(policy) -> RetentionSettings:
+    """Translate an FTP retention profile into the shared revision planner.
+
+    Backup-run retention is deliberately disabled here: FTP retention owns only
+    immutable revision copies and must never remove NetBox run history.
+    """
+
+    return RetentionSettings(
+        keep_all_days=policy.keep_all_days,
+        daily_days=policy.daily_days,
+        weekly_weeks=policy.weekly_weeks,
+        monthly_months=policy.monthly_months,
+        minimum_changed_revisions=policy.minimum_changed_revisions,
+        unchanged_run_days=0,
+        changed_run_days=0,
+        failed_run_days=0,
+        max_runs_per_target=1,
+        max_revisions_per_target=policy.max_copies_per_target,
+    )
+
+
 def effective_retention_policy(target):
     if target.retention_override_id:
         return target.retention_override
     if target.policy_override_id:
         return target.policy_override.retention_policy
     return None
+
+
+def has_recorded_remote_copy(replicas: Iterable[object]) -> bool:
+    """Return whether revision metadata owns a non-tombstoned remote pointer.
+
+    ``remote_available`` is deliberately not the only signal. A final failed
+    repair can clear that flag while retaining ``remote_path`` to an older
+    complete copy or an interrupted upload which FTP retention must still be
+    able to reconcile exactly.
+    """
+
+    return any(
+        getattr(replica, "remote_deleted_at", None) is None
+        and (
+            bool(getattr(replica, "remote_available", False))
+            or bool(getattr(replica, "remote_path", ""))
+        )
+        for replica in replicas
+    )
 
 
 def build_retention_plan(
@@ -164,7 +205,7 @@ def _plan_revisions(
         ),
     )
 
-    return tuple(
+    decisions = tuple(
         RetentionDecision(
             object_id=revision.object_id,
             timestamp=revision.created,
@@ -173,6 +214,36 @@ def _plan_revisions(
         )
         for revision in ordered
     )
+    if not settings.max_revisions_per_target:
+        return decisions
+
+    # A hard copy cap is a final safety valve for remote storage. The newest
+    # and explicitly protected revisions always win, even if protected records
+    # make the configured cap impossible to meet.
+    mandatory = {
+        decision.object_id
+        for decision in decisions
+        if "Latest revision" in decision.reasons or "Protected revision" in decision.reasons
+    }
+    remaining = max(settings.max_revisions_per_target - len(mandatory), 0)
+    capped: list[RetentionDecision] = []
+    for decision in decisions:
+        if not decision.keep or decision.object_id in mandatory:
+            capped.append(decision)
+            continue
+        if remaining:
+            capped.append(decision)
+            remaining -= 1
+            continue
+        capped.append(
+            RetentionDecision(
+                object_id=decision.object_id,
+                timestamp=decision.timestamp,
+                keep=False,
+                reasons=("Per-target revision limit exceeded",),
+            )
+        )
+    return tuple(capped)
 
 
 def _plan_runs(

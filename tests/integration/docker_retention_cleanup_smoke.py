@@ -14,12 +14,15 @@ from django.urls import reverse
 from django.utils import timezone
 
 from netbox_config_backup.models import (
+    BackupDestination,
     BackupPolicy,
     BackupRun,
     BackupTarget,
     ConfigArtifact,
     ConfigRevision,
+    CredentialProfile,
     RetentionPolicy,
+    RevisionReplica,
 )
 from netbox_config_backup.services.retention_cleanup import (
     RetentionCleanupError,
@@ -85,6 +88,9 @@ limited = user_model.objects.create_user(username=f"{prefix}-limited")
 client = Client()
 client.force_login(admin)
 cleanup_job = None
+remote_credential = None
+remote_destination = None
+failed_replica = None
 
 
 def create_revision(content: bytes, *, age_days: int, previous=None, protected=False):
@@ -134,6 +140,41 @@ try:
     )
     target.last_revision = latest
     target.save(update_fields=("last_revision", "last_updated"))
+
+    # An exhausted failed repair can still point to an older complete copy or
+    # an interrupted FTP upload. Local retention must remove only local bytes
+    # and retain the revision/replica metadata needed for exact remote cleanup.
+    remote_credential = CredentialProfile.objects.create(
+        name=f"{prefix}-ftp-credentials",
+        provider_id="environment",
+        secret_reference="RETENTION_SMOKE_UNUSED",
+        auth_type="password",
+    )
+    remote_destination = BackupDestination.objects.create(
+        name=f"{prefix}-ftp",
+        enabled=False,
+        auto_replicate=False,
+        protocol="ftp",
+        allow_insecure_ftp=True,
+        host="127.0.0.1",
+        port=21,
+        base_path="retention-smoke",
+        credential_profile=remote_credential,
+    )
+    failed_replica = RevisionReplica.objects.create(
+        revision=extra_expired,
+        destination=remote_destination,
+        status="failed",
+        attempts=4,
+        remote_path=(
+            f"/retention-smoke/devices/{device.name}/backups/"
+            f"{extra_expired.created.astimezone().strftime('%Y-%m-%d_%H-%M-%S')}"
+            f"-r{extra_expired.pk}"
+        ),
+        remote_available=False,
+        next_retry_at=None,
+        error_code="DESTINATION_TEST_FAILURE",
+    )
 
     expired_run = BackupRun.objects.create(
         target=target,
@@ -207,8 +248,8 @@ try:
     )
     response = client.get(preview_url)
     assert response.status_code == 200
-    assert b"Apply retention" in response.content
-    assert b"Would delete" in response.content
+    assert b"Apply local retention" in response.content
+    assert b"Local revisions expired" in response.content
     response = client.get(cleanup_url)
     assert response.status_code == 200
     assert b"Queue cleanup" in response.content
@@ -226,11 +267,13 @@ try:
     assert cleanup_job.status == "completed", (cleanup_job.status, cleanup_job.data)
 
     assert not ConfigRevision.objects.filter(pk=expired.pk).exists()
-    assert not ConfigRevision.objects.filter(pk=extra_expired.pk).exists()
+    assert ConfigRevision.objects.filter(pk=extra_expired.pk).exists()
+    assert RevisionReplica.objects.filter(pk=failed_replica.pk).exists()
     assert ConfigRevision.objects.filter(pk=protected.pk, protected=True).exists()
     assert ConfigRevision.objects.filter(pk=latest.pk).exists()
     assert not ConfigArtifact.objects.filter(pk=expired_artifact.pk).exists()
-    assert not ConfigArtifact.objects.filter(pk=extra_expired_artifact.pk).exists()
+    extra_expired_artifact.refresh_from_db()
+    assert not extra_expired_artifact.local_available
     assert ConfigArtifact.objects.filter(pk=protected_artifact.pk).exists()
     assert ConfigArtifact.objects.filter(pk=latest_artifact.pk).exists()
     assert not storage.exists(expired_artifact.storage_key)
@@ -253,11 +296,14 @@ try:
             "protected_revision_kept": True,
             "latest_revision_kept": True,
             "revision_chain_relinked": True,
+            "failed_remote_pointer_preserved": True,
             "staging_failure_rolled_back": True,
             "permission_denied_without_delete_access": True,
         }
     )
 finally:
+    if failed_replica is not None:
+        RevisionReplica.objects.filter(pk=failed_replica.pk).delete()
     if BackupTarget.objects.filter(pk=target.pk).exists():
         target.refresh_from_db()
         delete_backup_target(target)
@@ -267,6 +313,10 @@ finally:
     limited.delete()
     policy.delete()
     retention.delete()
+    if remote_destination is not None:
+        remote_destination.delete()
+    if remote_credential is not None:
+        remote_credential.delete()
     device.delete()
     device_type.delete()
     manufacturer.delete()

@@ -98,6 +98,35 @@ try:
     assert edit_response.status_code == 302, edit_response.content[:500]
     ftp_destination.refresh_from_db()
     assert ftp_destination.port == 2121
+    ftp_replica = RevisionReplica.objects.create(
+        revision=revision,
+        destination=ftp_destination,
+        status="success",
+        remote_path=(
+            f"/{ftp_destination.base_path}/devices/smoke-device/backups/2026-08-26_08-11-06"
+        ),
+        remote_available=True,
+    )
+    endpoint_change = client.post(
+        f"/plugins/config-backup/destinations/{ftp_destination.pk}/edit/",
+        {
+            "name": ftp_destination.name,
+            "protocol": "ftp",
+            "allow_insecure_ftp": "on",
+            "host": "different-ftp.invalid",
+            "port": str(ftp_destination.port),
+            "base_path": ftp_destination.base_path,
+            "credential_profile": str(credential.pk),
+            "connect_timeout": "15",
+            "max_retries": "3",
+            "retry_delay_minutes": "15",
+            "max_artifact_size": str(1024 * 1024 * 1024),
+        },
+    )
+    assert endpoint_change.status_code == 200
+    assert b"cannot be changed while FTP copies exist" in endpoint_change.content
+    ftp_destination.refresh_from_db()
+    assert ftp_destination.host == "ftp.invalid"
     destination_list = client.get("/plugins/config-backup/destinations/")
     assert destination_list.status_code == 200
     assert destination.get_absolute_url().encode() not in destination_list.content
@@ -115,6 +144,8 @@ try:
     assert b"FTP destination" in settings_page.content
 finally:
     replica.delete()
+    if "ftp_replica" in locals():
+        ftp_replica.delete()
     destination.delete()
     ftp_destination.delete()
 

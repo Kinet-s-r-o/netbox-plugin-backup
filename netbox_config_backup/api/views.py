@@ -13,6 +13,7 @@ from netbox_config_backup.models import (
     ConnectionProfile,
     CredentialProfile,
     PlatformMapping,
+    RemoteRetentionPolicy,
     RetentionPolicy,
     RevisionReplica,
     SftpReceiverProfile,
@@ -27,6 +28,7 @@ from .serializers import (
     ConnectionProfileSerializer,
     CredentialProfileSerializer,
     PlatformMappingSerializer,
+    RemoteRetentionPolicySerializer,
     RetentionPolicySerializer,
     RevisionReplicaSerializer,
     SftpReceiverProfileSerializer,
@@ -36,6 +38,11 @@ from .serializers import (
 class RetentionPolicyViewSet(NetBoxModelViewSet):
     queryset = RetentionPolicy.objects.all()
     serializer_class = RetentionPolicySerializer
+
+
+class RemoteRetentionPolicyViewSet(NetBoxModelViewSet):
+    queryset = RemoteRetentionPolicy.objects.all()
+    serializer_class = RemoteRetentionPolicySerializer
 
 
 class AvailableDeviceViewSet(NetBoxReadOnlyModelViewSet):
@@ -84,18 +91,18 @@ class PlatformMappingViewSet(NetBoxModelViewSet):
     serializer_class = PlatformMappingSerializer
 
 
-class BackupTargetViewSet(NetBoxModelViewSet):
+class BackupTargetViewSet(NetBoxReadOnlyModelViewSet):
     queryset = BackupTarget.objects.all()
     serializer_class = BackupTargetSerializer
     filterset_class = BackupTargetFilterSet
 
 
-class ConfigRevisionViewSet(NetBoxModelViewSet):
+class ConfigRevisionViewSet(NetBoxReadOnlyModelViewSet):
     queryset = ConfigRevision.objects.all()
     serializer_class = ConfigRevisionSerializer
 
 
-class BackupRunViewSet(NetBoxModelViewSet):
+class BackupRunViewSet(NetBoxReadOnlyModelViewSet):
     queryset = BackupRun.objects.all()
     serializer_class = BackupRunSerializer
     filterset_class = BackupRunFilterSet

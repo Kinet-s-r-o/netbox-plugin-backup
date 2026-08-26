@@ -70,7 +70,28 @@
         <tr><th scope="row">Status</th><td><span class="badge text-bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span></td></tr>
         <tr><th scope="row">Driver override</th><td>{{ object.driver_override|placeholder }}</td></tr>
         <tr><th scope="row">Policy</th><td>{{ object.policy_override|linkify|placeholder }}</td></tr>
-        <tr><th scope="row">Retention</th><td>{{ object.retention_override|linkify|placeholder }}</td></tr>
+        <tr>
+          <th scope="row">Local retention</th>
+          <td>
+            {% if object.retention_override %}
+              {{ object.retention_override|linkify }} <span class="text-secondary">device override</span>
+            {% elif object.policy_override and object.policy_override.retention_policy %}
+              {{ object.policy_override.retention_policy|linkify }} <span class="text-secondary">from backup policy</span>
+            {% else %}
+              <span class="text-secondary">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">FTP retention</th>
+          <td>
+            {% if object.remote_retention_policy %}
+              {{ object.remote_retention_policy|linkify }}
+            {% else %}
+              <span class="text-secondary">Keep indefinitely</span>
+            {% endif %}
+          </td>
+        </tr>
         <tr><th scope="row">Credential</th><td>{{ object.credential_override|linkify|placeholder }}</td></tr>
         <tr><th scope="row">Connection</th><td>{{ object.connection_override|linkify|placeholder }}</td></tr>
       </table>

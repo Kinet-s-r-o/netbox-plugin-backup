@@ -295,7 +295,14 @@
           {% if perms.netbox_config_backup.view_retentionpolicy %}
           <a class="settings-link" href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">
             <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-history"></i></span>
-            <span class="settings-link-copy"><strong>Retention policies</strong><span>Rules for keeping backup history.</span></span>
+            <span class="settings-link-copy"><strong>Local retention profiles</strong><span>Rules for local revisions and run history.</span></span>
+            <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
+          </a>
+          {% endif %}
+          {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
+          <a class="settings-link" href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">
+            <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-server-minus-outline"></i></span>
+            <span class="settings-link-copy"><strong>FTP retention profiles</strong><span>Independent rules for remote FTP copies.</span></span>
             <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
           </a>
           {% endif %}
@@ -334,8 +341,8 @@
           <div class="runtime-summary">
             <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-delete-clock-outline"></i></span>
             <div>
-              <h3>Expired history</h3>
-              <p>Runs every 24 hours and removes revisions expired by each device retention policy. Active backups are skipped.</p>
+              <h3>Expired backup data</h3>
+              <p>Runs every 24 hours. Local history and FTP copies use separate profiles and separate opt-in switches.</p>
             </div>
           </div>
           <div class="runtime-controls">
@@ -343,8 +350,8 @@
               <div class="form-check form-switch settings-switch">
                 {{ operational_settings_form.retention_scheduler_enabled }}
                 <div>
-                  <label class="form-check-label fw-semibold" for="{{ operational_settings_form.retention_scheduler_enabled.id_for_label }}">Enable automatic cleanup</label>
-                  <div class="form-text mt-1">Recommended after retention policies have been reviewed.</div>
+                  <label class="form-check-label fw-semibold" for="{{ operational_settings_form.retention_scheduler_enabled.id_for_label }}">Enable local cleanup</label>
+                  <div class="form-text mt-1">Removes expired local artifacts and run history.</div>
                 </div>
               </div>
               {% if operational_settings_form.retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.retention_scheduler_enabled.errors }}</div>{% endif %}
@@ -355,6 +362,25 @@
               <div>
                 <label class="form-check-label fw-semibold" for="{{ operational_settings_form.confirm_enable.id_for_label }}">Confirm permanent deletion of expired history</label>
                 {% if operational_settings_form.confirm_enable.errors %}<div class="invalid-feedback d-block">{{ operational_settings_form.confirm_enable.errors }}</div>{% endif %}
+              </div>
+            </div>
+            {% endif %}
+            <div>
+              <div class="form-check form-switch settings-switch">
+                {{ operational_settings_form.remote_retention_scheduler_enabled }}
+                <div>
+                  <label class="form-check-label fw-semibold" for="{{ operational_settings_form.remote_retention_scheduler_enabled.id_for_label }}">Enable FTP cleanup</label>
+                  <div class="form-text mt-1">Only devices with an FTP retention profile are affected.</div>
+                </div>
+              </div>
+              {% if operational_settings_form.remote_retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.remote_retention_scheduler_enabled.errors }}</div>{% endif %}
+            </div>
+            {% if not remote_retention_scheduler_enabled %}
+            <div class="settings-confirmation">
+              {{ operational_settings_form.confirm_remote_enable }}
+              <div>
+                <label class="form-check-label fw-semibold" for="{{ operational_settings_form.confirm_remote_enable.id_for_label }}">Confirm permanent deletion of expired FTP copies</label>
+                {% if operational_settings_form.confirm_remote_enable.errors %}<div class="invalid-feedback d-block">{{ operational_settings_form.confirm_remote_enable.errors }}</div>{% endif %}
               </div>
             </div>
             {% endif %}
@@ -416,7 +442,7 @@
         <div class="runtime-layout">
           <div class="runtime-summary">
             <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-delete-clock-outline"></i></span>
-            <div><h3>Expired history</h3><p>Automatic cleanup is {% if retention_scheduler_enabled %}enabled{% else %}disabled{% endif %}.</p></div>
+            <div><h3>Retention</h3><p>Local cleanup: {% if retention_scheduler_enabled %}enabled{% else %}disabled{% endif %}. FTP cleanup: {% if remote_retention_scheduler_enabled %}enabled{% else %}disabled{% endif %}.</p></div>
           </div>
           <div class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i>Administrators can change this setting.</div>
         </div>

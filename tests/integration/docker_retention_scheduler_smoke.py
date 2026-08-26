@@ -19,6 +19,7 @@ from netbox_config_backup.jobs import (
     ScheduledRetentionDispatcherJob,
 )
 from netbox_config_backup.models import (
+    BackupDestination,
     BackupPolicy,
     BackupRun,
     BackupTarget,
@@ -26,7 +27,9 @@ from netbox_config_backup.models import (
     ConfigRevision,
     OperationalSettings,
     RetentionPolicy,
+    RevisionReplica,
 )
+from netbox_config_backup.services.destination_paths import ftp_revision_destination_path
 from netbox_config_backup.services.retention import (
     RevisionCandidate,
     RunCandidate,
@@ -103,11 +106,22 @@ def current_plan(target, now):
 
 now = timezone.now()
 existing_targets = list(BackupTarget.objects.all())
+unsafe_existing_targets = []
 for existing_target in existing_targets:
     plan = current_plan(existing_target, now)
-    assert plan is None or (plan.revisions_to_delete == 0 and plan.runs_to_delete == 0), (
-        "Refusing enabled scheduler smoke test because an existing target has expired data."
-    )
+    if plan is not None and (plan.revisions_to_delete or plan.runs_to_delete):
+        unsafe_existing_targets.append(
+            {
+                "target_id": existing_target.pk,
+                "device": str(existing_target.device),
+                "revisions_to_delete": plan.revisions_to_delete,
+                "runs_to_delete": plan.runs_to_delete,
+            }
+        )
+assert not unsafe_existing_targets, (
+    "Refusing enabled scheduler smoke test because existing targets have expired data: "
+    f"{unsafe_existing_targets}"
+)
 
 prefix = f"ncb-retention-scheduler-{uuid4().hex[:8]}"
 admin = get_user_model().objects.create_superuser(username=f"{prefix}-admin")
@@ -148,9 +162,11 @@ devices = []
 created_jobs = []
 operational_settings = OperationalSettings.objects.get(singleton=True)
 original_retention_enabled = operational_settings.retention_scheduler_enabled
+original_remote_retention_enabled = operational_settings.remote_retention_scheduler_enabled
 original_retention_batch_size = operational_settings.retention_scheduler_batch_size
 OperationalSettings.objects.filter(pk=operational_settings.pk).update(
     retention_scheduler_enabled=False,
+    remote_retention_scheduler_enabled=False,
     retention_scheduler_batch_size=25,
 )
 operational_settings.refresh_from_db()
@@ -213,6 +229,26 @@ try:
         automatic_target,
         "automatic",
     )
+    ftp_destination = BackupDestination.objects.filter(
+        enabled=True,
+        protocol="ftp",
+    ).first()
+    assert ftp_destination is not None, "Retention smoke requires one enabled FTP destination"
+    exhausted_replica = RevisionReplica.objects.create(
+        revision=automatic_old,
+        destination=ftp_destination,
+        status="failed",
+        attempts=ftp_destination.max_retries + 1,
+        next_retry_at=None,
+        remote_path=ftp_revision_destination_path(
+            ftp_destination.base_path,
+            device_name=automatic_target.device.name,
+            device_id=automatic_target.device_id,
+            created_at=automatic_old.created,
+            revision_id=automatic_old.pk,
+        ),
+        remote_available=False,
+    )
 
     active_target = create_target("active")
     add_expired_history(active_target, "active")
@@ -237,10 +273,12 @@ try:
     clean_target.save(update_fields=("last_revision", "last_updated"))
 
     assert operational_settings.retention_scheduler_enabled is False
+    assert operational_settings.remote_retention_scheduler_enabled is False
     settings_response = client.get(reverse("plugins:netbox_config_backup:advanced_settings"))
     assert settings_response.status_code == 200
-    assert b"Expired history" in settings_response.content
-    assert b"Enable automatic cleanup" in settings_response.content
+    assert b"Expired backup data" in settings_response.content
+    assert b"Enable local cleanup" in settings_response.content
+    assert b"Enable FTP cleanup" in settings_response.content
     assert b"Runs every 24 hours" in settings_response.content
     assert b'name="retention_scheduler_batch_size"' in settings_response.content
     assert b'type="hidden" name="retention_scheduler_batch_size"' in settings_response.content
@@ -249,6 +287,7 @@ try:
     limited_response = limited_client.post(
         reverse("plugins:netbox_config_backup:advanced_settings"),
         {
+            "settings_action": "retention",
             "retention_scheduler_enabled": "on",
             "retention_scheduler_batch_size": "25",
             "confirm_enable": "on",
@@ -261,6 +300,7 @@ try:
     unconfirmed_response = client.post(
         reverse("plugins:netbox_config_backup:advanced_settings"),
         {
+            "settings_action": "retention",
             "retention_scheduler_enabled": "on",
             "retention_scheduler_batch_size": "25",
         },
@@ -272,6 +312,24 @@ try:
     )
     operational_settings.refresh_from_db()
     assert operational_settings.retention_scheduler_enabled is False
+    assert operational_settings.remote_retention_scheduler_enabled is False
+
+    remote_unconfirmed_response = client.post(
+        reverse("plugins:netbox_config_backup:advanced_settings"),
+        {
+            "settings_action": "retention",
+            "remote_retention_scheduler_enabled": "on",
+            "retention_scheduler_batch_size": "25",
+        },
+    )
+    assert remote_unconfirmed_response.status_code == 400
+    assert (
+        b"Confirm the permanent FTP deletion warning before enabling remote retention."
+        in remote_unconfirmed_response.content
+    )
+    operational_settings.refresh_from_db()
+    assert operational_settings.retention_scheduler_enabled is False
+    assert operational_settings.remote_retention_scheduler_enabled is False
 
     before_jobs = Job.objects.filter(name=CLEANUP_JOB_NAME).count()
     disabled_result = ScheduledRetentionDispatcherJob.run(Runner())
@@ -282,6 +340,7 @@ try:
     enabled_response = client.post(
         reverse("plugins:netbox_config_backup:advanced_settings"),
         {
+            "settings_action": "retention",
             "retention_scheduler_enabled": "on",
             "retention_scheduler_batch_size": "25",
             "confirm_enable": "on",
@@ -290,6 +349,7 @@ try:
     assert enabled_response.status_code == 302
     operational_settings.refresh_from_db()
     assert operational_settings.retention_scheduler_enabled is True
+    assert operational_settings.remote_retention_scheduler_enabled is False
 
     enabled_settings_response = client.get(
         reverse("plugins:netbox_config_backup:advanced_settings")
@@ -299,8 +359,8 @@ try:
 
     assert enabled_result["enabled"] is True
     assert enabled_result["queued"] == 1, enabled_result
-    assert enabled_result["skipped_active_backup"] >= 1, enabled_result
-    assert enabled_result["skipped_active_cleanup"] >= 1, enabled_result
+    assert enabled_result["local"]["skipped_active_backup"] >= 1, enabled_result
+    assert enabled_result["local"]["skipped_active_cleanup"] >= 1, enabled_result
 
     cleanup_job = wait_for_job(
         Job.objects.filter(
@@ -310,7 +370,9 @@ try:
     )
     created_jobs.append(cleanup_job)
     assert cleanup_job.status == "completed", (cleanup_job.status, cleanup_job.data)
-    assert not ConfigRevision.objects.filter(pk=automatic_old.pk).exists()
+    assert ConfigRevision.objects.filter(pk=automatic_old.pk).exists()
+    assert RevisionReplica.objects.filter(pk=exhausted_replica.pk).exists()
+    assert not ConfigArtifact.objects.get(revision=automatic_old).local_available
     assert ConfigRevision.objects.filter(pk=automatic_latest.pk).exists()
     assert ConfigRevision.objects.filter(target=active_target).count() == 2
     assert ConfigRevision.objects.filter(target=duplicate_target).count() == 2
@@ -318,26 +380,34 @@ try:
 
     disabled_response = client.post(
         reverse("plugins:netbox_config_backup:advanced_settings"),
-        {"retention_scheduler_batch_size": "25"},
+        {
+            "settings_action": "retention",
+            "retention_scheduler_batch_size": "25",
+        },
     )
     assert disabled_response.status_code == 302
     operational_settings.refresh_from_db()
     assert operational_settings.retention_scheduler_enabled is False
+    assert operational_settings.remote_retention_scheduler_enabled is False
 
     print(
         {
             "default_disabled": True,
+            "remote_default_disabled": True,
+            "remote_requires_separate_confirmation": True,
             "enabled_queued": enabled_result["queued"],
             "active_backup_skipped": True,
             "active_cleanup_skipped": True,
             "clean_target_skipped": True,
             "cleanup_job_status": cleanup_job.status,
+            "failed_remote_pointer_preserved": True,
             "existing_targets_untouched": len(existing_targets),
         }
     )
 finally:
     OperationalSettings.objects.filter(pk=operational_settings.pk).update(
         retention_scheduler_enabled=original_retention_enabled,
+        remote_retention_scheduler_enabled=original_remote_retention_enabled,
         retention_scheduler_batch_size=original_retention_batch_size,
     )
     if "active_run" in locals() and BackupRun.objects.filter(pk=active_run.pk).exists():

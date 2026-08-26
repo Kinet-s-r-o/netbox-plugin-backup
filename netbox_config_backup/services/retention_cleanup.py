@@ -7,13 +7,14 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from netbox_config_backup.choices import RunStatusChoices
+from netbox_config_backup.choices import ReplicaStatusChoices, RunStatusChoices
 from netbox_config_backup.models import (
     BackupRun,
     BackupTarget,
     ConfigArtifact,
     ConfigRevision,
     RetentionPolicy,
+    RevisionReplica,
 )
 from netbox_config_backup.storage.base import StorageError
 from netbox_config_backup.storage.factory import build_config_storage
@@ -22,6 +23,7 @@ from .retention import (
     RevisionCandidate,
     RunCandidate,
     build_retention_plan,
+    has_recorded_remote_copy,
     settings_from_policy,
 )
 
@@ -39,6 +41,7 @@ class RetentionCleanupSummary:
     artifact_bytes: int
     missing_artifact_count: int
     quarantine_purge_failures: int
+    deferred_revision_count: int = 0
 
 
 def _default_storage():
@@ -61,7 +64,7 @@ def execute_retention_cleanup(
         with transaction.atomic():
             target = (
                 BackupTarget.objects.select_for_update(of=("self",))
-                .select_related("policy_override")
+                .select_related("policy_override", "remote_retention_policy")
                 .get(pk=target_id)
             )
             if BackupRun.objects.filter(
@@ -82,13 +85,28 @@ def execute_retention_cleanup(
             revisions = list(
                 ConfigRevision.objects.select_for_update()
                 .filter(target=target)
+                .prefetch_related("artifacts")
                 .order_by("-created", "-pk")
             )
+            locked_replicas = list(
+                RevisionReplica.objects.select_for_update()
+                .filter(revision__target=target)
+                .select_related("destination")
+                .order_by("pk")
+            )
+            replicas_by_revision: dict[int, list[RevisionReplica]] = {}
+            for replica in locked_replicas:
+                replicas_by_revision.setdefault(replica.revision_id, []).append(replica)
             runs = list(
                 BackupRun.objects.select_for_update()
                 .filter(target=target)
                 .order_by("-queued_at", "-pk")
             )
+            locally_available_revisions = [
+                revision
+                for revision in revisions
+                if any(artifact.local_available for artifact in revision.artifacts.all())
+            ]
             plan = build_retention_plan(
                 settings_from_policy(policy),
                 revisions=(
@@ -98,7 +116,7 @@ def execute_retention_cleanup(
                         protected=revision.protected,
                         content_changed=revision.content_changed,
                     )
-                    for revision in revisions
+                    for revision in locally_available_revisions
                 ),
                 runs=(
                     RunCandidate(
@@ -110,12 +128,42 @@ def execute_retention_cleanup(
                 ),
                 now=generated_at,
             )
-            revision_ids = {
+            planned_revision_ids = {
                 decision.object_id for decision in plan.revision_decisions if not decision.keep
             }
             run_ids = {decision.object_id for decision in plan.run_decisions if not decision.keep}
+
+            # Never remove the upload source while an FTP copy is active or has
+            # a scheduled retry. An exhausted failure is no longer an active
+            # replication obligation and must not retain local data forever.
+            deferred_revision_ids = {
+                revision.pk
+                for revision in locally_available_revisions
+                if revision.pk in planned_revision_ids
+                and any(
+                    replica.remote_deleted_at is None
+                    and (
+                        replica.status
+                        in (ReplicaStatusChoices.QUEUED, ReplicaStatusChoices.RUNNING)
+                        or (
+                            replica.destination.enabled
+                            and replica.status == ReplicaStatusChoices.PENDING
+                        )
+                        or (
+                            replica.destination.enabled
+                            and replica.status == ReplicaStatusChoices.FAILED
+                            and replica.next_retry_at is not None
+                        )
+                    )
+                    for replica in replicas_by_revision.get(revision.pk, ())
+                )
+            }
+            revision_ids = planned_revision_ids - deferred_revision_ids
             artifacts = list(
-                ConfigArtifact.objects.select_for_update().filter(revision_id__in=revision_ids)
+                ConfigArtifact.objects.select_for_update().filter(
+                    revision_id__in=revision_ids,
+                    local_available=True,
+                )
             )
 
             missing_artifact_count = 0
@@ -126,9 +174,31 @@ def execute_retention_cleanup(
                 else:
                     staged.append((artifact.storage_key, staged_key))
 
-            _relink_kept_revisions(target, revisions, revision_ids)
+            if artifacts:
+                ConfigArtifact.objects.filter(
+                    pk__in=(artifact.pk for artifact in artifacts)
+                ).update(
+                    local_available=False,
+                    local_deleted_at=generated_at,
+                    last_updated=generated_at,
+                )
+
+            remotely_preserved_revision_ids = {
+                revision.pk
+                for revision in revisions
+                if revision.pk in revision_ids
+                and has_recorded_remote_copy(replicas_by_revision.get(revision.pk, ()))
+            }
+            database_revision_ids = revision_ids - remotely_preserved_revision_ids
+            locally_unavailable_ids = {
+                revision.pk
+                for revision in revisions
+                if revision.pk in revision_ids
+                or not any(artifact.local_available for artifact in revision.artifacts.all())
+            }
+            _relink_kept_revisions(target, revisions, locally_unavailable_ids)
             BackupRun.objects.filter(pk__in=run_ids).delete()
-            ConfigRevision.objects.filter(pk__in=revision_ids).delete()
+            ConfigRevision.objects.filter(pk__in=database_revision_ids).delete()
 
             summary = RetentionCleanupSummary(
                 target_id=target.pk,
@@ -138,6 +208,7 @@ def execute_retention_cleanup(
                 artifact_bytes=sum(artifact.size for artifact in artifacts),
                 missing_artifact_count=missing_artifact_count,
                 quarantine_purge_failures=0,
+                deferred_revision_count=len(deferred_revision_ids),
             )
     except Exception as exc:
         restore_failed = _restore_staged(target_storage, staged)
@@ -170,6 +241,7 @@ def execute_retention_cleanup(
             artifact_bytes=summary.artifact_bytes,
             missing_artifact_count=summary.missing_artifact_count,
             quarantine_purge_failures=purge_failures,
+            deferred_revision_count=summary.deferred_revision_count,
         )
     return summary
 

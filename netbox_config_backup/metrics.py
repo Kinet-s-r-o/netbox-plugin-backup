@@ -221,7 +221,11 @@ class ConfigBackupCollector:
             "Logical bytes referenced by retained configuration artifacts.",
         )
         artifact_bytes.add_metric(
-            [], ConfigArtifact.objects.aggregate(total=Sum("size"))["total"] or 0
+            [],
+            ConfigArtifact.objects.filter(local_available=True).aggregate(total=Sum("size"))[
+                "total"
+            ]
+            or 0,
         )
         yield artifact_bytes
 
@@ -256,7 +260,9 @@ class ConfigBackupCollector:
         yield destinations
 
         replica_counts = dict(
-            RevisionReplica.objects.values_list("status").annotate(total=Count("pk"))
+            RevisionReplica.objects.filter(remote_deleted_at__isnull=True)
+            .values_list("status")
+            .annotate(total=Count("pk"))
         )
         replicas = GaugeMetricFamily(
             "netbox_config_backup_revision_replicas",

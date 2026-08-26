@@ -2,91 +2,55 @@
 {% load helpers %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-start mb-3">
-  <div>
-    <h2 class="mb-1">Retention preview</h2>
-    <div class="text-secondary">Dry-run only. No database record or stored artifact is deleted from this page.</div>
-  </div>
-  <div class="d-flex gap-2">
-    {% if policy and can_apply_retention and plan.revisions_to_delete or policy and can_apply_retention and plan.runs_to_delete %}
-    <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_retention_cleanup' pk=object.pk %}">
-      <i class="mdi mdi-delete-clock-outline"></i> Apply retention
-    </a>
-    {% elif policy and can_apply_retention %}
-    <button class="btn btn-outline-secondary" type="button" disabled>
-      <i class="mdi mdi-check-circle-outline"></i> Nothing expired
-    </button>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+  <div><h2 class="mb-1">Retention preview</h2><div class="text-secondary">Local and FTP plans are independent. This page is read-only.</div></div>
+  <div class="d-flex flex-wrap gap-2">
+    {% if local_policy and can_apply_retention and local_plan.revisions_to_delete or local_policy and can_apply_retention and local_plan.runs_to_delete %}
+    <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_retention_cleanup' pk=object.pk %}"><i class="mdi mdi-delete-clock-outline"></i> Apply local retention</a>
     {% endif %}
-    <a class="btn btn-outline-secondary" href="{{ object.get_absolute_url }}">
-      <i class="mdi mdi-arrow-left"></i> Back to device
-    </a>
+    {% if remote_policy and can_apply_remote_retention and remote_plan.revisions_to_delete %}
+    <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_remote_retention_cleanup' pk=object.pk %}"><i class="mdi mdi-server-minus-outline"></i> Apply FTP retention</a>
+    {% endif %}
+    <a class="btn btn-outline-secondary" href="{{ object.get_absolute_url }}"><i class="mdi mdi-arrow-left"></i> Back to device</a>
   </div>
 </div>
 
-{% if not policy %}
-<div class="alert alert-warning" role="alert">
-  <i class="mdi mdi-alert-outline"></i>
-  This backup device has no effective retention policy. Assign a backup policy or a retention override first.
-</div>
+<div class="alert alert-info" role="status"><i class="mdi mdi-shield-check-outline"></i> Both plans are deterministic. Latest and protected revisions are always kept. FTP cleanup never connects to the device.</div>
+
+<h3 class="mt-4">Local storage and run history</h3>
+{% if not local_policy %}
+<div class="alert alert-warning">Assign a local retention profile to this device first.</div>
 {% else %}
-<div class="alert alert-info" role="status">
-  <i class="mdi mdi-shield-check-outline"></i>
-  This is a deterministic preview generated at {{ plan.generated_at }}. Protected, latest, active, and unknown-status records are kept safely.
-</div>
-
 <div class="row row-cards mb-3">
-  <div class="col-sm-6 col-lg-3">
-    <div class="card"><div class="card-body"><div class="text-secondary">Policy</div><div class="h3 mb-0">{{ policy|linkify }}</div></div></div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card"><div class="card-body"><div class="text-secondary">Revisions kept</div><div class="h3 mb-0 text-success">{{ plan.revisions_to_keep }}</div></div></div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card"><div class="card-body"><div class="text-secondary">Revisions expired</div><div class="h3 mb-0 text-danger">{{ plan.revisions_to_delete }}</div><div class="text-secondary">{{ expired_artifact_count }} artifacts · {{ expired_artifact_bytes|filesizeformat }}</div></div></div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card"><div class="card-body"><div class="text-secondary">Runs kept / expired</div><div class="h3 mb-0"><span class="text-success">{{ plan.runs_to_keep }}</span> / <span class="text-danger">{{ plan.runs_to_delete }}</span></div></div></div>
-  </div>
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Local profile</div><div class="h3 mb-0">{{ local_policy|linkify }}</div></div></div></div>
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Revisions kept</div><div class="h3 mb-0 text-success">{{ local_plan.revisions_to_keep }}</div></div></div></div>
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Local revisions expired</div><div class="h3 mb-0 text-danger">{{ local_plan.revisions_to_delete }}</div><div class="text-secondary">{{ expired_artifact_count }} artifacts · {{ expired_artifact_bytes|filesizeformat }}</div></div></div></div>
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Runs kept / expired</div><div class="h3 mb-0"><span class="text-success">{{ local_plan.runs_to_keep }}</span> / <span class="text-danger">{{ local_plan.runs_to_delete }}</span></div></div></div></div>
 </div>
+<div class="card mb-4"><h2 class="card-header"><i class="mdi mdi-harddisk"></i> Local configuration revisions</h2><div class="table-responsive"><table class="table table-vcenter table-hover mb-0">
+  <thead><tr><th>Created</th><th>Revision</th><th>Protected</th><th>Decision</th><th>Reason</th></tr></thead>
+  <tbody>{% for revision, decision in revision_rows %}<tr><td>{{ revision.created }}</td><td><a href="{{ revision.get_absolute_url }}"><code>{{ revision.revision_uuid }}</code></a></td><td>{{ revision.protected|yesno:"Yes,No" }}</td><td>{% if decision.keep %}<span class="badge text-bg-success">Keep local</span>{% else %}<span class="badge text-bg-danger">Expire local</span>{% endif %}</td><td>{% for reason in decision.reasons %}<span class="badge text-bg-secondary me-1">{{ reason }}</span>{% endfor %}</td></tr>{% empty %}<tr><td colspan="5" class="text-secondary">No locally available revisions.</td></tr>{% endfor %}</tbody>
+</table></div></div>
+<div class="card mb-4"><h2 class="card-header"><i class="mdi mdi-history"></i> Backup runs</h2><div class="table-responsive"><table class="table table-vcenter table-hover mb-0">
+  <thead><tr><th>Finished / queued</th><th>Run</th><th>Status</th><th>Decision</th><th>Reason</th></tr></thead>
+  <tbody>{% for run, decision in run_rows %}<tr><td>{{ decision.timestamp }}</td><td><a href="{{ run.get_absolute_url }}">Run #{{ run.pk }}</a></td><td>{{ run.get_status_display }}</td><td>{% if decision.keep %}<span class="badge text-bg-success">Keep</span>{% else %}<span class="badge text-bg-danger">Expire</span>{% endif %}</td><td>{{ decision.reasons|join:", " }}</td></tr>{% empty %}<tr><td colspan="5" class="text-secondary">No backup runs yet.</td></tr>{% endfor %}</tbody>
+</table></div></div>
+{% endif %}
 
-<div class="card mb-3">
-  <h2 class="card-header"><i class="mdi mdi-source-commit"></i> Configuration revisions</h2>
-  <div class="table-responsive">
-    <table class="table table-vcenter table-hover mb-0">
-      <thead><tr><th>Created</th><th>Revision</th><th>Protected</th><th>Decision</th><th>Reason</th></tr></thead>
-      <tbody>
-        {% for revision, decision in revision_rows %}
-        <tr>
-          <td>{{ revision.created }}</td>
-          <td><a href="{{ revision.get_absolute_url }}"><code>{{ revision.revision_uuid }}</code></a></td>
-          <td>{{ revision.protected|yesno:"Yes,No" }}</td>
-          <td>{% if decision.keep %}<span class="badge text-bg-success">Keep</span>{% else %}<span class="badge text-bg-danger">Would delete</span>{% endif %}</td>
-          <td>{% for reason in decision.reasons %}<span class="badge text-bg-secondary me-1">{{ reason }}</span>{% endfor %}</td>
-        </tr>
-        {% empty %}<tr><td colspan="5" class="text-secondary">No revisions yet.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
+<h3 class="mt-4">Remote FTP copies</h3>
+<p class="text-secondary">Only available copies on enabled FTP destinations participate in this plan. Disabling a destination pauses its automatic deletion.</p>
+{% if not remote_policy %}
+<div class="alert alert-secondary">No FTP retention profile is assigned. Existing FTP copies are kept indefinitely and automatic FTP cleanup skips this device.</div>
+{% else %}
+<div class="row row-cards mb-3">
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">FTP profile</div><div class="h3 mb-0">{{ remote_policy|linkify }}</div></div></div></div>
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Revisions kept</div><div class="h3 mb-0 text-success">{{ remote_plan.revisions_to_keep }}</div></div></div></div>
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">Revisions expired</div><div class="h3 mb-0 text-danger">{{ remote_plan.revisions_to_delete }}</div></div></div></div>
+  <div class="col-sm-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary">FTP copies / bytes expired</div><div class="h3 mb-0 text-danger">{{ remote_expired_copy_count }}</div><div class="text-secondary">{{ remote_expired_bytes|filesizeformat }}</div></div></div></div>
 </div>
-
-<div class="card">
-  <h2 class="card-header"><i class="mdi mdi-history"></i> Backup runs</h2>
-  <div class="table-responsive">
-    <table class="table table-vcenter table-hover mb-0">
-      <thead><tr><th>Finished / queued</th><th>Run</th><th>Status</th><th>Decision</th><th>Reason</th></tr></thead>
-      <tbody>
-        {% for run, decision in run_rows %}
-        <tr>
-          <td>{{ decision.timestamp }}</td>
-          <td><a href="{{ run.get_absolute_url }}">Run #{{ run.pk }}</a></td>
-          <td>{{ run.get_status_display }}</td>
-          <td>{% if decision.keep %}<span class="badge text-bg-success">Keep</span>{% else %}<span class="badge text-bg-danger">Would delete</span>{% endif %}</td>
-          <td>{{ decision.reasons|join:", " }}</td>
-        </tr>
-        {% empty %}<tr><td colspan="5" class="text-secondary">No backup runs yet.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+<div class="card"><h2 class="card-header"><i class="mdi mdi-server-network"></i> FTP revision copies</h2><div class="table-responsive"><table class="table table-vcenter table-hover mb-0">
+  <thead><tr><th>Created</th><th>Revision</th><th>Available copies</th><th>Protected</th><th>Decision</th><th>Reason</th></tr></thead>
+  <tbody>{% for revision, decision, replicas in remote_revision_rows %}<tr><td>{{ revision.created }}</td><td><a href="{{ revision.get_absolute_url }}"><code>{{ revision.revision_uuid }}</code></a></td><td>{{ replicas|length }}</td><td>{{ revision.protected|yesno:"Yes,No" }}</td><td>{% if decision.keep %}<span class="badge text-bg-success">Keep on FTP</span>{% else %}<span class="badge text-bg-danger">Delete from FTP</span>{% endif %}</td><td>{% for reason in decision.reasons %}<span class="badge text-bg-secondary me-1">{{ reason }}</span>{% endfor %}</td></tr>{% empty %}<tr><td colspan="6" class="text-secondary">No active FTP copies.</td></tr>{% endfor %}</tbody>
+</table></div></div>
 {% endif %}
 {% endblock %}

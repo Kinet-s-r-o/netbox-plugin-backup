@@ -34,9 +34,10 @@ Implemented:
 - idempotent least-privilege Reader, Operator, and Administrator NetBox groups
 - permission-aware dashboard, nested history, actions, revision content, and diffs
 - target/run list filters for status, failure, stuck execution, device, site, and time
-- conservative retention dry-run planner with per-record decisions and storage estimates
-- protected revisions, confirmed background cleanup, and reversible artifact quarantine
-- opt-in daily retention dispatcher with active-job deduplication and batch limiting
+- separate local and FTP retention profiles assigned per backup device
+- conservative local/FTP retention previews with per-record decisions and storage estimates
+- protected/latest revision safeguards, confirmed cleanup, and reversible local quarantine
+- separately opt-in local and FTP retention dispatchers with deduplication and batch limiting
 - list/detail views for targets, runs, revisions, policies, mappings, and profiles
 - integrity-checked, redacted revision content viewer and same-target unified diff
 - NetBox REST endpoints and event serializers for all public plugin models
@@ -55,7 +56,7 @@ Deferred by design:
 
 ## Install in NetBox
 
-The supported production path for release `0.4.x` is NetBox 4.6, local primary
+The supported production path for release `0.5.x` is NetBox 4.6, local primary
 artifact storage, and optional FTP replication configured from the UI. Vault,
 S3, and external SFTP replication are not required for a standard installation.
 The S3 and Vault client libraries are optional package extras; install
@@ -377,10 +378,11 @@ additionally guarded by the `add/change/delete_storedcredential` permissions.
 ## Quick Setup
 
 The normal workflow starts from **Overview** or **Devices > Add**. One form
-selects the NetBox device and backup driver, accepts an optional management
-address override, stores an encrypted username/password, and selects a simple
-schedule and retention preset. **Save & test connection** creates the complete
-configuration and immediately queues the non-persistent connection test.
+selects the NetBox device and backup driver, stores an encrypted
+username/password, and selects a simple schedule plus independent local and FTP
+retention presets. Leaving the FTP preset empty keeps remote copies
+indefinitely. **Save & test connection** creates the complete configuration and
+immediately queues the non-persistent connection test.
 
 Quick Setup creates the target, per-device connection and credential profiles,
 and reusable `[Quick]` schedule/retention policies in a single transaction. It
@@ -426,43 +428,81 @@ python manage.py config_backup_backfill_ceragon_content --apply
 
 ## Retention preview and cleanup
 
+Retention has two independent scopes. A backup device can select one profile
+for **local storage** and another for its **FTP copies**. The local profile
+controls primary artifacts, revision history, and completed backup runs. The
+FTP profile controls only successful copies stored below the configured FTP
+destination. One FTP profile applies to that device on every automatic FTP
+destination.
+
+The existing backup policy remains the fallback for local retention when the
+device has no local override. FTP retention has no implicit fallback: leaving
+the FTP profile empty means that its remote copies are retained indefinitely.
+This safe default also applies after an upgrade, so installing the feature does
+not delete an existing FTP backup.
+
+Assigning or changing either effective retention profile requires retention
+runtime administration plus the matching delete permissions. Managed Operators
+can adjust backup scheduling, but cannot indirectly enable more aggressive
+history deletion.
+
+The FTP profile's hard ceiling is the maximum number of remote **revisions**
+retained for one device. It is not a count of physical artifact files: one
+revision replicated to multiple FTP destinations still consumes one position
+in the retention plan.
+
 Each backup device provides a permission-gated **Retention preview** action.
-The dry-run resolves the target's retention override or its backup policy's
-retention policy, then reports which revisions and runs would be kept or
-deleted and why. It also estimates the artifact count and storage size that a
-future cleanup would reclaim. The preview never mutates the database or local
-storage.
+The dry-run reports local and FTP decisions separately, including what would be
+kept or deleted and why. It also estimates the local artifact and remote-copy
+space affected by a future cleanup. A preview never mutates the database or
+either storage location.
 
-Protected revisions, the latest revision, the configured minimum number of
-changed revisions, active runs, and runs with an unknown future status are
-always kept.
+Protected revisions and the latest usable revision are retained in both
+scopes. The configured minimum number of changed revisions is also retained.
+Active runs and runs with an unknown future status are always kept locally;
+pending, queued, running, or failed FTP transfers are not candidates for remote
+deletion. Disabled FTP destinations are excluded from both automatic and manual
+FTP retention plans.
 
-Each retention policy also defines a hard per-target ceiling for completed
+Each local retention profile defines a hard per-target ceiling for completed
 backup runs (500 by default). Time-based retention remains the primary rule;
 when it would keep more completed runs than the ceiling, the oldest excess
 runs are expired. Active runs and unknown future statuses do not consume the
 ceiling and are kept safely.
 
 Users with the relevant change permission can protect or unprotect a revision
-from its detail page. Users with delete permissions for runs, revisions, and
-artifacts can explicitly confirm **Apply retention** from the preview. Cleanup
-runs on the dedicated background queue, recomputes the plan under database
-locks, and refuses to start while a backup is active.
+from its detail page. Applying local or FTP retention is explicitly confirmed
+and permission-gated. Local cleanup stages files in an internal quarantine and
+restores them if its database transaction fails. FTP deletion is irreversible:
+it removes only the recorded immutable revision directory below the configured
+destination path and records failures for a safe retry.
 
-Local artifact files are atomically moved into an internal quarantine before
-the database transaction removes expired records. A failed transaction restores
-the staged files. After a successful commit, the quarantine is purged; missing
-files and purge failures are reported safely in the NetBox job log.
+Local cleanup and FTP cleanup have separate opt-in schedulers under
+**Config Backup → Settings**. Both are disabled by default and require an
+explicit acknowledgement before the first enable. Each dispatcher skips
+conflicting active work and already queued/running cleanup jobs. Enabling local
+cleanup never enables FTP deletion, and a failed FTP cleanup does not turn a
+successful device backup into a failure.
 
-An opt-in system job evaluates retention once every 1,440 minutes. It queues
-cleanup only for targets which currently contain expired history, skips active
-backups and already queued/running cleanup jobs, and limits each cycle with
-the configured batch size. It is disabled by default and can be enabled from
-**Config Backup → Settings** by a user with the
-`change_operationalsettings` permission. Enabling it requires explicit
-confirmation because expired history can then be deleted without a manual
-approval. UI changes are stored in the database and take effect without a
-NetBox or worker restart.
+Before enabling FTP cleanup for the first time on an existing installation, run
+the read-only integrity audit for every FTP destination and resolve all missing
+or mismatched historical replicas recorded as successful. Cleanup must not be
+used to discover or repair an unverified legacy inventory.
+
+After a destination contains a recorded copy, its host, port, base path, and
+credential-profile assignment are immutable. Rotate the password inside that
+credential profile, or create a new destination when moving to another FTP
+endpoint. This keeps historical retention deletes bound to the server and path
+where the copy was originally written.
+
+An expired FTP copy is not recreated automatically by an unchanged backup,
+integrity repair, or ordinary historical backfill. Increasing a profile later
+affects retained and future copies; it does not restore copies which were
+already deleted. Restore such history manually from another trusted copy when
+required. The deletion marker prevents accidental recreation while the revision
+remains in plugin history; after both the local revision and all of its FTP
+copies have fully expired, cleanup may also remove the revision and its
+replica/deletion audit metadata. These markers are not a permanent audit log.
 
 ## Run the core tests
 

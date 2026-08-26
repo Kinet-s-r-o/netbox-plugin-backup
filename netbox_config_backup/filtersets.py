@@ -7,7 +7,14 @@ from netbox.filtersets import NetBoxModelFilterSet
 from utilities.filtersets import register_filterset
 
 from .choices import RunSourceChoices, RunStatusChoices, TargetStatusChoices
-from .models import BackupPolicy, BackupRun, BackupTarget, ConfigRevision
+from .models import (
+    BackupPolicy,
+    BackupRun,
+    BackupTarget,
+    ConfigRevision,
+    RemoteRetentionPolicy,
+    RetentionPolicy,
+)
 from .services.health import FAILURE_RUN_STATUSES, stuck_run_query
 from .services.reporting_period import REPORTING_PERIOD_CHOICES, resolve_reporting_period
 
@@ -32,6 +39,16 @@ class BackupTargetFilterSet(NetBoxModelFilterSet):
         queryset=BackupPolicy.objects.all(),
         distinct=False,
     )
+    retention_override_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=RetentionPolicy.objects.all(),
+        distinct=False,
+        label="Local retention profile",
+    )
+    remote_retention_policy_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=RemoteRetentionPolicy.objects.all(),
+        distinct=False,
+        label="FTP retention profile",
+    )
 
     class Meta:
         model = BackupTarget
@@ -42,6 +59,8 @@ class BackupTargetFilterSet(NetBoxModelFilterSet):
             "device_id",
             "site_id",
             "policy_override_id",
+            "retention_override_id",
+            "remote_retention_policy_id",
             "driver_override",
         )
 
@@ -52,6 +71,8 @@ class BackupTargetFilterSet(NetBoxModelFilterSet):
             Q(device__name__icontains=value)
             | Q(driver_override__icontains=value)
             | Q(policy_override__name__icontains=value)
+            | Q(retention_override__name__icontains=value)
+            | Q(remote_retention_policy__name__icontains=value)
         )
 
 

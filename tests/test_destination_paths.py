@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from uuid import UUID
 
 from netbox_config_backup.services.destination_paths import (
@@ -53,7 +53,6 @@ class DestinationPathTests(unittest.TestCase):
             tzinfo=timezone(timedelta(hours=2)),
         )
         stem = "core-router-01_2026-08-26_12-35-08"
-
         self.assertEqual(backup_filename_stem("core-router-01", 187, created), stem)
         self.assertEqual(
             ftp_revision_destination_path(
@@ -61,9 +60,57 @@ class DestinationPathTests(unittest.TestCase):
                 device_name="core-router-01",
                 device_id=187,
                 created_at=created,
+                revision_id=321,
+            ),
+            "/netbox-config-backup/devices/core-router-01/backups/2026-08-26_12-35-08-r321",
+        )
+
+    def test_ftp_path_revision_id_prevents_same_second_collision(self):
+        created = datetime(2026, 8, 26, 12, 35, 8, tzinfo=UTC)
+        first = ftp_revision_destination_path(
+            "netbox-config-backup",
+            device_name="core-router-01",
+            device_id=187,
+            created_at=created,
+            revision_id=321,
+        )
+        second = ftp_revision_destination_path(
+            "netbox-config-backup",
+            device_name="core-router-01",
+            device_id=187,
+            created_at=created,
+            revision_id=322,
+        )
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(first.rsplit("-r", 1)[0], second.rsplit("-r", 1)[0])
+
+    def test_historical_nested_uuid_ftp_path_can_still_be_derived(self):
+        created = datetime(2026, 8, 26, 12, 35, 8, tzinfo=UTC)
+
+        self.assertEqual(
+            ftp_revision_destination_path(
+                "netbox-config-backup",
+                device_name="core-router-01",
+                device_id=187,
+                created_at=created,
+                revision_uuid="11111111-2222-3333-4444-555555555555",
             ),
             "/netbox-config-backup/devices/core-router-01/backups/"
-            "2026-08-26_12-35-08",
+            "2026-08-26_12-35-08/11111111-2222-3333-4444-555555555555",
+        )
+
+    def test_historical_ftp_path_can_still_be_derived_without_uuid(self):
+        created = datetime(2026, 8, 26, 12, 35, 8, tzinfo=UTC)
+
+        self.assertEqual(
+            ftp_revision_destination_path(
+                "netbox-config-backup",
+                device_name="core-router-01",
+                device_id=187,
+                created_at=created,
+            ),
+            "/netbox-config-backup/devices/core-router-01/backups/2026-08-26_12-35-08",
         )
 
 

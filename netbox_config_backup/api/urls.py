@@ -10,6 +10,7 @@ from .views import (
     ConnectionProfileViewSet,
     CredentialProfileViewSet,
     PlatformMappingViewSet,
+    RemoteRetentionPolicyViewSet,
     RetentionPolicyViewSet,
     RevisionReplicaViewSet,
     SftpReceiverProfileViewSet,
@@ -18,6 +19,7 @@ from .views import (
 router = NetBoxRouter()
 router.register("available-devices", AvailableDeviceViewSet, basename="available-device")
 router.register("retention-policies", RetentionPolicyViewSet)
+router.register("ftp-retention-policies", RemoteRetentionPolicyViewSet)
 router.register("backup-policies", BackupPolicyViewSet)
 router.register("connection-profiles", ConnectionProfileViewSet)
 router.register("credential-profiles", CredentialProfileViewSet)

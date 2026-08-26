@@ -37,6 +37,7 @@ from .models import (
     CredentialProfile,
     OperationalSettings,
     PlatformMapping,
+    RemoteRetentionPolicy,
     RetentionPolicy,
     SftpReceiverProfile,
     StoredCredential,
@@ -58,6 +59,8 @@ class BackupTargetFilterForm(NetBoxModelFilterSetForm):
             "device_id",
             "site_id",
             "policy_override_id",
+            "retention_override_id",
+            "remote_retention_policy_id",
             "driver_override",
             name="Health and device",
         ),
@@ -84,6 +87,16 @@ class BackupTargetFilterForm(NetBoxModelFilterSetForm):
         queryset=BackupPolicy.objects.all(),
         required=False,
         label="Backup policy",
+    )
+    retention_override_id = DynamicModelMultipleChoiceField(
+        queryset=RetentionPolicy.objects.all(),
+        required=False,
+        label="Local retention profile",
+    )
+    remote_retention_policy_id = DynamicModelMultipleChoiceField(
+        queryset=RemoteRetentionPolicy.objects.all(),
+        required=False,
+        label="FTP retention profile",
     )
     driver_override = forms.CharField(required=False, label="Driver override")
 
@@ -228,6 +241,11 @@ class OperationalSettingsForm(NetBoxModelForm):
         label="I understand that automatic retention can permanently delete expired history",
         help_text="Required only when automatic retention is being enabled.",
     )
+    confirm_remote_enable = forms.BooleanField(
+        required=False,
+        label="I understand that FTP retention permanently deletes expired remote copies",
+        help_text="Required only when automatic FTP retention is being enabled.",
+    )
 
     def clean(self):
         super().clean()
@@ -240,12 +258,21 @@ class OperationalSettingsForm(NetBoxModelForm):
                 "confirm_enable",
                 "Confirm the automatic deletion warning before enabling retention.",
             )
+        enabling_remote = bool(cleaned.get("remote_retention_scheduler_enabled")) and not bool(
+            self.instance.remote_retention_scheduler_enabled
+        )
+        if enabling_remote and not cleaned.get("confirm_remote_enable"):
+            self.add_error(
+                "confirm_remote_enable",
+                "Confirm the permanent FTP deletion warning before enabling remote retention.",
+            )
         return self.cleaned_data
 
     class Meta:
         model = OperationalSettings
         fields = (
             "retention_scheduler_enabled",
+            "remote_retention_scheduler_enabled",
             "retention_scheduler_batch_size",
         )
         widgets: ClassVar[dict[str, forms.Widget]] = {
@@ -407,7 +434,20 @@ class QuickSetupForm(forms.Form):
         choices=((30, "30 days"), (90, "90 days"), (365, "365 days")),
         coerce=int,
         initial=90,
-        label="Keep backup history",
+        label="Local history",
+    )
+    remote_retention_days = forms.TypedChoiceField(
+        choices=(
+            ("", "Never automatically delete"),
+            (90, "90 days"),
+            (365, "365 days"),
+            (730, "730 days"),
+        ),
+        coerce=int,
+        empty_value=None,
+        required=False,
+        initial="",
+        label="Remote FTP history",
     )
 
     def __init__(self, *args, **kwargs):
@@ -555,6 +595,21 @@ class RetentionPolicyForm(NetBoxModelForm):
             "changed_run_days",
             "failed_run_days",
             "max_runs_per_target",
+            "tags",
+        )
+
+
+class RemoteRetentionPolicyForm(NetBoxModelForm):
+    class Meta:
+        model = RemoteRetentionPolicy
+        fields = (
+            "name",
+            "keep_all_days",
+            "daily_days",
+            "weekly_weeks",
+            "monthly_months",
+            "minimum_changed_revisions",
+            "max_copies_per_target",
             "tags",
         )
 
@@ -972,7 +1027,15 @@ class BackupTargetForm(NetBoxModelForm):
     device = DynamicModelChoiceField(queryset=Device.objects.all())
     policy_override = forms.ModelChoiceField(queryset=BackupPolicy.objects.all(), required=False)
     retention_override = forms.ModelChoiceField(
-        queryset=RetentionPolicy.objects.all(), required=False
+        queryset=RetentionPolicy.objects.all(),
+        required=False,
+        label="Local retention profile",
+    )
+    remote_retention_policy = forms.ModelChoiceField(
+        queryset=RemoteRetentionPolicy.objects.all(),
+        required=False,
+        label="FTP retention profile",
+        help_text="Leave blank to keep this device's FTP copies indefinitely.",
     )
     credential_override = forms.ModelChoiceField(
         queryset=CredentialProfile.objects.exclude(provider_id="vault_kv2"), required=False
@@ -1000,6 +1063,7 @@ class BackupTargetForm(NetBoxModelForm):
             "enabled",
             "policy_override",
             "retention_override",
+            "remote_retention_policy",
             "credential_override",
             "connection_override",
             "receiver_override",
@@ -1024,4 +1088,10 @@ class BackupTargetForm(NetBoxModelForm):
 class RetentionCleanupConfirmationForm(forms.Form):
     confirm = forms.BooleanField(
         label="I understand that expired history and its stored artifacts will be deleted",
+    )
+
+
+class RemoteRetentionCleanupConfirmationForm(forms.Form):
+    confirm = forms.BooleanField(
+        label="I understand that expired FTP copies will be permanently deleted",
     )

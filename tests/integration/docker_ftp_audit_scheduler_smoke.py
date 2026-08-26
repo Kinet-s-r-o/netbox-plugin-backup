@@ -28,6 +28,8 @@ destination = (
         enabled=True,
         protocol="ftp",
         replicas__status="success",
+        replicas__remote_available=True,
+        replicas__remote_deleted_at__isnull=True,
     )
     .distinct()
     .order_by("pk")

@@ -15,6 +15,7 @@ import posixpath
 import time
 from datetime import time as clock_time
 from pathlib import PurePosixPath
+from unittest.mock import patch
 from uuid import uuid4
 
 from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Platform, Site
@@ -32,8 +33,13 @@ from netbox_config_backup.models import (
     RetentionPolicy,
     RevisionReplica,
 )
+from netbox_config_backup.services import destination_ftp as destination_ftp_module
 from netbox_config_backup.services.destination import DestinationError
-from netbox_config_backup.services.destination_ftp import _connect, _read_remote
+from netbox_config_backup.services.destination_ftp import (
+    _connect,
+    _read_remote,
+    replicate_revision_ftp,
+)
 from netbox_config_backup.services.destination_paths import ftp_revision_destination_path
 from netbox_config_backup.services.runtime import build_backup_pipeline
 from netbox_config_backup.services.target_deletion import delete_backup_target
@@ -65,6 +71,31 @@ def _wait_for_replica(revision: ConfigRevision, destination: BackupDestination) 
     raise AssertionError(f"FTP replica did not finish within {REPLICA_TIMEOUT_SECONDS} seconds.")
 
 
+def _direct_replication_diagnostic(destination, revision, replica):
+    attempted_uploads = []
+    original_store = destination_ftp_module._store
+
+    def capture_store(ftp, path, content):
+        attempted_uploads.append({"filename": PurePosixPath(path).name, "size": len(content)})
+        return original_store(ftp, path, content)
+
+    try:
+        with patch.object(destination_ftp_module, "_store", capture_store):
+            replicate_revision_ftp(
+                destination,
+                revision,
+                recorded_remote_path=replica.remote_path,
+            )
+    except DestinationError as exc:
+        return {
+            "error_code": exc.error_code,
+            "cause_type": type(exc.__cause__).__name__ if exc.__cause__ else None,
+            "cause": str(exc.__cause__) if exc.__cause__ else None,
+            "attempted_uploads": attempted_uploads,
+        }
+    return {"success": True, "attempted_uploads": attempted_uploads}
+
+
 def _verify_remote_revision(
     destination: BackupDestination,
     revision: ConfigRevision,
@@ -76,6 +107,7 @@ def _verify_remote_revision(
         device_name=revision.target.device.name,
         device_id=revision.target.device_id,
         created_at=revision.created,
+        revision_id=revision.pk,
     )
     assert replica.remote_path == expected_path, (replica.remote_path, expected_path)
 
@@ -91,7 +123,11 @@ def _verify_remote_revision(
         assert manifest["revision_uuid"] == str(revision.revision_uuid)
         assert manifest["device_id"] == revision.target.device_id
         assert manifest["device_name"] == revision.target.device.name
-        assert manifest["device_directory"] == PurePosixPath(expected_path).parts[-3]
+        path_parts = PurePosixPath(expected_path).parts
+        expected_device_directory = (
+            path_parts[-4] if path_parts[-3] == "backups" else path_parts[-3]
+        )
+        assert manifest["device_directory"] == expected_device_directory
         assert manifest["driver_id"] == revision.driver_id
 
         manifest_artifacts = {item["artifact_type"]: item for item in manifest["artifacts"]}
@@ -230,14 +266,23 @@ try:
         device_name=revision.target.device.name,
         device_id=revision.target.device_id,
         created_at=revision.created,
+        revision_id=revision.pk,
     )
 
     replica = _wait_for_replica(revision, destination)
+    direct_diagnostic = None
+    if replica.status == ReplicaStatusChoices.FAILED:
+        direct_diagnostic = _direct_replication_diagnostic(destination, revision, replica)
     assert replica.status == ReplicaStatusChoices.SUCCESS, {
         "status": replica.status,
         "error_code": replica.error_code,
         "error_message": replica.error_message,
+        "recorded_remote_path": replica.remote_path,
+        "expected_remote_path": revision_path,
+        "direct_diagnostic": direct_diagnostic,
     }
+    assert replica.remote_available is True
+    assert replica.remote_deleted_at is None
 
     artifact_count, verified_bytes, revision_path = _verify_remote_revision(
         destination, revision, replica
@@ -254,17 +299,32 @@ try:
     # successful replica record. An unchanged backup must detect the missing
     # remote copy and heal it without creating another ConfigRevision.
     _remove_remote_revision(destination, revision_path)
+    # Windows-backed FTP servers can keep a just-removed directory handle for
+    # a brief moment and answer 450 while it is being recreated.
+    time.sleep(2)
     repair_run = BackupRun.objects.create(target=target)
     repair_result = build_backup_pipeline().execute(repair_run.pk)
     assert repair_result.status == RunStatusChoices.SUCCESS_UNCHANGED, repair_result
     assert ConfigRevision.objects.filter(target=target).count() == 1
 
     repaired_replica = _wait_for_replica(revision, destination)
+    repair_diagnostic = None
+    if repaired_replica.status == ReplicaStatusChoices.FAILED:
+        repair_diagnostic = _direct_replication_diagnostic(
+            destination,
+            revision,
+            repaired_replica,
+        )
     assert repaired_replica.status == ReplicaStatusChoices.SUCCESS, {
         "status": repaired_replica.status,
         "error_code": repaired_replica.error_code,
         "error_message": repaired_replica.error_message,
+        "recorded_remote_path": repaired_replica.remote_path,
+        "expected_remote_path": revision_path,
+        "direct_diagnostic": repair_diagnostic,
     }
+    assert repaired_replica.remote_available is True
+    assert repaired_replica.remote_deleted_at is None
     assert repaired_replica.attempts == initial_attempts + 1
     artifact_count, verified_bytes, revision_path = _verify_remote_revision(
         destination, revision, repaired_replica

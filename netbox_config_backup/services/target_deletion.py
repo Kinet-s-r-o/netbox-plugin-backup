@@ -9,15 +9,22 @@ from django.db import transaction
 
 from netbox_config_backup.choices import RunStatusChoices
 from netbox_config_backup.models import (
+    BackupDestination,
     BackupRun,
     BackupTarget,
     ConfigArtifact,
     ConfigRevision,
     ConnectionProfile,
     CredentialProfile,
+    RevisionReplica,
 )
 from netbox_config_backup.storage.base import ConfigStorage, StorageError
 from netbox_config_backup.storage.factory import build_config_storage
+
+from .target_deletion_ftp import (
+    delete_target_ftp_copies,
+    validate_target_external_copies,
+)
 
 logger = logging.getLogger("netbox_config_backup.storage")
 
@@ -73,6 +80,28 @@ def delete_backup_target(
                     "The target has an active backup run and cannot be deleted."
                 )
 
+            replicas = list(
+                RevisionReplica.objects.select_for_update()
+                .filter(
+                    revision__target=locked_target,
+                    remote_deleted_at__isnull=True,
+                )
+                .select_related("destination", "revision__target__device")
+                .prefetch_related("revision__artifacts")
+                .order_by("pk")
+            )
+            locked_destinations = (
+                BackupDestination.objects.select_for_update()
+                .filter(pk__in={replica.destination_id for replica in replicas})
+                .in_bulk()
+            )
+            for replica in replicas:
+                replica.destination = locked_destinations[replica.destination_id]
+            try:
+                validate_target_external_copies(replicas)
+            except ValueError as exc:
+                raise TargetDeletionError(str(exc)) from exc
+
             summary = summarize_target_deletion(locked_target)
             artifact_keys = list(
                 ConfigArtifact.objects.select_for_update()
@@ -83,6 +112,16 @@ def delete_backup_target(
                 staged_key = target_storage.stage_delete(key, namespace)
                 if staged_key is not None:
                     staged.append((key, staged_key))
+
+            # A target deletion must not cascade its replica audit rows while
+            # leaving the corresponding FTP configuration behind. A recorded
+            # path is also cleaned for a failed repair attempt: the previous
+            # immutable copy may still exist even though it is no longer marked
+            # available. The FTP primitive is exact-path and idempotent.
+            try:
+                delete_target_ftp_copies(replicas)
+            except ValueError as exc:
+                raise TargetDeletionError(str(exc)) from exc
 
             connection_id = locked_target.connection_override_id
             credential_id = locked_target.credential_override_id

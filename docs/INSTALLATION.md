@@ -29,7 +29,7 @@ procedure. A direct installation is also possible:
 
 ```shell
 sudo /opt/netbox/venv/bin/python -m pip install \
-  /path/to/netbox_config_backup-0.4.0-py3-none-any.whl
+  /path/to/netbox_config_backup-0.5.0-py3-none-any.whl
 ```
 
 For netbox-docker, build the non-editable release image:
@@ -37,7 +37,7 @@ For netbox-docker, build the non-editable release image:
 ```shell
 docker build -f docker/Dockerfile.release \
   --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
-  -t netbox-config-backup:0.4.0 .
+  -t netbox-config-backup:0.5.0 .
 ```
 
 Use this same image for `netbox`, the normal NetBox worker, and the dedicated
@@ -130,16 +130,31 @@ replication, audit, and recovery jobs use NetBox's background job system.
    permissions with a non-superuser account.
 7. If required, add an internal FTP destination, test it, and only then enable
    automatic replication and integrity audits.
-8. Enable automatic retention only after reviewing the retention preview. The
-   default per-device completed-run ceiling is 500.
+8. On each backup device, select the **Local retention profile**. Select an
+   independent **FTP retention profile** only when remote copies should be
+   removed automatically. An empty FTP profile keeps remote copies indefinitely.
+9. Review the device's retention preview. Enable the local cleanup scheduler
+   only after confirming its local plan; its default completed-run ceiling is
+   500 per device.
+10. On an existing installation, run the read-only integrity audit on every FTP
+    destination and resolve all missing or mismatched historical replicas
+    recorded as successful.
+11. Review the FTP plan separately before enabling the FTP cleanup scheduler.
+    FTP deletion is irreversible and the FTP scheduler is a separate opt-in;
+    enabling local cleanup never enables it.
 
 ## 7. Verification after every install or upgrade
 
 ```shell
+python manage.py config_backup_create_rbac_groups
 python manage.py showmigrations netbox_config_backup
 python manage.py check
 python -m pip check
 ```
+
+Run `config_backup_create_rbac_groups` again after every plugin upgrade. The
+command is idempotent: it refreshes the plugin-managed object permissions for
+new models without assigning users or removing existing group membership.
 
 Confirm that:
 
@@ -150,6 +165,13 @@ Confirm that:
 - only authorized NetBox users can view or download revision content;
 - an FTP test creates and removes its probe object;
 - a real revision is copied to FTP and passes the integrity audit.
+- a retention preview clearly separates local and FTP decisions;
+- devices without an FTP retention profile keep their remote copies;
+- protected and latest revisions are kept in both retention scopes.
+
+Before enabling or re-enabling automatic FTP cleanup after an upgrade, run the
+read-only FTP integrity audit and resolve every missing object, hash mismatch,
+or unexpected remote-path result. Do not use cleanup as a repair mechanism.
 
 For vendor-native receivers, upgrade procedures, notifications, and detailed
 failure codes, continue with [DEPLOYMENT.md](DEPLOYMENT.md).

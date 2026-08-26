@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from core.exceptions import JobFailed
 from django.conf import settings
 from django.db import DatabaseError
@@ -16,6 +18,11 @@ from .services.ftp_recovery import (
     cleanup_expired_recovery_packages,
 )
 from .services.health import refresh_target_health
+from .services.remote_retention_cleanup import (
+    RemoteRetentionCleanupError,
+    execute_remote_retention_cleanup,
+)
+from .services.remote_retention_dispatcher import dispatch_expired_remote_targets
 from .services.replication import (
     dispatch_due_replicas,
     execute_revision_replica,
@@ -403,6 +410,43 @@ class RetentionCleanupJob(JobRunner):
             "artifact_bytes": summary.artifact_bytes,
             "missing_artifact_count": summary.missing_artifact_count,
             "quarantine_purge_failures": summary.quarantine_purge_failures,
+            "deferred_revision_count": summary.deferred_revision_count,
+        }
+
+
+class RemoteRetentionCleanupJob(JobRunner):
+    class Meta:
+        name = "Config backup FTP retention cleanup"
+
+    def run(self, *args, **kwargs):
+        target_id = kwargs["target_id"]
+        self.logger.info("Starting FTP retention cleanup for backup target %s.", target_id)
+        try:
+            summary = execute_remote_retention_cleanup(target_id)
+        except RemoteRetentionCleanupError as exc:
+            self.logger.error(str(exc))
+            raise JobFailed(str(exc)) from exc
+        self.logger.info(
+            "FTP retention for target %s expired %s revision(s), deleted %s file(s) "
+            "(%s bytes), cancelled %s incomplete replica(s), and deferred %s active revision(s).",
+            target_id,
+            summary.revision_count,
+            summary.deleted_file_count,
+            summary.deleted_bytes,
+            summary.cancelled_replica_count,
+            summary.deferred_revision_count,
+        )
+        return {
+            "target_id": summary.target_id,
+            "revision_count": summary.revision_count,
+            "replica_count": summary.replica_count,
+            "cancelled_replica_count": summary.cancelled_replica_count,
+            "deleted_file_count": summary.deleted_file_count,
+            "missing_file_count": summary.missing_file_count,
+            "deleted_bytes": summary.deleted_bytes,
+            "removed_directory_count": summary.removed_directory_count,
+            "deferred_revision_count": summary.deferred_revision_count,
+            "metadata_revision_count": summary.metadata_revision_count,
         }
 
 
@@ -445,28 +489,47 @@ class ScheduledRetentionDispatcherJob(JobRunner):
             operational_settings = OperationalSettings.objects.filter(singleton=True).first()
         except DatabaseError:
             operational_settings = None
-        if not operational_settings or not operational_settings.retention_scheduler_enabled:
-            self.logger.info("Automatic config backup retention cleanup is disabled.")
+        local_enabled = bool(
+            operational_settings and operational_settings.retention_scheduler_enabled
+        )
+        remote_enabled = bool(
+            operational_settings and operational_settings.remote_retention_scheduler_enabled
+        )
+        if not local_enabled and not remote_enabled:
+            self.logger.info("Automatic local and FTP retention cleanup are disabled.")
             return {"enabled": False, "queued": 0}
 
         limit = operational_settings.retention_scheduler_batch_size
 
-        summary = dispatch_expired_targets(now=timezone.now(), limit=limit)
-        self.logger.info(
-            f"Retention dispatcher: considered={summary.considered} "
-            f"expired={summary.expired} queued={summary.queued} "
-            f"active_backups={summary.skipped_active_backup} "
-            f"active_cleanups={summary.skipped_active_cleanup} "
-            f"conflicts={summary.conflicts}."
+        now = timezone.now()
+        summary = dispatch_expired_targets(now=now, limit=limit) if local_enabled else None
+        remote_summary = (
+            dispatch_expired_remote_targets(now=now, limit=limit) if remote_enabled else None
         )
+        if summary:
+            self.logger.info(
+                f"Local retention dispatcher: considered={summary.considered} "
+                f"expired={summary.expired} queued={summary.queued} "
+                f"active_backups={summary.skipped_active_backup} "
+                f"active_cleanups={summary.skipped_active_cleanup} "
+                f"conflicts={summary.conflicts}."
+            )
+        if remote_summary:
+            self.logger.info(
+                f"FTP retention dispatcher: considered={remote_summary.considered} "
+                f"expired={remote_summary.expired} queued={remote_summary.queued} "
+                f"active_backups={remote_summary.skipped_active_backup} "
+                f"active_cleanups={remote_summary.skipped_active_cleanup} "
+                f"conflicts={remote_summary.conflicts}."
+            )
         return {
             "enabled": True,
-            "considered": summary.considered,
-            "expired": summary.expired,
-            "queued": summary.queued,
-            "skipped_active_backup": summary.skipped_active_backup,
-            "skipped_active_cleanup": summary.skipped_active_cleanup,
-            "conflicts": summary.conflicts,
+            "local_enabled": local_enabled,
+            "remote_enabled": remote_enabled,
+            "local": asdict(summary) if summary else None,
+            "remote": asdict(remote_summary) if remote_summary else None,
+            "queued": (summary.queued if summary else 0)
+            + (remote_summary.queued if remote_summary else 0),
         }
 
 

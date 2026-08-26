@@ -28,7 +28,12 @@ TIMEOUT_SECONDS = 60
 
 
 replica = (
-    RevisionReplica.objects.filter(status="success", destination__protocol="ftp")
+    RevisionReplica.objects.filter(
+        status="success",
+        remote_available=True,
+        remote_deleted_at__isnull=True,
+        destination__protocol="ftp",
+    )
     .select_related("destination", "revision__target__device")
     .prefetch_related("revision__artifacts")
     .order_by("-finished_at")

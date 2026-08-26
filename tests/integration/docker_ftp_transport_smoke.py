@@ -92,6 +92,6 @@ assert first.artifact_count == revision.artifacts.count()
 assert first.bytes_transferred > 0
 assert second.bytes_transferred == 0, "Idempotent replay transferred existing objects"
 assert any(path.endswith("/_netbox_manifest.json") for path in ftp.files)
-assert not any(".part-" in path for path in ftp.files)
+assert not any(path.endswith(".part") for path in ftp.files)
 assert ftp.closed
 print("FTP_TRANSPORT_SMOKE_OK")

@@ -36,6 +36,7 @@ from .choices import (
 class OperationalSettings(NetBoxModel):
     singleton = models.BooleanField(default=True, unique=True, editable=False)
     retention_scheduler_enabled = models.BooleanField(default=False)
+    remote_retention_scheduler_enabled = models.BooleanField(default=False)
     retention_scheduler_batch_size = models.PositiveSmallIntegerField(
         default=25,
         validators=(MinValueValidator(1), MaxValueValidator(1000)),
@@ -70,6 +71,30 @@ class RetentionPolicy(NetBoxModel):
         help_text=(
             "Hard safety limit for completed backup runs retained per device. "
             "Queued and running backups are never removed by this limit."
+        ),
+    )
+
+    class Meta:
+        ordering = ("name",)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class RemoteRetentionPolicy(NetBoxModel):
+    name = models.CharField(max_length=100, unique=True)
+    keep_all_days = models.PositiveIntegerField(default=30)
+    daily_days = models.PositiveIntegerField(default=365)
+    weekly_weeks = models.PositiveIntegerField(default=104)
+    monthly_months = models.PositiveIntegerField(default=60)
+    minimum_changed_revisions = models.PositiveIntegerField(default=12)
+    max_copies_per_target = models.PositiveIntegerField(
+        verbose_name="maximum remote revisions per device",
+        default=1000,
+        validators=(MinValueValidator(1), MaxValueValidator(100000)),
+        help_text=(
+            "Maximum number of remote revisions retained for one backup device; "
+            "physical artifact copies on multiple FTP destinations are not counted separately."
         ),
     )
 
@@ -310,6 +335,42 @@ class BackupDestination(JobsMixin, NetBoxModel):
 
     def clean(self) -> None:
         super().clean()
+        if (
+            self.pk
+            and self.replicas.filter(
+                remote_deleted_at__isnull=True,
+            )
+            .exclude(remote_path="")
+            .exists()
+        ):
+            original = (
+                type(self)
+                .objects.filter(pk=self.pk)
+                .values(
+                    "protocol",
+                    "host",
+                    "port",
+                    "base_path",
+                    "credential_profile_id",
+                )
+                .get()
+            )
+            endpoint_errors = {
+                ("credential_profile" if field_name == "credential_profile_id" else field_name): (
+                    "This endpoint field cannot be changed while FTP copies exist. "
+                    "Create a new destination for a different FTP server or path."
+                )
+                for field_name in (
+                    "protocol",
+                    "host",
+                    "port",
+                    "base_path",
+                    "credential_profile_id",
+                )
+                if getattr(self, field_name) != original[field_name]
+            }
+            if endpoint_errors:
+                raise ValidationError(endpoint_errors)
         if self.protocol == DestinationProtocolChoices.FTP and not self.allow_insecure_ftp:
             raise ValidationError(
                 {"allow_insecure_ftp": ("Confirm that this destination may use unencrypted FTP.")}
@@ -576,6 +637,16 @@ class BackupTarget(JobsMixin, NetBoxModel):
         null=True,
         blank=True,
         related_name="target_overrides",
+        verbose_name="local retention profile",
+    )
+    remote_retention_policy = models.ForeignKey(
+        RemoteRetentionPolicy,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="target_overrides",
+        verbose_name="FTP retention profile",
+        help_text="Leave blank to keep this device's FTP copies indefinitely.",
     )
     credential_override = models.ForeignKey(
         CredentialProfile,
@@ -760,6 +831,8 @@ class ConfigArtifact(NetBoxModel):
     raw_hash = models.CharField(max_length=64)
     normalized_hash = models.CharField(max_length=64)
     is_primary = models.BooleanField(default=False)
+    local_available = models.BooleanField(default=True)
+    local_deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ("artifact_type",)
@@ -805,6 +878,8 @@ class RevisionReplica(NetBoxModel):
     next_retry_at = models.DateTimeField(null=True, blank=True, db_index=True)
     bytes_transferred = models.PositiveBigIntegerField(default=0)
     remote_path = models.CharField(max_length=1000, blank=True)
+    remote_available = models.BooleanField(default=False)
+    remote_deleted_at = models.DateTimeField(null=True, blank=True)
     error_code = models.CharField(max_length=64, blank=True, db_index=True)
     error_message = models.CharField(max_length=500, blank=True)
     job_id = models.UUIDField(null=True, blank=True)

@@ -13,7 +13,7 @@ Install the wheel into NetBox's virtual environment. A source checkout also
 works, but a pinned wheel is recommended for production.
 
 ```shell
-/opt/netbox/venv/bin/pip install netbox_config_backup-0.4.0-py3-none-any.whl
+/opt/netbox/venv/bin/pip install netbox_config_backup-0.5.0-py3-none-any.whl
 ```
 
 The package installs its runtime dependencies, including Netmiko, Paramiko,
@@ -24,7 +24,7 @@ For netbox-docker, build a non-editable image directly from the repository:
 ```shell
 docker build -f docker/Dockerfile.release \
   --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
-  -t netbox-config-backup:0.4.0 .
+  -t netbox-config-backup:0.5.0 .
 ```
 
 Use that same image for the NetBox web, normal worker, dedicated backup worker,
@@ -111,6 +111,42 @@ RQ workers and the receiver are long-running Python processes. Restart the web,
 normal worker, dedicated backup worker, and receiver after every plugin upgrade,
 including development deployments which bind-mount changed Python source.
 
+### Retention workers and safe defaults
+
+Local and FTP retention use the same dedicated backup queue but are dispatched
+independently. In **Config Backup > Settings**, enable the local scheduler and
+FTP scheduler separately only after reviewing representative device previews.
+Both schedulers are disabled by default. An upgrade preserves existing local
+policy assignments and leaves the FTP retention profile empty, which keeps all
+existing remote copies indefinitely.
+
+Before enabling FTP cleanup for the first time on an upgraded installation,
+run the read-only integrity audit for every destination. Resolve each missing
+object, size/hash mismatch, and unexpected path among historical replica rows
+recorded as successful before assigning/enabling FTP cleanup.
+
+Each backup device selects its own local and FTP retention profiles. The local
+profile controls primary artifacts, revision history, and completed run
+records. The FTP profile controls successful remote copies on all automatic FTP
+destinations for that device. A protected revision and the latest usable copy
+are retained in both scopes.
+
+FTP cleanup requires the destination account to delete files and remove the
+unique revision directory in addition to the upload, download, listing, rename,
+and directory-creation operations used by normal replication and testing.
+Grant these rights only inside the destination's dedicated chroot/base path.
+The plugin validates the recorded path before deletion and never deletes the
+destination base, device directory, or unrelated objects.
+
+FTP deletion has no quarantine and is irreversible. Failed or partial deletion
+is recorded and retried safely; it never changes a successful BackupRun to
+failed. A successfully expired remote copy is retained as an audit state so
+that integrity repair, unchanged backups, and ordinary backfill do not upload
+it again. A later increase of the retention period does not resurrect deleted
+copies automatically. This state is not a permanent audit ledger: after the
+local revision and all corresponding FTP copies have fully expired, cleanup may
+remove the revision and its replica/deletion metadata as well.
+
 ## 4. Create the receiver in the UI
 
 This section is required only for drivers where the device pushes a native file,
@@ -151,7 +187,7 @@ Compose files. Put the two master-key variables into the existing protected
 and adjust the published receiver port when needed:
 
 ```shell
-NETBOX_IMAGE=netbox-config-backup:0.4.0 docker compose \
+NETBOX_IMAGE=netbox-config-backup:0.5.0 docker compose \
   -f docker-compose.yml \
   -f /path/to/netbox-plugin-backup/docker/docker-compose.receiver.yml \
   up -d
@@ -244,10 +280,29 @@ Before enabling schedules:
 4. Verify that the resulting ZIP revision is downloadable/viewable only by the
    intended NetBox roles.
 5. Enable schedules gradually and monitor Failed, Stale, and Stuck counts.
+6. Assign different local and FTP retention profiles to a test device, inspect
+   both preview sections, and verify that protected/latest revisions are kept.
+7. Enable local and FTP automatic cleanup separately. Confirm that a device
+   without an FTP profile keeps its remote copies and that an expired test copy
+   is not recreated by an unchanged backup.
 
 For upgrades, back up PostgreSQL, the backup-storage volume, the receiver host
 key, and the master key. Install the same new wheel everywhere, run migrations
-and `collectstatic`, and restart web, worker, dispatcher, and receiver processes.
+and `collectstatic`, then run:
+
+```bash
+python manage.py config_backup_create_rbac_groups
+```
+
+This idempotently refreshes the plugin-managed object permissions for models
+introduced by the new version. It does not assign users or remove existing
+group membership. Restart web, worker, dispatcher, and receiver processes only
+after these upgrade steps succeed.
+
+Before enabling or re-enabling automatic FTP cleanup, run the read-only FTP
+integrity audit and investigate every missing object, hash mismatch, and
+unexpected remote path. Keep FTP cleanup disabled until the audit is clean;
+cleanup permanently removes eligible remote copies and is not a repair tool.
 
 ### Receiver failure codes
 

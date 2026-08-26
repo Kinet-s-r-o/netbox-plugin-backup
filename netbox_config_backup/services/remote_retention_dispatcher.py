@@ -10,23 +10,21 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from netbox_config_backup.choices import RunStatusChoices
-from netbox_config_backup.models import BackupRun, BackupTarget
+from netbox_config_backup.choices import ReplicaStatusChoices, RunStatusChoices
+from netbox_config_backup.models import BackupRun, BackupTarget, RevisionReplica
 
 from .retention import (
     RevisionCandidate,
-    RunCandidate,
     build_retention_plan,
-    effective_retention_policy,
-    settings_from_policy,
+    settings_from_remote_policy,
 )
 
 ACTIVE_BACKUP_STATUSES = (RunStatusChoices.QUEUED, RunStatusChoices.RUNNING)
-CLEANUP_JOB_NAME = "Config backup retention cleanup"
+REMOTE_CLEANUP_JOB_NAME = "Config backup FTP retention cleanup"
 
 
 @dataclass(slots=True)
-class RetentionDispatchSummary:
+class RemoteRetentionDispatchSummary:
     considered: int = 0
     expired: int = 0
     queued: int = 0
@@ -35,21 +33,20 @@ class RetentionDispatchSummary:
     conflicts: int = 0
 
 
-def dispatch_expired_targets(
+def dispatch_expired_remote_targets(
     *,
     now: datetime | None = None,
     limit: int = 25,
-) -> RetentionDispatchSummary:
-    """Queue retention cleanup only for targets with currently expired history."""
+) -> RemoteRetentionDispatchSummary:
+    """Queue FTP cleanup only for devices with an explicit remote profile."""
+
     if limit <= 0:
-        raise ValueError("Retention dispatcher limit must be positive.")
+        raise ValueError("FTP retention dispatcher limit must be positive.")
     now = now or timezone.now()
-    summary = RetentionDispatchSummary()
+    summary = RemoteRetentionDispatchSummary()
     content_type = ContentType.objects.get_for_model(BackupTarget)
     candidate_ids = (
-        BackupTarget.objects.filter(
-            Q(retention_override__isnull=False) | Q(policy_override__retention_policy__isnull=False)
-        )
+        BackupTarget.objects.filter(remote_retention_policy__isnull=False)
         .order_by("pk")
         .values_list("pk", flat=True)
     )
@@ -62,10 +59,7 @@ def dispatch_expired_targets(
             with transaction.atomic():
                 target = (
                     BackupTarget.objects.select_for_update(of=("self",))
-                    .select_related(
-                        "retention_override",
-                        "policy_override__retention_policy",
-                    )
+                    .select_related("remote_retention_policy")
                     .get(pk=target_id)
                 )
                 if BackupRun.objects.filter(
@@ -77,23 +71,36 @@ def dispatch_expired_targets(
                 if Job.objects.filter(
                     object_type=content_type,
                     object_id=target.pk,
-                    name=CLEANUP_JOB_NAME,
+                    name=REMOTE_CLEANUP_JOB_NAME,
                     status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES,
                 ).exists():
                     summary.skipped_active_cleanup += 1
                     continue
 
-                policy = effective_retention_policy(target)
-                if policy is None:
-                    continue
-                revisions = list(
-                    target.revisions.filter(artifacts__local_available=True)
-                    .distinct()
-                    .order_by("-created", "-pk")
+                candidate_revision_ids = (
+                    RevisionReplica.objects.filter(
+                        revision__target=target,
+                        destination__protocol="ftp",
+                        destination__enabled=True,
+                        remote_deleted_at__isnull=True,
+                    )
+                    .filter(
+                        Q(status=ReplicaStatusChoices.SUCCESS, remote_available=True)
+                        | Q(
+                            status=ReplicaStatusChoices.FAILED,
+                            remote_path__gt="",
+                            next_retry_at__isnull=True,
+                        )
+                    )
+                    .values_list("revision_id", flat=True)
                 )
-                runs = list(target.runs.all().order_by("-queued_at", "-pk"))
+                revisions = list(
+                    target.revisions.filter(pk__in=candidate_revision_ids).order_by(
+                        "-created", "-pk"
+                    )
+                )
                 plan = build_retention_plan(
-                    settings_from_policy(policy),
+                    settings_from_remote_policy(target.remote_retention_policy),
                     revisions=(
                         RevisionCandidate(
                             object_id=revision.pk,
@@ -103,23 +110,16 @@ def dispatch_expired_targets(
                         )
                         for revision in revisions
                     ),
-                    runs=(
-                        RunCandidate(
-                            object_id=run.pk,
-                            timestamp=run.finished_at or run.queued_at,
-                            status=run.status,
-                        )
-                        for run in runs
-                    ),
+                    runs=(),
                     now=now,
                 )
-                if not plan.revisions_to_delete and not plan.runs_to_delete:
+                if not plan.revisions_to_delete:
                     continue
                 summary.expired += 1
 
-                from netbox_config_backup.jobs import BACKUP_QUEUE, RetentionCleanupJob
+                from netbox_config_backup.jobs import BACKUP_QUEUE, RemoteRetentionCleanupJob
 
-                RetentionCleanupJob.enqueue(
+                RemoteRetentionCleanupJob.enqueue(
                     target_id=target.pk,
                     instance=target,
                     queue_name=BACKUP_QUEUE,

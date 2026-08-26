@@ -93,6 +93,8 @@ def audit_fixture():
         remote_path=path,
         destination=destination,
         status="success",
+        remote_available=True,
+        remote_deleted_at=None,
     )
     manifest = _build_manifest(revision, (artifact,))
     files = {
@@ -163,6 +165,32 @@ class FtpReconciliationTests(unittest.TestCase):
         self.assertEqual(result["size_mismatches"], 0)
         self.assertEqual(result["issues"][0]["problem"], "hash_mismatch")
 
+    def test_skips_retention_tombstone_without_connecting(self):
+        destination, replica, _files = audit_fixture()
+        replica.remote_available = False
+        replica.remote_deleted_at = datetime(2026, 8, 25, 10, 0, tzinfo=UTC)
+
+        with patch("netbox_config_backup.services.destination_ftp._connect") as connect:
+            result = reconcile_ftp_destination(destination, replicas=(replica,))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["checked_replicas"], 0)
+        self.assertEqual(result["skipped_replicas"], 1)
+        connect.assert_not_called()
+
+    def test_historical_manifest_remains_valid_after_device_rename(self):
+        destination, replica, files = audit_fixture()
+        replica.revision.target.device.name = "router-renamed"
+
+        with patch(
+            "netbox_config_backup.services.destination_ftp._connect",
+            return_value=ReadOnlyFakeFTP(files),
+        ):
+            result = reconcile_ftp_destination(destination, replicas=(replica,))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["healthy_replicas"], 1)
+
 
 class FtpVerifiedRecoveryDownloadTests(unittest.TestCase):
     def test_streams_exact_verified_files_into_archive_without_ftp_writes(self):
@@ -224,6 +252,27 @@ class FtpVerifiedRecoveryDownloadTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.error_code, "RECOVERY_HASH_MISMATCH")
         self.assertTrue(ftp.closed)
+
+    def test_recovery_uses_historical_manifest_after_device_rename(self):
+        _destination, replica, files = audit_fixture()
+        replica.revision.target.device.name = "router-renamed"
+        buffer = io.BytesIO()
+
+        with (
+            patch(
+                "netbox_config_backup.services.destination_ftp._connect",
+                return_value=ReadOnlyFakeFTP(files),
+            ),
+            zipfile.ZipFile(buffer, "w") as archive,
+        ):
+            result = write_verified_ftp_replica_to_archive(
+                replica,
+                archive,
+                archive_prefix="router/revision",
+                max_total_bytes=1024 * 1024,
+            )
+
+        self.assertEqual(result.file_count, 2)
 
 
 if __name__ == "__main__":

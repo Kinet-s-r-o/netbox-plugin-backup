@@ -26,9 +26,15 @@ def test_destination(destination: BackupDestination) -> dict[str, object]:
 def replicate_revision(
     destination: BackupDestination,
     revision: ConfigRevision,
+    *,
+    recorded_remote_path: str | None = None,
 ) -> ReplicationResult:
     if destination.protocol == DestinationProtocolChoices.FTP:
-        return replicate_revision_ftp(destination, revision)
+        return replicate_revision_ftp(
+            destination,
+            revision,
+            recorded_remote_path=recorded_remote_path,
+        )
     return replicate_revision_sftp(destination, revision)
 
 

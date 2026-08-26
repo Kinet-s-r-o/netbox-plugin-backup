@@ -101,6 +101,14 @@ urlpatterns = [
         include(get_model_urls("netbox_config_backup", "retentionpolicy")),
     ),
     path(
+        "ftp-retention-policies/",
+        include(get_model_urls("netbox_config_backup", "remoteretentionpolicy", detail=False)),
+    ),
+    path(
+        "ftp-retention-policies/<int:pk>/",
+        include(get_model_urls("netbox_config_backup", "remoteretentionpolicy")),
+    ),
+    path(
         "platform-mappings/",
         include(get_model_urls("netbox_config_backup", "platformmapping", detail=False)),
     ),

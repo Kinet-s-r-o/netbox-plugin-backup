@@ -18,6 +18,7 @@ from netbox_config_backup.models import (
     BackupTarget,
     ConnectionProfile,
     CredentialProfile,
+    RemoteRetentionPolicy,
     RetentionPolicy,
     SftpReceiverProfile,
     StoredCredential,
@@ -32,6 +33,7 @@ class QuickSetupResult:
     credential_profile: CredentialProfile
     backup_policy: BackupPolicy
     retention_policy: RetentionPolicy
+    remote_retention_policy: RemoteRetentionPolicy | None
 
 
 def _object_name(*, device, suffix: str) -> str:
@@ -64,6 +66,21 @@ def _retention_policy(days: int) -> RetentionPolicy:
             "unchanged_run_days": days,
             "changed_run_days": days,
             "failed_run_days": days,
+        },
+    )
+    return policy
+
+
+def _remote_retention_policy(days: int) -> RemoteRetentionPolicy:
+    policy, _created = RemoteRetentionPolicy.objects.get_or_create(
+        name=f"[Quick] Retain on FTP {days} days",
+        defaults={
+            "keep_all_days": min(days, 30),
+            "daily_days": days,
+            "weekly_weeks": ceil(days / 7),
+            "monthly_months": ceil(days / 30),
+            "minimum_changed_revisions": 12,
+            "max_copies_per_target": 1000,
         },
     )
     return policy
@@ -115,10 +132,14 @@ def create_quick_setup(
     password: str,
     schedule: str,
     retention_days: int,
+    remote_retention_days: int | None = None,
     protocol: str = ConnectionProtocolChoices.AUTOMATIC,
 ) -> QuickSetupResult:
     """Create one complete target configuration as an atomic operation."""
     retention = _retention_policy(retention_days)
+    remote_retention = (
+        _remote_retention_policy(remote_retention_days) if remote_retention_days else None
+    )
     policy = _backup_policy(schedule, retention)
 
     connection = connection_profile
@@ -174,6 +195,8 @@ def create_quick_setup(
         device=device,
         enabled=True,
         policy_override=policy,
+        retention_override=retention,
+        remote_retention_policy=remote_retention,
         credential_override=credential,
         connection_override=connection,
         receiver_override=receiver_profile,
@@ -206,4 +229,5 @@ def create_quick_setup(
         credential_profile=credential,
         backup_policy=policy,
         retention_policy=retention,
+        remote_retention_policy=remote_retention,
     )

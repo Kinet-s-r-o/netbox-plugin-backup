@@ -1,6 +1,6 @@
 # NetBox Config Backup – používateľská príručka
 
-Táto príručka opisuje bežnú prevádzku pluginu **NetBox Config Backup 0.4.x**
+Táto príručka opisuje bežnú prevádzku pluginu **NetBox Config Backup 0.5.x**
 v NetBoxe 4.6. Je určená operátorom aj správcom, ktorí potrebujú bezpečne
 zálohovať konfigurácie sieťových zariadení, kontrolovať výsledky a udržiavať
 históriu.
@@ -39,7 +39,8 @@ zmeny, nereštartuje zariadenie a nevykonáva automatický restore.
 | Platform mapping | Priradenie NetBox platformy k driveru a zdieľaným profilom. |
 | Connection profile | Zdieľaný protokol, výber adresy, port a timeouty. |
 | Credential profile | Zdieľané prihlasovacie údaje alebo odkaz na environment secret. |
-| Retention policy | Pravidlá uchovávania revisions a BackupRun záznamov. |
+| Lokálny retenčný profil | Pravidlá uchovávania lokálnych revisions, artifactov a BackupRun záznamov. |
+| FTP retenčný profil | Samostatné pravidlá uchovávania kópií revisions na FTP; prázdna hodnota znamená uchovanie navždy. |
 | FTP destination | Sekundárna kópia dokončených revisions na internom FTP serveri. |
 
 ## 2. Rýchly štart
@@ -51,7 +52,7 @@ backup worker a nastavený master key.
 2. V **Settings → Connections** vytvor connection profile.
 3. V **Settings → Platform mappings** priraď platformu k driveru a profilom.
 4. Otvor **Config Backup → Devices → Add device**.
-5. Vyber zariadenie, plán a retention.
+5. Vyber zariadenie, plán, lokálnu históriu a podľa potreby aj FTP históriu.
 6. Klikni na **Save & test connection**.
 7. Pri prvom SSH spojení over fingerprint a schváľ host key.
 8. Po úspešnom teste otvor detail zariadenia a klikni na **Run backup**.
@@ -100,8 +101,8 @@ porovnať verzie, stiahnuť artifact a pripraviť overený balík z FTP kópie.
 Stránka je rozdelená na tieto časti:
 
 - **Shared configuration**: Platform mappings, Connections, Credentials a FTP destination,
-- **Advanced profiles**: Backup policies, Retention policies, SSH host keys a Native backup receivers,
-- **Automation**: automatické čistenie histórie a NetBox alerts.
+- **Advanced profiles**: Backup policies, Local retention profiles, FTP retention profiles, SSH host keys a Native backup receivers,
+- **Automation**: dve samostatné automatické čistenia a NetBox alerts.
 
 Bežné zariadenie sa má dať pridať cez **Add device** bez ručnej tvorby nového
 profilu pre každý kus.
@@ -204,7 +205,8 @@ Otvor **Config Backup → Devices → Add device**.
 - **Device** – zariadenie z NetBoxu, ktoré ešte nemá backup target.
 - **Credential profile** – zdieľaný login; automatic použije platform mapping.
 - **Schedule** – každých 6 hodín, 12 hodín alebo denne o 02:00.
-- **Keep backup history** – predvolená retention voľba pre rýchle nastavenie.
+- **Local history** – ako dlho sa majú uchovávať lokálne revisions, artifacty a runs.
+- **Remote FTP history** – samostatná retencia FTP kópií; možnosť **Never automatically delete** nepriradí FTP retenčný profil a kópie sa uchovávajú bez časového limitu.
 
 ### Advanced settings
 
@@ -367,11 +369,23 @@ test preto overuje spojenie, login, zápis, čítanie aj mazanie.
 Kópie sa ukladajú pod čitateľným hostname zariadenia:
 
 ```text
-/<base_path>/devices/<hostname>/revisions/<revision-uuid>/
+/<base_path>/devices/<hostname>/backups/<UTC čas vytvorenia>-r<NetBox ID revízie>/
 ```
 
 Hostname sa upraví na bezpečný názov adresára. Ak názov nie je použiteľný,
-plugin použije `device-<id>`.
+plugin použije `device-<id>`. Primárny artifact má čitateľný názov, napríklad
+`tn.ps.kos.sw01_2026-08-26_08-11-06.txt`; prípona zostáva podľa formátu
+konkrétneho artifactu. Globálne jedinečné NetBox ID revízie je pripojené ku
+časovému adresáru, takže súbor zostáva čitateľný, dve revisions vytvorené v
+rovnakej sekunde sa neprepíšu a cesta nie je zbytočne predĺžená o ďalší UUID
+adresár. UUID revízie zostáva v integritnom manifeste.
+
+Vzdialená cesta sa po vytvorení nemení. Premenovanie zariadenia v NetBoxe
+nepremiestni staré kópie; audit, oprava, recovery aj retencia použijú cestu
+uloženú pri replica zázname. Plugin naďalej podporuje aj staršie rozloženia
+`.../backups/<UTC čas>/` bez ID, prechodný vnorený formát
+`.../backups/<UTC čas>/<revision UUID>/` a pôvodný
+`.../revisions/<revision UUID>/`.
 
 ### Existujúce a chýbajúce kópie
 
@@ -380,8 +394,15 @@ plugin použije `device-<id>`.
 - Pri úspešnom nezmenenom backupe plugin read-only overí poslednú FTP kópiu a chýbajúcu alebo poškodenú kópiu znova vytvorí.
 - Súbory revisions sú zapisované ako immutable; plugin existujúci odlišný obsah potichu neprepíše.
 
-Plugin zámerne nemaže staré súbory z FTP. Dlhodobú retenciu a ochranu pred
-vymazaním nastav na FTP serveri/NAS.
+Plugin môže staré FTP kópie odstrániť iba vtedy, keď má zariadenie priradený
+**FTP retenčný profil** a správca manuálne spustí FTP cleanup alebo osobitne
+zapne FTP retention scheduler. Bez FTP retenčného profilu sa kópie uchovávajú
+navždy. Serverová retencia alebo snapshoty NAS môžu slúžiť ako ďalšia nezávislá
+ochrana.
+
+Na existujúcej inštalácii pred prvým zapnutím FTP cleanupu spusti read-only
+integrity audit na každom FTP cieli. Najprv vyrieš všetky chýbajúce alebo
+poškodené historické kópie, ktoré plugin eviduje ako úspešné.
 
 ## 15. FTP integrity audit
 
@@ -413,38 +434,88 @@ Worker:
 Táto operácia sa nepripája k zariadeniu a nič naň neposiela. Obnovu z artifactu
 vykonáva správca manuálne podľa postupu výrobcu.
 
-## 17. Retention
+## 17. Lokálna a FTP retencia
 
-Retention obmedzuje rast PostgreSQL záznamov aj lokálneho artifact úložiska.
-FTP má vlastnú serverovú retenciu.
+Plugin používa na každom zariadení dva nezávislé retenčné plány. Lokálny plán
+obmedzuje rast PostgreSQL záznamov a primárneho artifact úložiska. FTP plán
+rozhoduje iba o vzdialených kópiách revisions. Zmena alebo spustenie jedného
+plánu automaticky nespustí druhý.
 
-### Pravidlá revisions
+### Nastavenie na zariadení
 
-- **Keep all days** – zachová všetky revisions z posledných dní.
-- **Daily days** – zachová najnovšiu revision za deň.
-- **Weekly weeks** – zachová najnovšiu revision za ISO týždeň.
-- **Monthly months** – zachová najnovšiu revision za kalendárny mesiac.
+- **Local retention** je profil priradený priamo zariadeniu alebo prevzatý z jeho backup policy.
+- **FTP retention** sa priraďuje samostatne priamo zariadeniu.
+- Ak **FTP retention** zostane prázdna, existujúce aj nové FTP kópie sa z pohľadu pluginu uchovávajú navždy.
+- Priradenie alebo zmena retenčného profilu vyžaduje administrátorské práva na príslušné mazanie. Operator môže meniť plán záloh, ale nemôže nepriamo zapnúť agresívnejšie mazanie histórie.
+
+Rýchle pridanie zariadenia ponúka rovnaké voľby ako **Local history** a
+**Remote FTP history**. Na detaile zariadenia je vždy viditeľný efektívny
+lokálny profil aj FTP profil alebo stav **Keep indefinitely**.
+
+### Lokálny retenčný profil
+
+Pre revisions používa tieto pravidlá:
+
+- **Keep all days** – zachová všetky revisions z posledných dní,
+- **Daily days** – zachová najnovšiu revision za deň,
+- **Weekly weeks** – zachová najnovšiu revision za ISO týždeň,
+- **Monthly months** – zachová najnovšiu revision za kalendárny mesiac,
 - **Minimum changed revisions** – vždy ponechá minimálny počet zmenených revisions.
-- najnovšia a chránené revisions sa vždy ponechajú.
 
-### Pravidlá runs
+Lokálny profil navyše riadi históriu runs:
 
 - **Unchanged run days** – uchovanie úspešných nezmenených pokusov,
 - **Changed run days** – uchovanie úspešných zmenených pokusov,
 - **Failed run days** – uchovanie failed, errored, partial a skipped pokusov,
 - **Max runs per target** – tvrdý strop dokončených runs na zariadenie; predvolene 500.
 
-Aktívne `Queued` a `Running` záznamy sa limitom nemažú.
+Aktívne `Queued` a `Running` záznamy sa limitom nemažú. Lokálny cleanup nemaže
+FTP kópiu, ktorá má zostať zachovaná podľa vzdialeného plánu.
 
-### Bezpečné použitie
+### FTP retenčný profil
+
+FTP profil používa samostatné **Keep all**, denné, týždenné a mesačné okná,
+minimálny počet zmenených revisions a **Maximum remote revisions per device**.
+Tento limit počíta vzdialené revisions zariadenia, nie jednotlivé fyzické
+súbory ani samostatnú kópiu na každom FTP cieli. Profil neodstraňuje
+BackupRun záznamy ani lokálne artifacty. Najnovšia revision a revisions označené
+ako **protected** sa zachovajú lokálne aj na FTP aj vtedy, keď by prekročili
+bežné časové okno alebo limit počtu kópií.
+
+Odstránenie FTP kópie je nevratná operácia voči danému FTP serveru. Plugin sa
+pri nej nepripája k zariadeniu, nemení jeho konfiguráciu a nevykonáva automatický
+restore. Pred zapnutím mazania preto over aj nezávislé NAS snapshoty alebo inú
+recovery kópiu, ak ich prevádzka vyžaduje.
+
+Rozpracované `Pending`, `Queued`, `Running` a neúspešné kópie čakajúce na retry
+sa nemažú. Ak však retry už bolo vyčerpané a replica má uloženú presnú FTP
+cestu, cleanup ju bezpečne skontroluje a odstráni. Na tejto ceste totiž môže
+zostať staršia úplná kópia alebo časť neúspešnej opravy. Vypnutý FTP cieľ je
+kill switch: jeho kópie cleanup ani mazanie zariadenia nemenia, kým správca cieľ
+znova nepovolí.
+
+Kým revision zostáva v histórii pluginu, metadata o odstránenej FTP kópii
+bránia jej nechcenému opätovnému vytvoreniu. Keď neskôr úpne vyprší lokálna
+revision aj všetky jej FTP kópie, cleanup môže odstrániť aj revision a príslušné
+replica/deletion audit metadata. Tieto metadata nie sú trvalý auditný archív.
+
+### Preview a manuálne spustenie
 
 1. Na detaile zariadenia otvor **Retention preview**.
-2. Skontroluj, čo sa zachová a čo sa odstráni.
-3. Dôležité revisions najprv označ ako protected.
-4. Až potom spusti cleanup alebo zapni **Settings → Automation → Enable automatic cleanup**.
+2. Samostatne skontroluj časti **Local storage and run history** a **Remote FTP copies**.
+3. Dôležité revisions najprv označ ako **protected**.
+4. Použi **Apply local retention** alebo **Apply FTP retention**. Každá operácia má vlastné potvrdenie a pred vykonaním plán znovu prepočíta.
 
-Automatický cleanup je predvolene vypnutý, beží každých 24 hodín a vyžaduje
-výslovné potvrdenie trvalého odstránenia expirovanej histórie.
+Preview je iba na čítanie. Ak FTP profil nie je priradený, zobrazí, že kópie sú
+uchované bez časového limitu a FTP cleanup sa pre zariadenie nedá spustiť.
+
+### Automatické schedulery
+
+V **Settings → Automation** sú dva samostatné prepínače: **Enable local cleanup**
+a **Enable FTP cleanup**. Oba sú po inštalácii predvolene vypnuté, každý vyžaduje
+vlastné potvrdenie trvalého mazania a po zapnutí sa vyhodnocuje každých 24 hodín.
+Zapnutie lokálneho schedulera nezapne FTP scheduler a naopak. FTP scheduler
+preskočí všetky zariadenia bez FTP retenčného profilu.
 
 ## 18. NetBox alerts
 

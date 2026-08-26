@@ -5,6 +5,7 @@ the plugin does not expose REST API endpoints yet.
 """
 
 from netbox.api.serializers import NetBoxModelSerializer
+from rest_framework.exceptions import ValidationError
 from rest_framework.serializers import ModelSerializer
 
 from netbox_config_backup.models import (
@@ -18,6 +19,7 @@ from netbox_config_backup.models import (
     CredentialProfile,
     OperationalSettings,
     PlatformMapping,
+    RemoteRetentionPolicy,
     RetentionPolicy,
     RevisionReplica,
     SftpReceiverProfile,
@@ -35,6 +37,12 @@ class OperationalSettingsSerializer(NetBoxModelSerializer):
 class RetentionPolicySerializer(NetBoxModelSerializer):
     class Meta:
         model = RetentionPolicy
+        fields = "__all__"
+
+
+class RemoteRetentionPolicySerializer(NetBoxModelSerializer):
+    class Meta:
+        model = RemoteRetentionPolicy
         fields = "__all__"
 
 
@@ -57,6 +65,37 @@ class CredentialProfileSerializer(NetBoxModelSerializer):
 
 
 class BackupDestinationSerializer(NetBoxModelSerializer):
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if (
+            self.instance
+            and self.instance.replicas.filter(
+                remote_deleted_at__isnull=True,
+            )
+            .exclude(remote_path="")
+            .exists()
+        ):
+            errors = {
+                field_name: (
+                    "This endpoint field cannot be changed while FTP copies exist. "
+                    "Create a new destination for a different FTP server or path."
+                )
+                for field_name in ("protocol", "host", "port", "base_path")
+                if field_name in attrs and attrs[field_name] != getattr(self.instance, field_name)
+            }
+            if (
+                "credential_profile" in attrs
+                and attrs["credential_profile"].pk != self.instance.credential_profile_id
+            ):
+                errors["credential_profile"] = (
+                    "This endpoint field cannot be changed while FTP copies exist. "
+                    "Rotate the password inside the current credential profile or create a new "
+                    "destination."
+                )
+            if errors:
+                raise ValidationError(errors)
+        return attrs
+
     class Meta:
         model = BackupDestination
         fields = "__all__"
@@ -78,7 +117,6 @@ class RevisionReplicaSerializer(NetBoxModelSerializer):
     class Meta:
         model = RevisionReplica
         fields = "__all__"
-        read_only_fields = fields
 
 
 class SftpReceiverProfileSerializer(NetBoxModelSerializer):
@@ -132,6 +170,8 @@ class ConfigArtifactSerializer(ModelSerializer):
             "raw_hash",
             "normalized_hash",
             "is_primary",
+            "local_available",
+            "local_deleted_at",
             "created",
             "last_updated",
         )

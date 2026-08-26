@@ -16,6 +16,7 @@ from netbox_config_backup.models import (
     CredentialProfile,
     OperationalSettings,
     PlatformMapping,
+    RemoteRetentionPolicy,
     RetentionPolicy,
     RevisionReplica,
     SftpReceiverProfile,
@@ -27,6 +28,7 @@ READ_MODELS = (BackupTarget, BackupRun, ConfigRevision, ConfigArtifact, Revision
 CONFIG_MODELS = (
     BackupPolicy,
     RetentionPolicy,
+    RemoteRetentionPolicy,
     ConnectionProfile,
     CredentialProfile,
     SftpReceiverProfile,

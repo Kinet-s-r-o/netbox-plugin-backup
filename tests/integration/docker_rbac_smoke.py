@@ -1,10 +1,19 @@
 """Exercise NetBox object permissions and constrained direct URLs."""
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import PermissionDenied
 from django.test import Client
 from users.models import Group, ObjectPermission, User
 
-from netbox_config_backup.models import BackupRun, BackupTarget, ConfigArtifact, ConfigRevision
+from netbox_config_backup.models import (
+    BackupRun,
+    BackupTarget,
+    ConfigArtifact,
+    ConfigRevision,
+    RemoteRetentionPolicy,
+    RevisionReplica,
+)
+from netbox_config_backup.views import _assert_target_retention_assignment_permissions
 
 prefix = "[RBAC smoke]"
 User.objects.filter(username__startswith="ncb-rbac-smoke-").delete()
@@ -43,6 +52,7 @@ try:
     client.force_login(no_access)
     assert client.get("/plugins/config-backup/").status_code == 403
     assert client.get("/plugins/config-backup/settings/").status_code == 403
+    assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 403
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 403
     assert (
         client.get(f"/plugins/config-backup/revisions/{allowed_revision.pk}/content/").status_code
@@ -55,6 +65,7 @@ try:
     client.force_login(reader)
     assert client.get("/plugins/config-backup/").status_code == 200
     assert client.get("/plugins/config-backup/settings/").status_code == 403
+    assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 403
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 403
     assert (
         client.get(f"/plugins/config-backup/revisions/{allowed_revision.pk}/content/").status_code
@@ -66,13 +77,67 @@ try:
     client = Client()
     client.force_login(operator)
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 200
+    assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 200
+    assert operator.has_perm("netbox_config_backup.view_remoteretentionpolicy")
+    assert not operator.has_perm("netbox_config_backup.add_remoteretentionpolicy")
     assert client.post("/plugins/config-backup/ssh-host-keys/scan/").status_code == 403
+    for retention_field in ("retention_override", "remote_retention_policy"):
+        try:
+            _assert_target_retention_assignment_permissions(
+                operator,
+                local_retention_changed=retention_field == "retention_override",
+                remote_retention_changed=retention_field == "remote_retention_policy",
+            )
+        except PermissionDenied:
+            pass
+        else:
+            raise AssertionError(
+                f"Operator unexpectedly changed privileged field {retention_field}."
+            )
+
+    delete_only = user("delete-only")
+    for model in (BackupRun, ConfigArtifact, ConfigRevision, RevisionReplica):
+        delete_only.object_permissions.add(
+            permission(
+                f"delete-only {model._meta.model_name}",
+                model=model,
+                actions=("delete",),
+            )
+        )
+    for retention_field in ("retention_override", "remote_retention_policy"):
+        try:
+            _assert_target_retention_assignment_permissions(
+                delete_only,
+                local_retention_changed=retention_field == "retention_override",
+                remote_retention_changed=retention_field == "remote_retention_policy",
+            )
+        except PermissionDenied:
+            pass
+        else:
+            raise AssertionError(
+                "Delete permissions without runtime-settings authority unexpectedly "
+                f"changed {retention_field}."
+            )
 
     administrator = user("administrator")
     administrator.groups.add(Group.objects.get(name="Config Backup Administrators"))
     client = Client()
     client.force_login(administrator)
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 200
+    assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 200
+    assert administrator.has_perm("netbox_config_backup.add_remoteretentionpolicy")
+    _assert_target_retention_assignment_permissions(
+        administrator,
+        local_retention_changed=True,
+        remote_retention_changed=True,
+    )
+    assert (
+        Group.objects.get(name="Config Backup Administrators")
+        .object_permissions.filter(
+            object_types=ContentType.objects.get_for_model(RemoteRetentionPolicy)
+        )
+        .exists()
+    )
 
     constrained = user("constrained")
     constrained.object_permissions.add(
