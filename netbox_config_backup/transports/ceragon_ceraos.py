@@ -81,7 +81,10 @@ class CeragonCeraOSTransport:
         self._validate(context, options)
         receiver = context.receiver
         if receiver is None or receiver.credentials is None:
-            raise DriverError("NO_RECEIVER_PROFILE", "Configure an enabled SFTP receiver profile.")
+            raise DriverError(
+                "NO_RECEIVER_PROFILE",
+                "Configure an enabled device upload receiver using SFTP.",
+            )
 
         restore_point = options.get("restore_point", "restore-point-1")
         restore_port = options.get("restore_sftp_port", True)
@@ -253,7 +256,10 @@ class CeragonCeraOSTransport:
             raise DriverError("NO_CREDENTIALS", "No device credential profile is configured.")
         receiver = context.receiver
         if receiver is None or receiver.credentials is None:
-            raise DriverError("NO_RECEIVER_PROFILE", "Configure an enabled SFTP receiver profile.")
+            raise DriverError(
+                "NO_RECEIVER_PROFILE",
+                "Configure an enabled device upload receiver using SFTP.",
+            )
         if receiver.mode not in {"direct", "reverse_tunnel"}:
             raise DriverError("INVALID_RECEIVER_PROFILE", "The receiver mode is invalid.")
         if receiver.mode == "direct" and not receiver.advertised_host:

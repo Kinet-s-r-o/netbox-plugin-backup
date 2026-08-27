@@ -79,6 +79,8 @@ class RetentionPolicy(NetBoxModel):
 
     class Meta:
         ordering = ("name",)
+        verbose_name = "local retention profile"
+        verbose_name_plural = "local retention profiles"
 
     def __str__(self) -> str:
         return self.name
@@ -102,6 +104,8 @@ class RemoteRetentionPolicy(NetBoxModel):
 
     class Meta:
         ordering = ("name",)
+        verbose_name = "FTP retention profile"
+        verbose_name_plural = "FTP retention profiles"
 
     def __str__(self) -> str:
         return self.name
@@ -136,6 +140,8 @@ class BackupPolicy(NetBoxModel):
 
     class Meta:
         ordering = ("name",)
+        verbose_name = "backup policy"
+        verbose_name_plural = "backup policies"
         constraints = (
             models.CheckConstraint(
                 condition=(
@@ -734,6 +740,8 @@ class SftpReceiverProfile(NetBoxModel):
 
     class Meta:
         ordering = ("name",)
+        verbose_name = "device upload receiver"
+        verbose_name_plural = "device upload receivers"
 
     def clean(self) -> None:
         super().clean()

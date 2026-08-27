@@ -2,7 +2,7 @@
 
 An FTP storage creates an additional immutable copy of configuration
 artifacts after the primary backup has completed. It is different from a
-**native backup receiver**: a receiver accepts an export pushed by a device,
+**device upload receiver**: a receiver accepts an export pushed by a device,
 while the FTP storage receives an already completed Config Backup revision
 from the worker.
 

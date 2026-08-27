@@ -53,16 +53,25 @@ device account:
 ```
 
 Use `private_key` instead of `password` for key authentication. Exactly one of
-`password` or `private_key` must be present. Create a Credential Profile with
-provider **HashiCorp Vault KV v2** and a reference in this format:
+`password` or `private_key` must be present.
+
+Vault is a backend-only advanced integration in the streamlined, FTP-focused
+UI. The normal Credential Profile form offers only **Environment variables**
+and **Encrypted database**. Provision a Vault credential profile through the
+controlled REST API at `/api/plugins/config-backup/credential-profiles/` (or
+equivalent deployment automation) with `provider_id="vault_kv2"`, the required
+`auth_type`, and a `secret_reference` in this format:
 
 ```text
 vault://secret/network/devices/router-1
 ```
 
 Here `secret` is the KV v2 mount and `network/devices/router-1` is its path.
-NetBox stores only this reference. The provider performs only the KV v2 read
-operation; it never lists, creates, modifies, deletes, or logs a Vault secret.
+Assign the resulting profile through the platform-mapping or backup-target API.
+Vault profiles are intentionally hidden from the normal Settings and Add device
+forms. NetBox stores only this reference. The provider performs only the KV v2
+read operation; it never lists, creates, modifies, deletes, or logs a Vault
+secret.
 
 Example least-privilege Vault policy:
 

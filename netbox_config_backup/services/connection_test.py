@@ -101,7 +101,7 @@ class ConnectionTester:
         if not context.receiver_secret_provider_id or not context.receiver_secret_reference:
             raise DriverError(
                 "NO_RECEIVER_CREDENTIALS",
-                "The backup receiver has no complete credential profile.",
+                "The device upload receiver has no complete credential profile.",
             )
         provider = self.secret_providers.get(context.receiver_secret_provider_id)
         return replace(

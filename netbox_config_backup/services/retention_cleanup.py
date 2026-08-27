@@ -91,7 +91,9 @@ def execute_retention_cleanup(
             )
             effective_policy = effective_local_retention_policy(target, local_storage)
             if effective_policy is None:
-                raise RetentionCleanupError("The backup target has no effective retention policy.")
+                raise RetentionCleanupError(
+                    "The backup target has no effective Local retention profile."
+                )
             policy = RetentionPolicy.objects.select_for_update().get(pk=effective_policy.pk)
 
             revisions = list(

@@ -158,7 +158,7 @@ def execute_remote_retention_cleanup(
                 policy = locked_policies.get(policy_id)
                 if policy is None:
                     raise RemoteRetentionCleanupError(
-                        "The effective FTP retention policy no longer exists."
+                        "The effective FTP retention profile no longer exists."
                     )
                 configured_policy_count += 1
                 replicas_by_revision = replicas_by_destination.get(destination_id, {})
@@ -254,7 +254,7 @@ def execute_remote_retention_cleanup(
 
             if configured_policy_count == 0:
                 raise RemoteRetentionCleanupError(
-                    "No enabled FTP storage has an effective retention policy. "
+                    "No enabled FTP storage has an effective retention profile. "
                     "FTP copies are kept indefinitely."
                 )
 

@@ -324,7 +324,7 @@ try:
     )
     assert remote_unconfirmed_response.status_code == 400
     assert (
-        b"Confirm the permanent FTP deletion warning before enabling remote retention."
+        b"Confirm the permanent FTP deletion warning before enabling FTP cleanup."
         in remote_unconfirmed_response.content
     )
     operational_settings.refresh_from_db()

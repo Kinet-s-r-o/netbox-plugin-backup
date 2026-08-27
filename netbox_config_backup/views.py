@@ -2281,7 +2281,7 @@ class BackupTargetRetentionCleanupView(PermissionRequiredMixin, LoginRequiredMix
             return render(request, self.template_name, context, status=400)
         plan = context["plan"]
         if plan is None:
-            messages.error(request, "The backup target has no effective retention policy.")
+            messages.error(request, "The backup target has no effective Local retention profile.")
             return redirect(target.get_absolute_url())
         if not plan.revisions_to_delete and not plan.runs_to_delete:
             messages.info(request, "The current retention plan has nothing to delete.")

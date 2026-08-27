@@ -47,7 +47,7 @@ Implemented:
 - authenticated Docker UI/dispatcher smoke test
 - built-in password-only, chrooted SFTP receiver for vendor-native push exports
 - direct and loopback-only reverse-tunnel receiver modes for Ceragon IP-50/CeraOS
-- UI-managed, host-key-pinned SFTP replication of completed revisions to a NAS
+- UI-managed FTP replication of completed revisions to an internal server
 - independent replica status, automatic retry, immutable paths, and SHA-256 verification
 
 Deferred by design:
@@ -356,21 +356,23 @@ For the local Docker stack, copy
 load this ignored file. Deployment-wide SSH host keys may still be kept in
 `C:\dev\netbox-docker\env\config-backup-ssh\known_hosts`, mounted read-only at
 `/etc/netbox-config-backup/ssh/known_hosts`. The normal onboarding workflow is
-available in **Settings > SSH host keys**: the plugin scans the pre-authentication
+available in **Config Backup > Settings > Security and vendor-specific setup >
+SSH host keys**: the plugin scans the pre-authentication
 SSH handshake, presents the SHA256 fingerprint for administrator approval, and
 stores approved public host keys in PostgreSQL. A changed key always creates a
 new pending candidate and never replaces an approved key automatically. Do not
 populate either environment file from chat history or commit it to Git.
 
-The `encrypted_database` credential provider exposes write-only Username,
-Password, and Confirm password fields in the Credential Profile form. Passwords
-are encrypted with AES-256-GCM using `NETBOX_CONFIG_BACKUP_MASTER_KEY`; only the
-nonce, ciphertext, reference, and key version are stored in PostgreSQL. Editing
-a profile with blank password fields preserves the current password. The
-plaintext is never rendered, exported, or placed in a backup job log.
+The `encrypted_database` credential provider exposes a Username plus write-only
+Password and Confirm password fields in the Credential Profile form. Passwords
+are encrypted with AES-256-GCM using `NETBOX_CONFIG_BACKUP_MASTER_KEY`; the
+username, nonce, ciphertext, reference, and key version are stored in PostgreSQL.
+Editing a profile with blank password fields preserves the current password. The
+plaintext password is never rendered, exported, or placed in a backup job log.
 
-Create these profiles in **Config Backup > Configuration > Credential
-Profiles > Add**, then select **Encrypted database (write-only password)**. The
+Create these profiles in **Config Backup > Settings > Device defaults >
+Credential profiles**, select **Add**, and then choose **Encrypted database
+(write-only password)**. The
 master key must be the same in the NetBox web and worker processes and must stay
 stable across restarts. Store and back it up separately from PostgreSQL; losing
 it makes the stored passwords unrecoverable. Access to encrypted material is
@@ -380,23 +382,25 @@ additionally guarded by the `add/change/delete_storedcredential` permissions.
 
 The normal workflow starts from **Overview** or **Devices > Add**. One form
 selects the NetBox device and backup driver, stores an encrypted
-username/password, and selects a simple schedule plus a Local and optional FTP
-retention override. Leaving an override empty uses the policy configured on
-the corresponding storage; if neither the device nor the storage supplies a
-policy, that history is kept indefinitely. A storage whose **Always use this
-storage's retention profile** checkbox is enabled ignores the device override.
+username/password, and selects a simple schedule plus a required Local history
+profile and an optional FTP retention override. Local retention is selected in
+this order: device override, backup policy, then Local storage profile. FTP
+retention is selected independently for each FTP storage: device override, then
+that storage's profile. If no effective profile exists, that history is kept
+indefinitely. A storage whose **Always use this storage's retention profile**
+checkbox is enabled ignores the device override.
 **Save & test connection** creates the complete configuration and immediately
 queues the non-persistent connection test.
 
 Quick Setup creates the target, per-device connection and credential profiles,
-and reusable `[Quick]` schedule/retention policies in a single transaction. It
+and reusable `[Quick]` backup policies and Local retention profiles in a single transaction. It
 can resolve the driver automatically from an enabled platform mapping. The
 individual profile and policy pages remain available from **Settings**.
-Because it assigns a Local retention policy, Quick Setup requires the
+Because it assigns a Local retention profile, Quick Setup requires the
 Administrator retention and runtime permissions; Operators can run, test, and
 reschedule existing targets but cannot indirectly authorize future deletion.
 
-The **Settings** page groups reusable defaults by task: device access,
+The **Settings** page groups reusable defaults by task: device defaults,
 scheduling and retention, exceptional vendor/security setup, and global
 automation. **Config Backup > Help** provides the recommended setup order,
 Local-versus-FTP retention precedence, storage/receiver differences, and safe
@@ -449,7 +453,7 @@ created by the migration, is always enabled, and cannot be deleted, disabled,
 or converted to FTP. FTP storages are independent secondary copies and retain
 their own connection, audit, replication, and retention settings.
 
-Each storage can provide a retention policy as a fallback. Enabling **Always
+Each storage can provide a retention profile as a fallback. Enabling **Always
 use this storage's retention profile** makes that policy mandatory for the
 storage and prevents a device-specific override. Effective retention is
 resolved in this exact order:

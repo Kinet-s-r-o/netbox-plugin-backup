@@ -163,7 +163,7 @@ copies automatically. This state is not a permanent audit ledger: after the
 local revision and all corresponding FTP copies have fully expired, cleanup may
 remove the revision and its replica/deletion metadata as well.
 
-## 4. Create the receiver in the UI
+## 4. Create a device upload receiver in the UI
 
 This section is required only for drivers where the device pushes a native file,
 currently Ceragon IP-50/CeraOS and first-generation SIAE ALFOplus.
@@ -255,7 +255,7 @@ Create or edit the platform mapping:
 - Driver: `ceragon_ip50`
 - Connection profile: device SSH profile
 - Credential profile: device login
-- SFTP receiver: the receiver created above
+- Device upload receiver: the receiver created above, using the SFTP protocol
 - Driver options:
 
 ```json

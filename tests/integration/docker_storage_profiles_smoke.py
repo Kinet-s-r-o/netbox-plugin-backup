@@ -1,7 +1,7 @@
 """Exercise protected Local storage and configurable FTP storage profiles.
 
 Run this only after the plugin migrations have been applied. The smoke test never
-changes the protected Local row. It creates isolated retention policies and one
+changes the protected Local row. It creates isolated retention profiles and one
 disabled FTP storage, then removes those temporary records in ``finally``.
 """
 

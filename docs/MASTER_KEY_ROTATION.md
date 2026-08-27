@@ -78,9 +78,11 @@ runtime key with:
 Run `protect-windows-secrets.ps1` after either operation and recreate the web
 and worker containers so they receive the updated environment.
 
-The Settings page reports the active version and counts of current, pending,
-and unavailable credentials. It never displays a key, password, ciphertext,
-nonce, username, or credential UUID.
+Running `python manage.py config_backup_rotate_master_key` without `--apply`
+reports the active key version and counts of current, pending, and unavailable
+credentials without changing data. The streamlined Settings page does not
+expose deployment-level key state. Neither interface displays a key, password,
+ciphertext, nonce, username, or credential UUID.
 
 ## Failure and rollback
 

@@ -264,7 +264,7 @@ class OperationalSettingsForm(NetBoxModelForm):
         if enabling_remote and not cleaned.get("confirm_remote_enable"):
             self.add_error(
                 "confirm_remote_enable",
-                "Confirm the permanent FTP deletion warning before enabling remote retention.",
+                "Confirm the permanent FTP deletion warning before enabling FTP cleanup.",
             )
         return self.cleaned_data
 
@@ -338,8 +338,8 @@ class QuickSetupForm(forms.Form):
     receiver_profile = DynamicModelChoiceField(
         queryset=SftpReceiverProfile.objects.filter(enabled=True),
         required=False,
-        label="Backup receiver",
-        help_text="Automatic uses the receiver from the platform mapping.",
+        label="Device upload receiver",
+        help_text="Automatic uses the device upload receiver from the platform mapping.",
     )
     allow_device_export = forms.BooleanField(
         required=False,
@@ -536,7 +536,7 @@ class QuickSetupForm(forms.Form):
             self.add_error(
                 "receiver_profile",
                 "No receiver could be selected automatically. Open Advanced settings and choose "
-                "an enabled SFTP receiver.",
+                "an enabled device upload receiver.",
             )
         if effective_driver == "ceragon_ip50" and not cleaned.get("allow_device_export"):
             self.add_error(
@@ -1195,7 +1195,7 @@ class PlatformMappingForm(NetBoxModelForm):
     receiver_profile = forms.ModelChoiceField(
         queryset=SftpReceiverProfile.objects.all(),
         required=False,
-        label="Native backup receiver",
+        label="Default device upload receiver",
         help_text="Required only for drivers where the device sends a native backup file.",
     )
     driver_id = forms.ChoiceField(

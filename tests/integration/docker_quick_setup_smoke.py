@@ -195,7 +195,7 @@ assert automatic_target.connection_override_id == target.connection_override_id
 assert automatic_target.credential_override_id == target.credential_override_id
 assert automatic_target.remote_retention_policy_id is None
 
-# Quick Setup always creates a Local retention policy. A user without runtime
+# Quick Setup always creates a Local retention profile. A user without runtime
 # and destructive-retention authority must not be able to assign it indirectly.
 limited_user = get_user_model().objects.create_user(
     username=f"{prefix}-limited-admin",

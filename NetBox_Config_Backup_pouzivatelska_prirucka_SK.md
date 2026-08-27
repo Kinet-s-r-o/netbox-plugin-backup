@@ -14,7 +14,7 @@ opisuje samostatný dokument [docs/INSTALLATION.md](docs/INSTALLATION.md).
 Pri každom pokuse o zálohu plugin:
 
 1. vytvorí záznam **BackupRun**,
-2. určí adresu, driver, connection profile a credentials,
+2. určí adresu, driver, connection profile a credential profile,
 3. pripojí sa k zariadeniu,
 4. načíta konfiguráciu alebo natívny zálohovací súbor,
 5. skontroluje, že získané dáta zodpovedajú očakávanému formátu,
@@ -65,9 +65,10 @@ Formulár **Add device** priraďuje aj lokálnu retenčnú politiku, preto je ur
 pre skupinu **Config Backup Administrators**. Operátor môže existujúce ciele
 testovať, spúšťať a preplánovať, ale nesmie nepriamo povoliť budúce mazanie.
 
-Prázdna retenčná voľba na zariadení neznamená automaticky „navždy“. Najprv sa
-použije fallback politika daného storage; bez politiky na zariadení aj storage
-sa história uchováva bez časového limitu.
+Prázdna retenčná voľba na zariadení neznamená automaticky „navždy“. Lokálna
+retencia najprv použije backup policy a potom profil Local storage. FTP
+retencia sa vyhodnocuje samostatne pre každé FTP storage a použije jeho profil.
+Bez efektívnej politiky sa príslušná história uchováva bez časového limitu.
 
 Zariadenie, ktoré už má backup target, sa v zozname **Add device** znova
 nezobrazí.
@@ -153,7 +154,7 @@ Odporúčania:
 - prideľ mu iba práva potrebné na čítanie alebo vytvorenie natívnej zálohy,
 - over dostupnosť portu z backup workera.
 
-## 5. Credentials a master key
+## 5. Credential profiles a master key
 
 ### Encrypted database
 
@@ -210,7 +211,7 @@ Platform mapping automaticky priraďuje NetBox platforme:
 - backup driver,
 - connection profile,
 - credential profile,
-- podľa potreby native backup receiver,
+- podľa potreby device upload receiver,
 - obmedzené driver options.
 
 Vďaka mappingu sa pri každom zariadení znova nevyberá výrobca, port ani login.
@@ -599,7 +600,7 @@ V **Settings → Automation** možno zapnúť udalosti pre:
 
 Plugin udalosti vytvorí, ale príjemcov určuje NetBox cez **Event Rules** a
 **Notification Groups**. Predvolene sa opakované rovnaké zlyhanie neoznamuje pri
-každom pokuse; voľbu možno rozšíriť v Advanced alert behavior.
+každom pokuse; správanie možno zmeniť v **Repeated failure behavior**.
 
 ## 19. Oprávnenia
 
@@ -638,20 +639,20 @@ Aktuálna inštalácia obsahuje najmä:
 | ZTE ZXROS | read-only CLI |
 | RACOM RipEX2 | HTTPS API |
 | RACOM RAy2/RAy3 | natívny SSH/SCP backup |
-| Ceragon IP-20/IP-50 | natívny export prijatý backup receiverom |
+| Ceragon IP-20/IP-50 | natívny export prijatý device upload receiverom |
 | SIAE SM-OS | automatický driver; CLI snapshot alebo nakonfigurovaný natívny fallback |
 | Fake | iba vývoj a automatické testy, nie produkcia |
 
 Nie každý model a firmware výrobcu sa správa rovnako. Pred hromadným nasadením
 otestuj jeden reprezentatívny kus každej platformy a verzie firmvéru.
 
-### Natívne backup receivers
+### Device upload receivers
 
 Niektoré zariadenia zálohu posielajú smerom k pluginu. Pre ne administrátor
 nastaví **Settings → Security and vendor-specific setup → Device upload receivers**. Ide o inú
 funkciu než FTP storage:
 
-- native receiver prijíma súbor priamo zo zariadenia počas zberu,
+- device upload receiver prijíma súbor priamo zo zariadenia počas zberu,
 - FTP storage kopíruje už dokončenú revision z pluginu na interný server.
 
 Prvá generácia SIAE ALFOplus môže vyžadovať výrobcovský WebLCT/SCT workflow a
@@ -705,7 +706,7 @@ Podrobnosti sú v [SECURITY.md](SECURITY.md).
 
 1. Over platformu a management IP v NetBoxe.
 2. Vytvor alebo vyber least-privilege účet.
-3. Priprav connection a credential profile.
+3. Priprav connection profile a credential profile.
 4. Vytvor platform mapping.
 5. Pridaj jeden testovací kus.
 6. Over host key.
@@ -731,7 +732,9 @@ zobrazí súvisiace runs, revisions a artifacty, ktoré budú zasiahnuté. Hroma
 odstránenie používa rovnakú kontrolu.
 
 Pred odstránením over, či sú dôležité revisions chránené alebo bezpečne
-exportované. FTP kópie sa automaticky nemažú.
+exportované. Plugin odstráni aj evidované FTP kópie. Ak je FTP storage vypnuté,
+prebieha prenos alebo vzdialenú kópiu nemožno bezpečne odstrániť, odstránenie
+celého backup targetu zablokuje.
 
 ## 25. Dokumenty pre administrátora
 

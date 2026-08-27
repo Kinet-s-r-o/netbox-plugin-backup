@@ -1,4 +1,4 @@
-"""Exercise FTP replication and remote retention against the configured server.
+"""Exercise FTP replication and FTP retention against the configured server.
 
 Run with ``manage.py shell`` inside the NetBox container. The script never
 changes the scheduler or an existing target/destination. It creates one unique

@@ -8,7 +8,7 @@
   <div>
     <h1>Example configuration</h1>
     <p class="text-secondary mb-0">
-      A coherent reference setup for every item under Configuration. The examples are not
+      A coherent reference setup for the reusable Settings areas shown below. The examples are not
       assigned to any backup target and cannot contact a real device.
     </p>
   </div>
@@ -26,14 +26,14 @@
 {% if not examples %}
 <div class="alert alert-info">
   No example records exist yet. Use <strong>Create examples</strong> to add one safe,
-  clearly labelled record to every Configuration section.
+  clearly labelled record to each Settings area represented on this page.
 </div>
 {% endif %}
 
 <div class="row row-cols-1 row-cols-xl-2 g-3">
   <div class="col">
     <div class="card h-100">
-      <h2 class="card-header">Retention Policy</h2>
+      <h2 class="card-header">Local retention profile</h2>
       <div class="card-body">
         <p>Demonstrates layered retention: all recent revisions, then daily, weekly and monthly samples.</p>
         <dl class="row mb-0">
@@ -42,7 +42,7 @@
           <dt class="col-sm-5">Daily / weekly / monthly</dt><dd class="col-sm-7">30 days / 12 weeks / 12 months</dd>
         </dl>
       </div>
-      <div class="card-footer"><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">Open Retention Policies</a></div>
+      <div class="card-footer"><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">Open Local retention profiles</a></div>
     </div>
   </div>
 
@@ -53,7 +53,7 @@
         <p>Runs every day in the site's time zone, spreads load with jitter, and retries transient failures.</p>
         <dl class="row mb-0">
           <dt class="col-sm-5">Example</dt><dd class="col-sm-7">{% if examples %}{{ examples.backup_policy|linkify }}{% else %}[Example] Daily at 03:00{% endif %}</dd>
-          <dt class="col-sm-5">Schedule</dt><dd class="col-sm-7">03:00 site time, 0–15 minute jitter</dd>
+          <dt class="col-sm-5">Schedule</dt><dd class="col-sm-7">03:00 site time, 0 to 15 minute jitter</dd>
           <dt class="col-sm-5">Retries</dt><dd class="col-sm-7">after 5, 15 and 60 minutes</dd>
           <dt class="col-sm-5">Storage</dt><dd class="col-sm-7">changed configurations only</dd>
         </dl>

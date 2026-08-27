@@ -9,7 +9,7 @@
 {% block title %}Help{% endblock %}
 
 {% block subtitle %}
-  Learn the backup flow, settings, retention rules, and common recovery steps.
+  Learn the backup flow, settings, retention rules, and common troubleshooting steps.
 {% endblock %}
 
 {% block content %}
@@ -31,11 +31,11 @@
     <div class="card">
       <ol class="help-steps">
         <li>
-          <strong>Create access profiles</strong>
-          <span>Store a reusable connection and encrypted login when several devices share them.</span>
+          <strong>Create connection and credential profiles</strong>
+          <span>Define reusable connection settings and credentials for devices that share them.</span>
         </li>
         <li>
-          <strong>Map the platform</strong>
+          <strong>Create a platform mapping</strong>
           <span>Select the driver and defaults for the device's NetBox platform.</span>
         </li>
         <li>
@@ -43,12 +43,12 @@
           <span>Save the backup device, test connectivity, then run its first manual backup.</span>
         </li>
         <li>
-          <strong>Add FTP if needed</strong>
+          <strong>Add an FTP storage if needed</strong>
           <span>Test the FTP storage and copy existing revisions before relying on replication.</span>
         </li>
         <li>
           <strong>Review retention</strong>
-          <span>Preview Local and FTP decisions before enabling either cleanup scheduler.</span>
+          <span>Open Retention preview on the device before enabling Local cleanup or FTP cleanup.</span>
         </li>
       </ol>
     </div>
@@ -56,7 +56,7 @@
       <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:backuptarget_list' %}">Open devices</a>
       {% if perms.netbox_config_backup.view_operationalsettings %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:advanced_settings' %}">Open settings</a>{% endif %}
       {% if perms.netbox_config_backup.view_backupdestination %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">Open storages</a>{% endif %}
-      {% if perms.netbox_config_backup.view_retentionpolicy and perms.netbox_config_backup.view_backuppolicy and perms.netbox_config_backup.view_connectionprofile and perms.netbox_config_backup.view_credentialprofile and perms.netbox_config_backup.view_platformmapping %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:examples' %}">Open safe examples</a>{% endif %}
+      {% if perms.netbox_config_backup.view_retentionpolicy and perms.netbox_config_backup.view_backuppolicy and perms.netbox_config_backup.view_connectionprofile and perms.netbox_config_backup.view_credentialprofile and perms.netbox_config_backup.view_platformmapping %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:examples' %}">Open examples</a>{% endif %}
     </div>
   </section>
 
@@ -71,12 +71,12 @@
         <span>The selected driver connects with the effective connection and credential profiles.</span>
       </div>
       <div class="help-flow-item">
-        <strong>2. Store Local revision</strong>
-        <span>The plugin hashes the artifacts and records a ConfigRevision in primary Local storage.</span>
+        <strong>2. Hash and store locally</strong>
+        <span>The plugin hashes the artifacts. It creates a ConfigRevision according to the backup policy, or links an unchanged run to the latest matching revision.</span>
       </div>
       <div class="help-flow-item">
-        <strong>3. Replicate to FTP</strong>
-        <span>Each enabled automatic FTP storage receives an independent immutable copy.</span>
+        <strong>3. Replicate new revisions to FTP</strong>
+        <span>Each enabled FTP storage with automatic copying receives an independent immutable copy of every new revision.</span>
       </div>
     </div>
     <div class="alert alert-info mt-3 mb-0" role="note">
@@ -87,26 +87,26 @@
   <section class="help-section" id="settings-reference" aria-labelledby="settings-reference-title">
     <div class="help-section-heading">
       <h2 id="settings-reference-title">Settings reference</h2>
-      <p>Each page has one responsibility. Most installations use all six reusable profile types.</p>
+      <p>These six configuration areas define shared defaults. Configure only the ones your deployment needs.</p>
     </div>
     <div class="card help-reference">
       {% if perms.netbox_config_backup.view_platformmapping %}
       <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:platformmapping_list' %}">Platform mappings</a></strong><p>Select a driver and optional profile defaults from the NetBox platform.</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_connectionprofile %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:connectionprofile_list' %}">Connection profiles</a></strong><p>Define protocol, port, NetBox address order, host-key verification, and timeouts.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:connectionprofile_list' %}">Connection profiles</a></strong><p>Define protocol, port, management-address preference, host-key verification, and timeouts.</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_credentialprofile %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:credentialprofile_list' %}">Credential profiles</a></strong><p>Store encrypted write-only logins or environment references for device and FTP access.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:credentialprofile_list' %}">Credential profiles</a></strong><p>Use an encrypted write-only password or an environment-variable reference for reusable device and FTP credentials.</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_backuppolicy %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:backuppolicy_list' %}">Backup policies</a></strong><p>Control schedules, retry timing, collection timeouts, storage mode, and default Local retention.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:backuppolicy_list' %}">Backup policies</a></strong><p>Control schedules, retries, connection and command timeouts, revision creation, and the default Local retention profile.</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_retentionpolicy %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">Local retention</a></strong><p>Keep Local configuration revisions and completed BackupRun history for defined periods.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">Local retention profiles</a></strong><p>Define how long Local revisions and completed backup runs are kept.</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">FTP retention</a></strong><p>Keep copied revisions independently for each device and each FTP storage.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">FTP retention profiles</a></strong><p>Define how long copied revisions are kept independently on each FTP storage.</p></div>
       {% endif %}
     </div>
   </section>
@@ -120,19 +120,19 @@
       <div class="help-retention-panel">
         <h3 class="h4">Local profile precedence</h3>
         <ol>
-          <li>Enforced profile on the Local storage</li>
-          <li>Local retention override on the device</li>
-          <li>Retention profile from the backup policy</li>
-          <li>Fallback profile on the Local storage</li>
+          <li>Local storage profile when <strong>Always use this storage's retention profile</strong> is enabled</li>
+          <li>Local retention profile selected on the device</li>
+          <li>Local retention profile from the backup policy</li>
+          <li>Local storage profile as a fallback</li>
           <li>Keep indefinitely when no profile is available</li>
         </ol>
       </div>
       <div class="help-retention-panel">
         <h3 class="h4">FTP profile precedence</h3>
         <ol>
-          <li>Enforced profile on that FTP storage</li>
-          <li>FTP retention override on the device</li>
-          <li>Fallback profile on that FTP storage</li>
+          <li>FTP storage profile when <strong>Always use this storage's retention profile</strong> is enabled</li>
+          <li>FTP retention profile selected on the device</li>
+          <li>FTP storage profile as a fallback</li>
           <li>Keep indefinitely when no profile is available</li>
         </ol>
       </div>

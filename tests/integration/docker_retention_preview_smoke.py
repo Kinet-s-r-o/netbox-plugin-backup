@@ -18,7 +18,7 @@ target = (
 )
 assert target is not None, "Create at least one backup device before running this smoke test."
 assert target.retention_override_id or target.policy_override_id, (
-    "The selected backup device needs an effective retention policy."
+    "The selected backup device needs an effective Local retention profile."
 )
 
 prefix = f"ncb-retention-{uuid4().hex[:8]}"

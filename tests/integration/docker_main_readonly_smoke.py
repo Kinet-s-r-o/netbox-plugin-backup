@@ -13,10 +13,18 @@ from netbox_config_backup.forms import (
     ConnectionProfileForm,
     CredentialProfileForm,
     PlatformMappingForm,
+    QuickSetupForm,
     RemoteRetentionPolicyForm,
     RetentionPolicyForm,
 )
-from netbox_config_backup.models import BackupDestination, BackupTarget
+from netbox_config_backup.models import (
+    BackupDestination,
+    BackupPolicy,
+    BackupTarget,
+    RemoteRetentionPolicy,
+    RetentionPolicy,
+    SftpReceiverProfile,
+)
 
 key, key_version = DatabaseCredentialCipher().active_key()
 assert len(key) == 32
@@ -49,6 +57,15 @@ assert (
 assert "JSON list of delays" in BackupPolicyForm().fields["retry_backoff_minutes"].help_text
 assert "NetBox device address" in ConnectionProfileForm().fields["address_preference"].help_text
 assert "driver-specific settings" in PlatformMappingForm().fields["driver_options"].help_text
+assert (
+    PlatformMappingForm().fields["receiver_profile"].label
+    == "Default device upload receiver"
+)
+assert QuickSetupForm().fields["receiver_profile"].label == "Device upload receiver"
+assert RetentionPolicy._meta.verbose_name_plural == "local retention profiles"
+assert RemoteRetentionPolicy._meta.verbose_name_plural == "FTP retention profiles"
+assert BackupPolicy._meta.verbose_name_plural == "backup policies"
+assert SftpReceiverProfile._meta.verbose_name_plural == "device upload receivers"
 
 local_storages = BackupDestination.objects.filter(
     protocol=DestinationProtocolChoices.LOCAL,
@@ -95,15 +112,35 @@ help_response = client.get(reverse("plugins:netbox_config_backup:help"))
 assert help_response.status_code == 200
 for expected in (
     b"Recommended setup",
+    b"Create connection and credential profiles",
     b"How a backup moves",
+    b"revision creation",
+    b"Local retention profiles",
+    b"FTP retention profiles",
     b"Local profile precedence",
     b"FTP profile precedence",
     b"FTP storage or device upload receiver?",
     b"HOST_KEY_UNKNOWN",
 ):
-    assert expected in help_response.content
+    assert expected in help_response.content, expected
+for obsolete in (
+    b"Create access profiles",
+    b"storage mode",
+    b"Most installations use all six reusable profile types",
+):
+    assert obsolete not in help_response.content, obsolete
 assert b'name="password"' not in help_response.content
 assert b'name="secret_reference"' not in help_response.content
+
+for list_name, expected_title in (
+    ("retentionpolicy_list", b"Local Retention Profiles | NetBox"),
+    ("remoteretentionpolicy_list", b"FTP Retention Profiles | NetBox"),
+    ("backuppolicy_list", b"Backup Policies | NetBox"),
+    ("sftpreceiverprofile_list", b"Device Upload Receivers | NetBox"),
+):
+    response = client.get(reverse(f"plugins:netbox_config_backup:{list_name}"))
+    assert response.status_code == 200
+    assert b"<title>" + expected_title + b"</title>" in response.content
 
 response = client.get(reverse("plugins:netbox_config_backup:backupdestination_add"))
 assert response.status_code == 200

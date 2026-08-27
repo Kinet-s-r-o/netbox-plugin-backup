@@ -145,7 +145,7 @@
             <div class="form-text">
               Local and FTP history are independent. Leave FTP retention at
               <strong>Use FTP storage profile</strong> unless this device needs its own
-              remote retention override.
+              FTP retention profile.
             </div>
           </div>
         </div>
@@ -160,7 +160,7 @@
             <h2 class="h3 mb-2">Device-side backup export</h2>
             <p class="text-secondary mb-3">
               This driver asks the device to create a native backup file and send it to the
-              configured backup receiver. For legacy ALFOplus it temporarily selects FTP. It
+              configured device upload receiver. For legacy ALFOplus it temporarily selects FTP. It
               never imports a configuration, activates changes, reboots, or restores the device.
             </p>
             {% render_field form.allow_device_export %}

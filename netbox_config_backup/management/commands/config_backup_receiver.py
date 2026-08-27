@@ -106,7 +106,11 @@ class Command(BaseCommand):
                 return profile
             if not wait:
                 if profile is None:
-                    raise CommandError(f"Backup receiver profile {value!r} does not exist.")
-                raise CommandError(f"Backup receiver profile {profile.name!r} is disabled.")
-            self.stdout.write(f"Waiting for enabled backup receiver profile {value!r}...")
+                    raise CommandError(
+                        f"Device upload receiver {value!r} does not exist."
+                    )
+                raise CommandError(
+                    f"Device upload receiver {profile.name!r} is disabled."
+                )
+            self.stdout.write(f"Waiting for enabled device upload receiver {value!r}...")
             time.sleep(max(1, interval))
