@@ -67,18 +67,6 @@
           {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:remoteretentionpolicy_list' icon='mdi-server-minus-outline' title='FTP retention profiles' description='Control copies independently on each FTP storage.' only %}
         {% endif %}
       </div>
-      <details class="settings-inline-help">
-        <summary>
-          <i class="mdi mdi-help-circle-outline" aria-hidden="true"></i>
-          How is a retention profile selected?
-          <i class="mdi mdi-chevron-down settings-chevron" aria-hidden="true"></i>
-        </summary>
-        <div class="settings-inline-help-body">
-          <p><strong>Local:</strong> enforced Local storage, device override, backup policy, Local storage default, then keep indefinitely.</p>
-          <p><strong>FTP:</strong> enforced FTP storage, device override, that FTP storage default, then keep indefinitely.</p>
-          <p class="mb-0">No data is deleted until the matching cleanup switch below is enabled. <a href="{% url 'plugins:netbox_config_backup:help' %}#retention">Read the retention guide</a>.</p>
-        </div>
-      </details>
     </section>
   </div>
 

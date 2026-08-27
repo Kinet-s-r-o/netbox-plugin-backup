@@ -109,8 +109,7 @@
 }
 
 .settings-link:focus-visible,
-.settings-advanced > summary:focus-visible,
-.settings-inline-help > summary:focus-visible {
+.settings-advanced > summary:focus-visible {
   z-index: 1;
   outline: 2px solid var(--tblr-primary, #206bc4);
   outline-offset: -2px;
@@ -151,11 +150,6 @@
   font-size: 1.15rem;
 }
 
-.settings-inline-help {
-  border-top: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
-}
-
-.settings-inline-help > summary,
 .settings-advanced > summary {
   display: flex;
   gap: 0.7rem;
@@ -165,23 +159,8 @@
   list-style: none;
 }
 
-.settings-inline-help > summary::-webkit-details-marker,
 .settings-advanced > summary::-webkit-details-marker {
   display: none;
-}
-
-.settings-inline-help > summary {
-  color: var(--tblr-secondary-color, #8a97a6);
-  font-size: 0.875rem;
-}
-
-.settings-inline-help-body {
-  padding: 0 1rem 1rem 2.45rem;
-  font-size: 0.875rem;
-}
-
-.settings-inline-help-body p {
-  margin-bottom: 0.5rem;
 }
 
 .settings-chevron {
