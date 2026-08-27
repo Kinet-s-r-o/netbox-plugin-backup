@@ -9,13 +9,13 @@
     <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_retention_cleanup' pk=object.pk %}"><i class="mdi mdi-delete-clock-outline"></i> Apply local retention</a>
     {% endif %}
     {% if remote_has_policy and can_apply_remote_retention and remote_revisions_to_delete %}
-    <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_remote_retention_cleanup' pk=object.pk %}"><i class="mdi mdi-server-minus-outline"></i> Apply FTP retention</a>
+    <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:backuptarget_remote_retention_cleanup' pk=object.pk %}"><i class="mdi mdi-server-minus-outline"></i> Apply remote retention</a>
     {% endif %}
     <a class="btn btn-outline-secondary" href="{{ object.get_absolute_url }}"><i class="mdi mdi-arrow-left"></i> Back to device</a>
   </div>
 </div>
 
-<div class="alert alert-info" role="status"><i class="mdi mdi-shield-check-outline"></i> Both plans are deterministic. Latest and protected revisions are always kept. FTP cleanup never connects to the device.</div>
+<div class="alert alert-info" role="status"><i class="mdi mdi-shield-check-outline"></i> Both plans are deterministic. Latest and protected revisions are always kept. Remote cleanup never connects to the device.</div>
 
 <h3 class="mt-4">Local storage and run history</h3>
 {% if not local_policy %}
@@ -37,8 +37,8 @@
 </table></div></div>
 {% endif %}
 
-<h3 class="mt-4">Remote FTP copies</h3>
-<p class="text-secondary">Only available copies on enabled FTP storages participate in this plan. Disabling a storage pauses its automatic deletion.</p>
+<h3 class="mt-4">Remote copies</h3>
+<p class="text-secondary">Only available copies on enabled remote storages participate in this plan. Disabling a storage pauses its automatic deletion.</p>
 {% for item in remote_storage_plans %}
 <div class="card mb-3">
   <div class="card-header d-flex flex-wrap justify-content-between gap-2">
@@ -49,9 +49,9 @@
   <div class="card-body py-2"><span class="text-success me-3">{{ item.plan.revisions_to_keep }} kept</span><span class="text-danger me-3">{{ item.plan.revisions_to_delete }} expired</span><span class="text-secondary">{{ item.expired_copy_count }} copies · {{ item.expired_bytes|filesizeformat }}</span></div>
   <div class="table-responsive"><table class="table table-vcenter table-hover mb-0">
     <thead><tr><th>Created</th><th>Revision</th><th>Copies</th><th>Protected</th><th>Decision</th><th>Reason</th></tr></thead>
-    <tbody>{% for revision, decision, replicas in item.revision_rows %}<tr><td>{{ revision.created }}</td><td><a href="{{ revision.get_absolute_url }}"><code>{{ revision.revision_uuid }}</code></a></td><td>{{ replicas|length }}</td><td>{{ revision.protected|yesno:"Yes,No" }}</td><td>{% if decision.keep %}<span class="badge text-bg-success">Keep</span>{% else %}<span class="badge text-bg-danger">Delete from this storage</span>{% endif %}</td><td>{% for reason in decision.reasons %}<span class="badge text-bg-secondary me-1">{{ reason }}</span>{% endfor %}</td></tr>{% empty %}<tr><td colspan="6" class="text-secondary">No active FTP copies.</td></tr>{% endfor %}</tbody>
+    <tbody>{% for revision, decision, replicas in item.revision_rows %}<tr><td>{{ revision.created }}</td><td><a href="{{ revision.get_absolute_url }}"><code>{{ revision.revision_uuid }}</code></a></td><td>{{ replicas|length }}</td><td>{{ revision.protected|yesno:"Yes,No" }}</td><td>{% if decision.keep %}<span class="badge text-bg-success">Keep</span>{% else %}<span class="badge text-bg-danger">Delete from this storage</span>{% endif %}</td><td>{% for reason in decision.reasons %}<span class="badge text-bg-secondary me-1">{{ reason }}</span>{% endfor %}</td></tr>{% empty %}<tr><td colspan="6" class="text-secondary">No active remote copies.</td></tr>{% endfor %}</tbody>
   </table></div>
   {% else %}<div class="card-body text-secondary">No effective profile. Copies on this storage are kept indefinitely.</div>{% endif %}
 </div>
-{% empty %}<div class="alert alert-secondary">No active copies exist on an enabled FTP storage.</div>{% endfor %}
+{% empty %}<div class="alert alert-secondary">No active copies exist on an enabled remote storage.</div>{% endfor %}
 {% endblock %}

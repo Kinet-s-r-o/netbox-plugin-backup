@@ -25,6 +25,13 @@ else:
         required_settings: ClassVar[list[str]] = []
         default_settings: ClassVar[dict[str, object]] = {
             "storage_root": "/var/lib/netbox-config-backup",
+            # NFS and SMB3 shares are mounted by the host/container runtime.
+            # UI-managed mount paths must remain below one of these roots.
+            "network_storage_mount_roots": ["/mnt/netbox-config-backup"],
+            # Refuse writes when the configured share is not an active mount.
+            # This prevents a disconnected NFS/SMB share from silently falling
+            # back to the container's local filesystem.
+            "network_storage_require_mountpoint": True,
             "recovery_package_ttl_minutes": 60,
             "recovery_package_max_bytes": 1024 * 1024 * 1024,
             "storage_backend": "local",

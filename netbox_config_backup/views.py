@@ -25,6 +25,8 @@ from utilities.views import register_model_view
 
 from . import filtersets, forms, tables
 from .choices import (
+    MANAGED_DESTINATION_PROTOCOLS,
+    REPLICATED_DESTINATION_PROTOCOLS,
     DestinationProtocolChoices,
     ReplicaStatusChoices,
     RunSourceChoices,
@@ -144,7 +146,7 @@ class ConfigBackupHomeView(PermissionRequiredMixin, LoginRequiredMixin, Template
             target_id__in=visible_target_ids
         )
         destinations = BackupDestination.objects.restrict(self.request.user, "view").filter(
-            protocol=DestinationProtocolChoices.FTP
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS
         )
         visible_destination_ids = destinations.values("pk")
         replicas = RevisionReplica.objects.restrict(self.request.user, "view").filter(
@@ -288,7 +290,7 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
         )
         messages.success(
             request,
-            f"Automatic local retention is {local_state}; FTP retention is {remote_state}. "
+            f"Automatic local retention is {local_state}; remote retention is {remote_state}. "
             "No Docker restart is required.",
         )
         return redirect("plugins:netbox_config_backup:advanced_settings")
@@ -375,7 +377,7 @@ def _remote_retention_replicas(target):
 
     return RevisionReplica.objects.filter(
         revision__target=target,
-        destination__protocol=DestinationProtocolChoices.FTP,
+        destination__protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         destination__enabled=True,
         remote_deleted_at__isnull=True,
     ).filter(
@@ -459,7 +461,7 @@ def _retention_preview_context(target, *, now, user=None):
         available_ftp_replicas = available_ftp_replicas.restrict(user, "view")
     ftp_storages = (
         BackupDestination.objects.filter(
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
             enabled=True,
             replicas__in=available_ftp_replicas,
         )
@@ -827,7 +829,7 @@ class CredentialProfileDeleteView(generic.ObjectDeleteView):
 @register_model_view(BackupDestination, "list", path="", detail=False)
 class BackupDestinationListView(generic.ObjectListView):
     queryset = BackupDestination.objects.filter(
-        protocol__in=(DestinationProtocolChoices.LOCAL, DestinationProtocolChoices.FTP)
+        protocol__in=MANAGED_DESTINATION_PROTOCOLS
     ).select_related(
         "credential_profile",
         "local_retention_policy",
@@ -843,7 +845,7 @@ class BackupDestinationListView(generic.ObjectListView):
 @register_model_view(BackupDestination)
 class BackupDestinationView(generic.ObjectView):
     queryset = BackupDestination.objects.filter(
-        protocol__in=(DestinationProtocolChoices.LOCAL, DestinationProtocolChoices.FTP)
+        protocol__in=MANAGED_DESTINATION_PROTOCOLS
     ).select_related(
         "credential_profile",
         "local_retention_policy",
@@ -860,22 +862,26 @@ class BackupDestinationView(generic.ObjectView):
         return actions
 
     def get_extra_context(self, request, instance):
-        is_ftp = instance.protocol == DestinationProtocolChoices.FTP
+        is_local = instance.protocol == DestinationProtocolChoices.LOCAL
+        is_remote = instance.protocol in REPLICATED_DESTINATION_PROTOCOLS
         replicas = (
             instance.replicas.restrict(request.user, "view").select_related(
                 "revision__target__device"
             )[:25]
-            if is_ftp
+            if is_remote
             else RevisionReplica.objects.none()
         )
         latest_reconciliation_job = (
             DestinationReconciliationJob.get_jobs(instance).order_by("-created").first()
-            if is_ftp
+            if is_remote
             else None
         )
         return {
-            "is_local_storage": not is_ftp,
-            "is_ftp_storage": is_ftp,
+            "is_local_storage": is_local,
+            "is_remote_storage": is_remote,
+            "is_ftp_storage": instance.protocol == DestinationProtocolChoices.FTP,
+            "is_mounted_storage": instance.protocol
+            in (DestinationProtocolChoices.NFS, DestinationProtocolChoices.SMB),
             "replicas": replicas,
             "latest_reconciliation_job": latest_reconciliation_job,
             "latest_reconciliation": (
@@ -884,14 +890,14 @@ class BackupDestinationView(generic.ObjectView):
                 else None
             ),
             "audit_schedule_form": (
-                forms.FtpIntegrityAuditScheduleForm(instance=instance) if is_ftp else None
+                forms.FtpIntegrityAuditScheduleForm(instance=instance) if is_remote else None
             ),
             "audit_timezone": settings.TIME_ZONE,
-            "can_test": is_ftp
+            "can_test": is_remote
             and request.user.has_perm("netbox_config_backup.change_backupdestination"),
-            "can_reconcile": is_ftp
+            "can_reconcile": is_remote
             and request.user.has_perm("netbox_config_backup.change_backupdestination"),
-            "can_backfill": is_ftp
+            "can_backfill": is_remote
             and request.user.has_perms(
                 (
                     "netbox_config_backup.change_backupdestination",
@@ -905,10 +911,9 @@ class BackupDestinationView(generic.ObjectView):
 @register_model_view(BackupDestination, "add", detail=False)
 @register_model_view(BackupDestination, "edit")
 class BackupDestinationEditView(generic.ObjectEditView):
-    queryset = BackupDestination.objects.filter(
-        protocol__in=(DestinationProtocolChoices.LOCAL, DestinationProtocolChoices.FTP)
-    )
+    queryset = BackupDestination.objects.filter(protocol__in=MANAGED_DESTINATION_PROTOCOLS)
     form = forms.BackupDestinationForm
+    template_name = "netbox_config_backup/backupdestination_edit.html"
 
     def form_valid(self, form):
         if form.instance.pk:
@@ -920,7 +925,7 @@ class BackupDestinationEditView(generic.ObjectEditView):
                 or original.enforce_retention_policy
                 != form.cleaned_data.get("enforce_retention_policy", False)
             )
-            remote_changed = protocol == DestinationProtocolChoices.FTP and (
+            remote_changed = protocol in REPLICATED_DESTINATION_PROTOCOLS and (
                 original.remote_retention_policy_id
                 != getattr(form.cleaned_data.get("remote_retention_policy"), "pk", None)
                 or original.enforce_retention_policy
@@ -943,7 +948,7 @@ class BackupDestinationEditView(generic.ObjectEditView):
 @register_model_view(BackupDestination, "delete")
 class BackupDestinationDeleteView(generic.ObjectDeleteView):
     queryset = BackupDestination.objects.filter(
-        protocol=DestinationProtocolChoices.FTP,
+        protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         is_default=False,
     )
 
@@ -951,7 +956,7 @@ class BackupDestinationDeleteView(generic.ObjectDeleteView):
 @register_model_view(BackupDestination, "bulk_delete", detail=False)
 class BackupDestinationBulkDeleteView(generic.BulkDeleteView):
     queryset = BackupDestination.objects.filter(
-        protocol=DestinationProtocolChoices.FTP,
+        protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         is_default=False,
     )
     table = tables.BackupDestinationTable
@@ -969,7 +974,7 @@ class BackupDestinationTestView(PermissionRequiredMixin, LoginRequiredMixin, Vie
         destination = get_object_or_404(
             BackupDestination.objects.restrict(request.user, "change"),
             pk=pk,
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         active_job = (
             DestinationConnectionTestJob.get_jobs(destination)
@@ -1005,7 +1010,7 @@ class BackupDestinationTestResultView(PermissionRequiredMixin, LoginRequiredMixi
         destination = get_object_or_404(
             BackupDestination.objects.restrict(self.request.user, "view"),
             pk=self.kwargs["pk"],
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         job = get_object_or_404(
             DestinationConnectionTestJob.get_jobs(destination),
@@ -1037,7 +1042,7 @@ class BackupDestinationTestStatusView(PermissionRequiredMixin, LoginRequiredMixi
         destination = get_object_or_404(
             BackupDestination.objects.restrict(request.user, "view"),
             pk=pk,
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         job = get_object_or_404(DestinationConnectionTestJob.get_jobs(destination), job_id=job_id)
         response = JsonResponse(destination_test_status_payload(job))
@@ -1057,7 +1062,7 @@ class BackupDestinationReconciliationView(PermissionRequiredMixin, LoginRequired
         destination = get_object_or_404(
             BackupDestination.objects.restrict(request.user, "change"),
             pk=pk,
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         active_job = (
             DestinationReconciliationJob.get_jobs(destination)
@@ -1067,7 +1072,7 @@ class BackupDestinationReconciliationView(PermissionRequiredMixin, LoginRequired
         )
         if active_job:
             job = active_job
-            messages.info(request, "An FTP integrity audit is already in progress.")
+            messages.info(request, "A storage integrity audit is already in progress.")
         else:
             job = DestinationReconciliationJob.enqueue(
                 destination_id=destination.pk,
@@ -1075,7 +1080,7 @@ class BackupDestinationReconciliationView(PermissionRequiredMixin, LoginRequired
                 user=request.user,
                 queue_name=BACKUP_QUEUE,
             )
-            messages.info(request, "The read-only FTP integrity audit was queued.")
+            messages.info(request, "The read-only storage integrity audit was queued.")
         return redirect(
             "plugins:netbox_config_backup:backupdestination_reconciliation_result",
             pk=destination.pk,
@@ -1095,7 +1100,7 @@ class BackupDestinationReconciliationResultView(
         destination = get_object_or_404(
             BackupDestination.objects.restrict(self.request.user, "view"),
             pk=self.kwargs["pk"],
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         job = get_object_or_404(
             DestinationReconciliationJob.get_jobs(destination),
@@ -1127,7 +1132,7 @@ class BackupDestinationReconciliationStatusView(PermissionRequiredMixin, LoginRe
         destination = get_object_or_404(
             BackupDestination.objects.restrict(request.user, "view"),
             pk=pk,
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         job = get_object_or_404(DestinationReconciliationJob.get_jobs(destination), job_id=job_id)
         response = JsonResponse(destination_reconciliation_status_payload(job))
@@ -1147,7 +1152,7 @@ class BackupDestinationAuditScheduleView(PermissionRequiredMixin, LoginRequiredM
         destination = get_object_or_404(
             BackupDestination.objects.restrict(request.user, "change"),
             pk=pk,
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         form = forms.FtpIntegrityAuditScheduleForm(request.POST, instance=destination)
         if not form.is_valid():
@@ -1158,16 +1163,16 @@ class BackupDestinationAuditScheduleView(PermissionRequiredMixin, LoginRequiredM
 
         if hasattr(destination, "snapshot"):
             destination.snapshot()
-        destination._changelog_message = "Updated automatic FTP integrity audit schedule."
+        destination._changelog_message = "Updated automatic storage integrity audit schedule."
         destination = form.save()
         if destination.integrity_audit_enabled:
             messages.success(
                 request,
-                f"Automatic FTP integrity audit enabled; next audit is "
+                f"Automatic storage integrity audit enabled; next audit is "
                 f"{destination.next_integrity_audit_at}.",
             )
         else:
-            messages.success(request, "Automatic FTP integrity audit disabled.")
+            messages.success(request, "Automatic storage integrity audit disabled.")
         return redirect(destination.get_absolute_url())
 
 
@@ -1190,11 +1195,11 @@ class BackupDestinationBackfillView(PermissionRequiredMixin, LoginRequiredMixin,
         destination = get_object_or_404(
             BackupDestination.objects.restrict(request.user, "change"),
             pk=pk,
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         count = backfill_destination(destination, user=request.user)
         if count:
-            messages.success(request, f"Queued {count} existing revision(s) for FTP replication.")
+            messages.success(request, f"Queued {count} existing revision(s) for replication.")
         else:
             messages.info(request, "All existing revisions already have a replica record.")
         return redirect(destination.get_absolute_url())
@@ -1208,7 +1213,7 @@ class RevisionReplicaRetryView(PermissionRequiredMixin, LoginRequiredMixin, View
         destination = get_object_or_404(
             BackupDestination.objects.restrict(request.user, "view"),
             pk=pk,
-            protocol=DestinationProtocolChoices.FTP,
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
         )
         replica = get_object_or_404(
             RevisionReplica.objects.restrict(request.user, "change"),
@@ -1217,9 +1222,9 @@ class RevisionReplicaRetryView(PermissionRequiredMixin, LoginRequiredMixin, View
         )
         job = enqueue_revision_replica(replica.pk, user=request.user, force=True)
         if job:
-            messages.success(request, "The FTP replication retry was queued.")
+            messages.success(request, "The storage replication retry was queued.")
         else:
-            messages.warning(request, "The FTP storage is disabled.")
+            messages.warning(request, "The remote storage is disabled.")
         return redirect(destination.get_absolute_url())
 
 
@@ -2354,7 +2359,7 @@ class BackupTargetRemoteRetentionCleanupView(PermissionRequiredMixin, LoginRequi
             raise PermissionDenied
         storages = (
             BackupDestination.objects.filter(
-                protocol=DestinationProtocolChoices.FTP,
+                protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
                 enabled=True,
                 replicas__in=replicas,
             )
@@ -2397,16 +2402,16 @@ class BackupTargetRemoteRetentionCleanupView(PermissionRequiredMixin, LoginRequi
             context.update({"object": target, "form": form})
             return render(request, self.template_name, context, status=400)
         if not context["remote_has_policy"]:
-            messages.error(request, "No enabled FTP storage has an effective retention profile.")
+            messages.error(request, "No enabled remote storage has an effective retention profile.")
             return redirect(target.get_absolute_url())
         if not context["remote_revisions_to_delete"]:
-            messages.info(request, "The current FTP retention plan has nothing to delete.")
+            messages.info(request, "The current remote retention plan has nothing to delete.")
             return redirect(
                 "plugins:netbox_config_backup:backuptarget_retention_preview",
                 pk=target.pk,
             )
         if target.runs.filter(status__in=("queued", "running")).exists():
-            messages.error(request, "FTP retention cannot run during an active backup.")
+            messages.error(request, "Remote retention cannot run during an active backup.")
             return redirect(
                 "plugins:netbox_config_backup:backuptarget_retention_preview",
                 pk=target.pk,
@@ -2420,7 +2425,7 @@ class BackupTargetRemoteRetentionCleanupView(PermissionRequiredMixin, LoginRequi
         )
         messages.info(
             request,
-            f"FTP retention cleanup for {target.device} was queued and will recompute its plan.",
+            f"Remote retention cleanup for {target.device} was queued and will recompute its plan.",
         )
         if request.user.has_perm("core.view_job"):
             return redirect(job.get_absolute_url())

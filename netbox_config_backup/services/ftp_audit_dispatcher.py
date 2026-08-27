@@ -11,6 +11,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from netbox_config_backup.choices import REPLICATED_DESTINATION_PROTOCOLS
 from netbox_config_backup.models import BackupDestination
 
 from .ftp_audit_scheduling import (
@@ -18,7 +19,11 @@ from .ftp_audit_scheduling import (
     calculate_next_ftp_audit,
 )
 
-AUDIT_JOB_NAME = "Config backup FTP integrity audit"
+AUDIT_JOB_NAMES = (
+    "Config backup remote integrity audit",
+    # Keep upgrade-time deduplication while an older named job is active.
+    "Config backup FTP integrity audit",
+)
 
 
 @dataclass(slots=True)
@@ -32,14 +37,16 @@ class FtpAuditDispatchSummary:
 
 def initialize_ftp_audit_schedules(*, now: datetime) -> int:
     inactive = BackupDestination.objects.filter(
-        Q(enabled=False) | Q(integrity_audit_enabled=False) | ~Q(protocol="ftp")
+        Q(enabled=False)
+        | Q(integrity_audit_enabled=False)
+        | ~Q(protocol__in=REPLICATED_DESTINATION_PROTOCOLS)
     ).exclude(next_integrity_audit_at=None)
     inactive.update(next_integrity_audit_at=None)
 
     destinations = list(
         BackupDestination.objects.filter(
             enabled=True,
-            protocol="ftp",
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
             integrity_audit_enabled=True,
             next_integrity_audit_at__isnull=True,
         )
@@ -60,14 +67,14 @@ def dispatch_due_ftp_audits(
     limit: int = 25,
 ) -> FtpAuditDispatchSummary:
     if limit <= 0:
-        raise ValueError("FTP audit dispatcher limit must be positive.")
+        raise ValueError("Remote audit dispatcher limit must be positive.")
     now = now or timezone.now()
     summary = FtpAuditDispatchSummary(initialized=initialize_ftp_audit_schedules(now=now))
     content_type = ContentType.objects.get_for_model(BackupDestination)
     candidate_ids = list(
         BackupDestination.objects.filter(
             enabled=True,
-            protocol="ftp",
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
             integrity_audit_enabled=True,
             next_integrity_audit_at__lte=now,
         )
@@ -84,7 +91,7 @@ def dispatch_due_ftp_audits(
                 )
                 if (
                     not destination.enabled
-                    or destination.protocol != "ftp"
+                    or destination.protocol not in REPLICATED_DESTINATION_PROTOCOLS
                     or not destination.integrity_audit_enabled
                     or not destination.next_integrity_audit_at
                     or destination.next_integrity_audit_at > now
@@ -103,7 +110,7 @@ def dispatch_due_ftp_audits(
                 active = Job.objects.filter(
                     object_type=content_type,
                     object_id=destination.pk,
-                    name=AUDIT_JOB_NAME,
+                    name__in=AUDIT_JOB_NAMES,
                     status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES,
                 ).exists()
                 if active:

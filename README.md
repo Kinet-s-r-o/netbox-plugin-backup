@@ -35,10 +35,10 @@ Implemented:
 - idempotent least-privilege Reader, Operator, and Administrator NetBox groups
 - permission-aware dashboard, nested history, actions, revision content, and diffs
 - target/run list filters for status, failure, stuck execution, device, site, and time
-- UI-managed storage profiles with a protected default Local storage and additional FTP storages
+- UI-managed storage profiles with a protected default Local storage plus FTP, NFS, and SMB3 storages
 - per-storage retention defaults, optional enforcement, and conservative per-storage previews
 - protected/latest revision safeguards, confirmed cleanup, and reversible local quarantine
-- separately opt-in local and FTP retention dispatchers with deduplication and batch limiting
+- separately opt-in local and remote retention dispatchers with deduplication and batch limiting
 - list/detail views for targets, runs, revisions, policies, mappings, and profiles
 - integrity-checked, redacted revision content viewer and same-target unified diff
 - NetBox REST endpoints and event serializers for all public plugin models
@@ -47,7 +47,7 @@ Implemented:
 - authenticated Docker UI/dispatcher smoke test
 - built-in password-only, chrooted SFTP receiver for vendor-native push exports
 - direct and loopback-only reverse-tunnel receiver modes for Ceragon IP-50/CeraOS
-- UI-managed FTP replication of completed revisions to an internal server
+- UI-managed replication of completed revisions to FTP or pre-mounted NFS/SMB3 storage
 - independent replica status, automatic retry, immutable paths, and SHA-256 verification
 
 Deferred by design:
@@ -58,7 +58,7 @@ Deferred by design:
 ## Install in NetBox
 
 The supported production path for release `0.6.x` is NetBox 4.6, local primary
-artifact storage, and optional FTP replication configured from the UI. Vault,
+artifact storage, and optional FTP, NFS, or SMB3 replication configured from the UI. Vault,
 S3, and external SFTP replication are not required for a standard installation.
 The S3 and Vault client libraries are optional package extras; install
 `netbox-config-backup[s3]` or `netbox-config-backup[vault]` only when enabling
@@ -82,6 +82,8 @@ PLUGINS_CONFIG = {
     "netbox_config_backup": {
         "storage_root": "/var/lib/netbox-config-backup",
         "storage_backend": "local",
+        "network_storage_mount_roots": ["/mnt/netbox-config-backup"],
+        "network_storage_require_mountpoint": True,
         "receiver_root": "/var/lib/netbox-config-backup/receiver",
         "receiver_host_key_path": "/var/lib/netbox-config-backup/receiver/ssh_host_ed25519_key",
         "receiver_rsa_host_key_path": "/var/lib/netbox-config-backup/receiver/ssh_host_rsa_key",
@@ -132,6 +134,9 @@ groups, follow [docs/NAS_BACKUP_AND_RBAC.md](docs/NAS_BACKUP_AND_RBAC.md).
 
 For a secondary copy of every completed revision to an internal FTP server,
 follow [docs/FTP_DESTINATION.md](docs/FTP_DESTINATION.md).
+
+For NFS or current Samba/SMB3 storage mounted by the host or container runtime,
+follow [docs/NFS_AND_SMB3_STORAGE.md](docs/NFS_AND_SMB3_STORAGE.md).
 
 For transactional credential master-key rotation and rollback, follow
 [docs/MASTER_KEY_ROTATION.md](docs/MASTER_KEY_ROTATION.md).
@@ -447,10 +452,10 @@ python manage.py config_backup_backfill_ceragon_content --apply
 ## Retention preview and cleanup
 
 **Config Backup > Storages** contains exactly one system-managed **Local
-storage** plus any FTP storages created by administrators. The Local row
+storage** plus any FTP, NFS, or SMB3 storages created by administrators. The Local row
 represents the primary `storage_root` configured for the deployment. It is
 created by the migration, is always enabled, and cannot be deleted, disabled,
-or converted to FTP. FTP storages are independent secondary copies and retain
+or converted to a remote type. Remote storages are independent secondary copies and retain
 their own connection, audit, replication, and retention settings.
 
 Each storage can provide a retention profile as a fallback. Enabling **Always
@@ -461,11 +466,11 @@ resolved in this exact order:
 1. **Local storage:** enforced Local-storage policy; device Local override;
    the device's backup-policy retention; Local-storage fallback; otherwise
    keep indefinitely.
-2. **Each FTP storage independently:** enforced FTP-storage policy; device FTP
-   override; that FTP-storage fallback; otherwise keep indefinitely.
+2. **Each remote storage independently:** enforced storage policy; device remote
+   override; that storage's fallback; otherwise keep indefinitely.
 
 The local policy controls primary artifacts, revision history, and completed
-backup runs. Each FTP policy controls only copies on that one FTP storage.
+backup runs. Each remote policy controls only copies on that one remote storage.
 Installing the migration creates the protected Local row and leaves existing
 FTP storages, device overrides, and their behavior intact. New storage policy
 fields start empty and enforcement starts disabled, so an upgrade cannot by
@@ -476,8 +481,8 @@ runtime administration plus the matching delete permissions. Managed Operators
 can adjust backup scheduling, but cannot indirectly enable more aggressive
 history deletion.
 
-An FTP profile's `max_copies_per_target` ceiling is evaluated **per device, per
-FTP storage**. Physical artifact files inside one revision do not consume
+The remote profile's `max_copies_per_target` ceiling is evaluated **per device, per
+remote storage**. Physical artifact files inside one revision do not consume
 separate positions. If the same revision is copied to two FTP storages, it
 consumes one position on each storage's independent retention plan.
 
@@ -492,8 +497,8 @@ Protected revisions and the latest usable revision are retained in every
 applicable storage scope. The configured minimum number of changed revisions is
 also retained.
 Active runs and runs with an unknown future status are always kept locally;
-pending, queued, running, or failed FTP transfers are not candidates for remote
-deletion. Disabled FTP storages are excluded from automatic and manual FTP
+pending, queued, running, or failed remote transfers are not candidates for remote
+deletion. Disabled remote storages are excluded from automatic and manual remote
 retention plans.
 
 Each local retention profile defines a hard per-target ceiling for completed
@@ -503,31 +508,31 @@ runs are expired. Active runs and unknown future statuses do not consume the
 ceiling and are kept safely.
 
 Users with the relevant change permission can protect or unprotect a revision
-from its detail page. Applying local or FTP retention is explicitly confirmed
+from its detail page. Applying local or remote retention is explicitly confirmed
 and permission-gated. Local cleanup stages files in an internal quarantine and
-restores them if its database transaction fails. FTP deletion is irreversible:
+restores them if its database transaction fails. Remote deletion is irreversible:
 it removes only the recorded immutable revision directory below the configured
 storage path and records failures for a safe retry.
 
-Local cleanup and FTP cleanup have separate opt-in schedulers under
+Local cleanup and remote cleanup have separate opt-in schedulers under
 **Config Backup → Settings**. Both are disabled by default and require an
 explicit acknowledgement before the first enable. Each dispatcher skips
 conflicting active work and already queued/running cleanup jobs. Enabling local
-cleanup never enables FTP deletion, and a failed FTP cleanup does not turn a
+cleanup never enables remote deletion, and a failed remote cleanup does not turn a
 successful device backup into a failure.
 
-Before enabling FTP cleanup for the first time on an existing installation, run
-the read-only integrity audit for every FTP storage and resolve all missing
+Before enabling remote cleanup for the first time on an existing installation, run
+the read-only integrity audit for every remote storage and resolve all missing
 or mismatched historical replicas recorded as successful. Cleanup must not be
 used to discover or repair an unverified legacy inventory.
 
 After a storage contains a recorded copy, its host, port, base path, and
-credential-profile assignment are immutable. Rotate the password inside that
-credential profile, or create a new storage when moving to another FTP
-endpoint. This keeps historical retention deletes bound to the server and path
+credential-profile assignment or mounted directory are immutable. Rotate an FTP
+password inside its credential profile, or create a new storage when moving to another
+endpoint. This keeps historical retention deletes bound to the server or mount and path
 where the copy was originally written.
 
-An expired FTP copy is not recreated automatically by an unchanged backup,
+An expired remote copy is not recreated automatically by an unchanged backup,
 integrity repair, or ordinary historical backfill. Increasing a profile later
 affects retained and future copies; it does not restore copies which were
 already deleted. Restore such history manually from another trusted copy when

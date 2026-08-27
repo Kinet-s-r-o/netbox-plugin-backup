@@ -2,7 +2,7 @@
 
 This is the shortest supported path from a clean NetBox 4.6 installation to a
 working Config Backup deployment. The standard deployment uses local primary
-storage and can optionally replicate revisions to an internal FTP server.
+storage and can optionally replicate revisions to FTP or pre-mounted NFS/SMB3 storage.
 
 ## 1. Check compatibility
 
@@ -77,6 +77,8 @@ PLUGINS_CONFIG = {
     "netbox_config_backup": {
         "storage_backend": "local",
         "storage_root": "/var/lib/netbox-config-backup",
+        "network_storage_mount_roots": ["/mnt/netbox-config-backup"],
+        "network_storage_require_mountpoint": True,
         "receiver_root": "/var/lib/netbox-config-backup/receiver",
         "events_enabled": True,
         "notify_on_every_failure": False,
@@ -135,23 +137,23 @@ replication, audit, and recovery jobs use NetBox's background job system.
 7. Open **Config Backup → Storages** and verify the system-managed **Local
    storage**. It represents `storage_root`, is always enabled, and cannot be
    deleted or changed to FTP.
-8. If required, add an internal FTP storage, optionally select its FTP retention
+8. If required, add an FTP, NFS, or SMB3 storage, optionally select its remote retention
    policy, test it, and only then enable automatic replication and integrity
    audits. Enable **Always use this storage's retention profile** only when
    devices must not override that storage policy.
-9. Use the Local and FTP retention selections on a backup device only as
+9. Use the Local and remote retention selections on a backup device only as
    overrides. With enforcement disabled, blank Local retention falls back to
    the device's backup policy and then the Local storage profile. Blank FTP
-   retention falls back independently to each FTP storage profile. With no
+   retention falls back independently to each remote storage profile. With no
    effective profile, that history is kept indefinitely.
 10. Review the device's retention preview. Enable the local cleanup scheduler
    only after confirming its local plan; its default completed-run ceiling is
    500 per device.
-11. On an existing installation, run the read-only integrity audit on every FTP
+11. On an existing installation, run the read-only integrity audit on every remote
     storage and resolve all missing or mismatched historical replicas
     recorded as successful.
-12. Review every FTP storage plan separately before enabling the FTP cleanup scheduler.
-    FTP deletion is irreversible and the FTP scheduler is a separate opt-in;
+12. Review every remote storage plan separately before enabling the remote cleanup scheduler.
+    Remote deletion is irreversible and the remote scheduler is a separate opt-in;
     enabling local cleanup never enables it.
 
 ## 7. Verification after every install or upgrade
@@ -175,18 +177,22 @@ Confirm that:
 - **Storages** contains exactly one enabled, undeletable default Local storage;
 - a connection test and a real backup both finish successfully;
 - only authorized NetBox users can view or download revision content;
-- an FTP test creates and removes its probe object;
-- a real revision is copied to FTP and passes the integrity audit.
-- a retention preview clearly separates Local and each FTP storage decision;
-- a device/FTP-storage pair with neither an override nor a storage policy keeps
+- a remote-storage test creates, verifies, and removes its probe object;
+- a real revision is copied remotely and passes the integrity audit;
+- a retention preview clearly separates Local and each remote storage decision;
+- a device/storage pair with neither an override nor a storage policy keeps
   its remote copies indefinitely;
 - `max_copies_per_target` is enforced independently for each device on each FTP
   storage;
 - protected and latest revisions are kept in every applicable storage scope.
 
-Before enabling or re-enabling automatic FTP cleanup after an upgrade, run the
-read-only FTP integrity audit and resolve every missing object, hash mismatch,
+Before enabling or re-enabling automatic remote cleanup after an upgrade, run the
+read-only integrity audit and resolve every missing object, hash mismatch,
 or unexpected remote-path result. Do not use cleanup as a repair mechanism.
 
 For device upload receivers, upgrade procedures, notifications, and detailed
 failure codes, continue with [DEPLOYMENT.md](DEPLOYMENT.md).
+
+Mount NFS and SMB3 outside the plugin and expose the same absolute mount path
+to the web and backup worker as described in
+[NFS_AND_SMB3_STORAGE.md](NFS_AND_SMB3_STORAGE.md).

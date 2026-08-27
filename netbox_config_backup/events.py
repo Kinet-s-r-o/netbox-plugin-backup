@@ -42,12 +42,12 @@ def register_event_types() -> None:
         ),
         (
             FTP_AUDIT_FAILED,
-            _("FTP integrity audit found problems"),
+            _("Remote storage integrity audit found problems"),
             EVENT_TYPE_KIND_DANGER,
         ),
         (
             FTP_AUDIT_RECOVERED,
-            _("FTP integrity audit recovered"),
+            _("Remote storage integrity audit recovered"),
             EVENT_TYPE_KIND_SUCCESS,
         ),
     )

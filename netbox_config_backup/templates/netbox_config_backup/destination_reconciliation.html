@@ -1,7 +1,7 @@
 {% extends 'generic/_base.html' %}
 {% load helpers %}
 
-{% block title %}FTP integrity audit{% endblock %}
+{% block title %}Storage integrity audit{% endblock %}
 {% block subtitle %}{{ destination }}{% endblock %}
 
 {% block head %}
@@ -27,7 +27,7 @@
 
   <div class="alert alert-info d-flex gap-3 align-items-start mt-4 mb-0" role="note">
     <i class="mdi mdi-shield-check-outline fs-2" aria-hidden="true"></i>
-    <div><strong>This audit is read-only.</strong> It compares the expected file name, size, and SHA-256 hash with FTP. It never uploads, overwrites, renames, or deletes a remote file.</div>
+    <div><strong>This audit is read-only.</strong> It compares each expected file name, size, and SHA-256 hash with the selected storage. It never uploads, overwrites, renames, or deletes a remote file.</div>
   </div>
 
   <div id="summary" class="card mt-4">

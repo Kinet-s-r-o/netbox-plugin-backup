@@ -7,7 +7,7 @@
   <form method="post" action="{% url 'plugins:netbox_config_backup:backupdestination_test_connection' pk=object.pk %}">
     {% csrf_token %}
     <button class="btn btn-primary" type="submit">
-      <i class="mdi mdi-lan-connect" aria-hidden="true"></i> Test FTP storage
+      <i class="mdi mdi-lan-connect" aria-hidden="true"></i> Test storage
     </button>
   </form>
   {% endif %}
@@ -65,9 +65,9 @@
 <div class="row">
   <div class="col-lg-6">
     <div class="card">
-      <h2 class="card-header">FTP storage</h2>
+      <h2 class="card-header">{{ object.get_protocol_display }}</h2>
       <table class="table table-hover attr-table mb-0">
-        <tr><th scope="row">Type</th><td><span class="badge text-bg-info">FTP</span></td></tr>
+        <tr><th scope="row">Type</th><td><span class="badge text-bg-info">{{ object.get_protocol_display }}</span></td></tr>
         <tr><th scope="row">Enabled</th><td>{{ object.enabled|yesno:"Yes,No" }}</td></tr>
         <tr><th scope="row">Copy new revisions</th><td>{{ object.auto_replicate|yesno:"Automatically,Manually" }}</td></tr>
         <tr><th scope="row">Retention profile</th><td>{{ object.remote_retention_policy|linkify|placeholder }}</td></tr>
@@ -81,9 +81,13 @@
             {% endif %}
           </td>
         </tr>
+        {% if is_mounted_storage %}
+        <tr><th scope="row">Mounted directory</th><td><code>{{ object.mount_path }}</code></td></tr>
+        {% else %}
         <tr><th scope="row">Server</th><td><code>{{ object.host }}:{{ object.port }}</code></td></tr>
+        {% endif %}
         <tr><th scope="row">Remote directory</th><td><code>{{ object.base_path }}</code></td></tr>
-        <tr><th scope="row">Credential profile</th><td>{{ object.credential_profile|linkify }}</td></tr>
+        {% if object.credential_profile %}<tr><th scope="row">Credential profile</th><td>{{ object.credential_profile|linkify }}</td></tr>{% endif %}
         <tr><th scope="row">Retry policy</th><td>{{ object.max_retries }} retries, every {{ object.retry_delay_minutes }} minutes</td></tr>
         <tr><th scope="row">Artifact size limit</th><td>{{ object.max_artifact_size|filesizeformat }}</td></tr>
       </table>
@@ -91,7 +95,7 @@
   </div>
   <div class="col-lg-6">
     <div class="card">
-      <h2 class="card-header">FTP health</h2>
+      <h2 class="card-header">Storage health</h2>
       <table class="table table-hover attr-table mb-0">
         <tr><th scope="row">Last tested</th><td>{{ object.last_tested_at|placeholder }}</td></tr>
         <tr><th scope="row">Last copied revision</th><td>{{ object.last_success_at|placeholder }}</td></tr>
@@ -136,7 +140,7 @@
       <div class="form-check form-switch mb-3">
         {{ audit_schedule_form.integrity_audit_enabled }}
         <label class="form-check-label fw-semibold" for="{{ audit_schedule_form.integrity_audit_enabled.id_for_label }}">Run integrity audits automatically</label>
-        <div class="form-hint">The scheduler only reads successful revision copies and never changes FTP content.</div>
+        <div class="form-hint">The scheduler only reads successful revision copies and never changes stored content.</div>
       </div>
       <div id="audit-schedule-fields" class="row g-3 align-items-end{% if not object.integrity_audit_enabled %} d-none{% endif %}">
         <div class="col-md-4">

@@ -43,12 +43,12 @@
           <span>Save the backup device, test connectivity, then run its first manual backup.</span>
         </li>
         <li>
-          <strong>Add an FTP storage if needed</strong>
-          <span>Test the FTP storage and copy existing revisions before relying on replication.</span>
+          <strong>Add remote storage if needed</strong>
+          <span>Choose FTP, an NFS mount, or an SMB3 mount; test it and copy existing revisions before relying on replication.</span>
         </li>
         <li>
           <strong>Review retention</strong>
-          <span>Open Retention preview on the device before enabling Local cleanup or FTP cleanup.</span>
+          <span>Open Retention preview on the device before enabling Local or remote cleanup.</span>
         </li>
       </ol>
     </div>
@@ -63,7 +63,7 @@
   <section class="help-section" id="flow" aria-labelledby="flow-title">
     <div class="help-section-heading">
       <h2 id="flow-title">How a backup moves</h2>
-      <p>A successful device backup and an FTP copy are related, but they are separate operations.</p>
+      <p>A successful device backup and a remote copy are related, but they are separate operations.</p>
     </div>
     <div class="card help-flow">
       <div class="help-flow-item">
@@ -75,12 +75,12 @@
         <span>The plugin hashes the artifacts. It creates a ConfigRevision according to the backup policy, or links an unchanged run to the latest matching revision.</span>
       </div>
       <div class="help-flow-item">
-        <strong>3. Replicate new revisions to FTP</strong>
-        <span>Each enabled FTP storage with automatic copying receives an independent immutable copy of every new revision.</span>
+        <strong>3. Replicate new revisions to remote storage</strong>
+        <span>Each enabled remote storage with automatic copying receives an independent immutable copy of every new revision.</span>
       </div>
     </div>
     <div class="alert alert-info mt-3 mb-0" role="note">
-      A temporary FTP outage does not change a successful device backup to failed. The Local revision remains valid and the FTP copy can be retried without reconnecting to the device.
+      A temporary remote-storage outage does not change a successful device backup to failed. The Local revision remains valid and the copy can be retried without reconnecting to the device.
     </div>
   </section>
 
@@ -106,15 +106,15 @@
       <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">Local retention profiles</a></strong><p>Define how long Local revisions and completed backup runs are kept.</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">FTP retention profiles</a></strong><p>Define how long copied revisions are kept independently on each FTP storage.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">Remote retention profiles</a></strong><p>Define how long copied revisions are kept independently on each remote storage.</p></div>
       {% endif %}
     </div>
   </section>
 
   <section class="help-section" id="retention" aria-labelledby="retention-title">
     <div class="help-section-heading">
-      <h2 id="retention-title">Local and FTP retention</h2>
-      <p>Local and FTP retention are resolved separately. A profile selects what may expire; a scheduler performs the deletion.</p>
+      <h2 id="retention-title">Local and remote retention</h2>
+      <p>Local and remote retention are resolved separately. A profile selects what may expire; a scheduler performs the deletion.</p>
     </div>
     <div class="help-retention-grid">
       <div class="help-retention-panel">
@@ -128,29 +128,30 @@
         </ol>
       </div>
       <div class="help-retention-panel">
-        <h3 class="h4">FTP profile precedence</h3>
+        <h3 class="h4">Remote profile precedence</h3>
         <ol>
-          <li>FTP storage profile when <strong>Always use this storage's retention profile</strong> is enabled</li>
-          <li>FTP retention profile selected on the device</li>
-          <li>FTP storage profile as a fallback</li>
+          <li>Remote storage profile when <strong>Always use this storage's retention profile</strong> is enabled</li>
+          <li>Remote retention profile selected on the device</li>
+          <li>Remote storage profile as a fallback</li>
           <li>Keep indefinitely when no profile is available</li>
         </ol>
       </div>
     </div>
     <div class="alert alert-warning mt-3 mb-0" role="note">
-      Local cleanup and FTP cleanup are disabled independently. Preview retention on a device before enabling either scheduler. FTP deletion has no recycle bin.
+      Local and remote cleanup are disabled independently. Preview retention on a device before enabling either scheduler. Remote deletion has no recycle bin.
     </div>
   </section>
 
   <section class="help-section" id="receivers" aria-labelledby="receivers-title">
     <div class="help-section-heading">
-      <h2 id="receivers-title">FTP storage or device upload receiver?</h2>
+      <h2 id="receivers-title">Remote storage or device upload receiver?</h2>
       <p>They move data in opposite directions and cannot replace one another.</p>
     </div>
     <div class="card help-reference">
       <div class="help-reference-item">
-        <strong>FTP storage</strong>
-        <p>The plugin copies an already successful Local revision to your internal FTP server. Configure this under Storages.</p>
+        <strong>Remote storage</strong>
+        <p>The plugin copies an already successful Local revision to FTP, NFS, or SMB3 storage. Configure it under Storages.</p>
+        <p class="mb-0"><strong>NFS/SMB3:</strong> mount the share in the NetBox web and backup-worker containers first. The plugin refuses to write when that mount is not active.</p>
       </div>
       <div class="help-reference-item">
         <strong>Device upload receiver</strong>
@@ -175,7 +176,8 @@
         <dt><code>CONNECTION_REFUSED</code></dt><dd>The address is reachable, but no compatible service accepts the configured port.</dd>
         <dt><code>TIMEOUT</code></dt><dd>Check the effective NetBox management address, route or VPN, firewall, protocol, and port.</dd>
         <dt><code>COMMAND_UNSUPPORTED</code></dt><dd>Login succeeded, but this firmware does not support the driver's read-only configuration command.</dd>
-        <dt><code>DESTINATION_TEST_FAILED</code></dt><dd>The FTP login may work while directory creation, write, read-back, or probe cleanup is denied.</dd>
+        <dt><code>DESTINATION_TEST_FAILED</code></dt><dd>The server may be reachable while directory creation, write, read-back, or probe cleanup is denied.</dd>
+        <dt><code>MOUNT_NOT_ACTIVE</code></dt><dd>The NFS/SMB3 directory exists but is not an active mount inside the backup worker. Repair the host or container mount before retrying.</dd>
       </dl>
     </details>
     <div class="d-flex flex-wrap gap-2 mt-3">

@@ -14,6 +14,7 @@ from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import DateTimePicker
 
 from .choices import (
+    MOUNTED_DESTINATION_PROTOCOLS,
     ConnectionProtocolChoices,
     DestinationProtocolChoices,
     RunSourceChoices,
@@ -96,7 +97,7 @@ class BackupTargetFilterForm(NetBoxModelFilterSetForm):
     remote_retention_policy_id = DynamicModelMultipleChoiceField(
         queryset=RemoteRetentionPolicy.objects.all(),
         required=False,
-        label="FTP retention profile",
+        label="Remote retention profile",
     )
     driver_override = forms.CharField(required=False, label="Driver override")
 
@@ -243,8 +244,8 @@ class OperationalSettingsForm(NetBoxModelForm):
     )
     confirm_remote_enable = forms.BooleanField(
         required=False,
-        label="I understand that FTP retention permanently deletes expired remote copies",
-        help_text="Required only when automatic FTP retention is being enabled.",
+        label="I understand that remote retention permanently deletes expired copies",
+        help_text="Required only when automatic remote retention is being enabled.",
     )
 
     def clean(self):
@@ -264,7 +265,7 @@ class OperationalSettingsForm(NetBoxModelForm):
         if enabling_remote and not cleaned.get("confirm_remote_enable"):
             self.add_error(
                 "confirm_remote_enable",
-                "Confirm the permanent FTP deletion warning before enabling FTP cleanup.",
+                "Confirm the permanent deletion warning before enabling remote cleanup.",
             )
         return self.cleaned_data
 
@@ -438,7 +439,7 @@ class QuickSetupForm(forms.Form):
     )
     remote_retention_days = forms.TypedChoiceField(
         choices=(
-            ("", "Use FTP storage profile"),
+            ("", "Use remote storage profile"),
             (90, "90 days"),
             (365, "365 days"),
             (730, "730 days"),
@@ -641,23 +642,23 @@ class RemoteRetentionPolicyForm(NetBoxModelForm):
         )
         labels: ClassVar[dict[str, str]] = {
             "name": "Profile name",
-            "keep_all_days": "Keep all FTP copies (days)",
-            "daily_days": "Keep daily FTP copies (days)",
-            "weekly_weeks": "Keep weekly FTP copies (weeks)",
-            "monthly_months": "Keep monthly FTP copies (months)",
+            "keep_all_days": "Keep all remote copies (days)",
+            "daily_days": "Keep daily remote copies (days)",
+            "weekly_weeks": "Keep weekly remote copies (weeks)",
+            "monthly_months": "Keep monthly remote copies (months)",
             "minimum_changed_revisions": "Minimum changed copies",
-            "max_copies_per_target": "Maximum FTP copies per device",
+            "max_copies_per_target": "Maximum remote copies per device",
         }
         help_texts: ClassVar[dict[str, str]] = {
-            "keep_all_days": "Keep every FTP copy created within this period.",
-            "daily_days": "After that, keep the newest FTP copy from each day.",
-            "weekly_weeks": "Keep the newest FTP copy from each week in this period.",
-            "monthly_months": "Keep the newest FTP copy from each month in this period.",
+            "keep_all_days": "Keep every remote copy created within this period.",
+            "daily_days": "After that, keep the newest remote copy from each day.",
+            "weekly_weeks": "Keep the newest remote copy from each week in this period.",
+            "monthly_months": "Keep the newest remote copy from each month in this period.",
             "minimum_changed_revisions": (
                 "Always keep at least this many copies where the configuration changed."
             ),
             "max_copies_per_target": (
-                "Final safety limit per device and FTP storage. Latest and protected copies remain."
+                "Final safety limit per device and remote storage. Latest and protected copies remain."
             ),
         }
 
@@ -954,7 +955,7 @@ class FtpIntegrityAuditScheduleForm(forms.ModelForm):
     integrity_audit_enabled = forms.BooleanField(
         required=False,
         label="Run integrity audits automatically",
-        help_text="Read-only: verifies expected FTP file sizes and SHA-256 hashes.",
+        help_text="Read-only: verifies expected remote file sizes and SHA-256 hashes.",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
 
@@ -963,7 +964,7 @@ class FtpIntegrityAuditScheduleForm(forms.ModelForm):
         if self.cleaned_data.get("integrity_audit_enabled") and not self.instance.enabled:
             self.add_error(
                 "integrity_audit_enabled",
-                "Enable the FTP storage before enabling automatic audits.",
+                "Enable the remote storage before enabling automatic audits.",
             )
         return self.cleaned_data
 
@@ -996,6 +997,18 @@ class FtpIntegrityAuditScheduleForm(forms.ModelForm):
 
 
 class BackupDestinationForm(NetBoxModelForm):
+    protocol = forms.ChoiceField(
+        choices=(
+            (DestinationProtocolChoices.FTP, "FTP server (internal, unencrypted)"),
+            (DestinationProtocolChoices.NFS, "NFS mount"),
+            (DestinationProtocolChoices.SMB, "SMB3 / Samba mount"),
+        ),
+        label="Storage type",
+        help_text=(
+            "NFS and SMB3 shares must already be mounted into the NetBox web and worker "
+            "containers. SMB1 is not supported."
+        ),
+    )
     enforce_retention_policy = forms.BooleanField(
         required=False,
         label="Always use this storage's retention profile",
@@ -1018,13 +1031,13 @@ class BackupDestinationForm(NetBoxModelForm):
         ),
         label="FTP credentials",
         help_text="Reusable username and password used to sign in to this FTP server.",
+        required=False,
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not self.instance.pk:
-            # Additional storages created from the UI are FTP storages. The
-            # singleton Local storage is provisioned by the plugin migration.
+            # The singleton Local storage is provisioned by a plugin migration.
             self.instance.protocol = DestinationProtocolChoices.FTP
             self.fields["port"].initial = 21
         self.is_local_storage = self.instance.protocol == DestinationProtocolChoices.LOCAL
@@ -1033,12 +1046,14 @@ class BackupDestinationForm(NetBoxModelForm):
             # endpoint, state, identity, and tags are system-managed.
             for field_name in (
                 "name",
+                "protocol",
                 "enabled",
                 "auto_replicate",
                 "allow_insecure_ftp",
                 "host",
                 "port",
                 "base_path",
+                "mount_path",
                 "credential_profile",
                 "connect_timeout",
                 "max_retries",
@@ -1048,17 +1063,92 @@ class BackupDestinationForm(NetBoxModelForm):
                 "tags",
             ):
                 self.fields.pop(field_name, None)
+            self.fieldsets = (
+                FieldSet(
+                    "local_retention_policy",
+                    "enforce_retention_policy",
+                    name="Local retention",
+                ),
+            )
         else:
             self.fields.pop("local_retention_policy", None)
+            self.fieldsets = (
+                FieldSet(
+                    "name",
+                    "protocol",
+                    "enabled",
+                    "auto_replicate",
+                    name="Storage",
+                ),
+                FieldSet(
+                    "host",
+                    "port",
+                    "credential_profile",
+                    "connect_timeout",
+                    "allow_insecure_ftp",
+                    "mount_path",
+                    name="Connection",
+                ),
+                FieldSet(
+                    "base_path",
+                    "remote_retention_policy",
+                    "enforce_retention_policy",
+                    name="Layout and retention",
+                ),
+                FieldSet(
+                    "max_retries",
+                    "retry_delay_minutes",
+                    "max_artifact_size",
+                    "tags",
+                    name="Reliability limits",
+                ),
+            )
 
     def clean(self):
         super().clean()
         cleaned = self.cleaned_data
-        if not self.is_local_storage and not cleaned.get("allow_insecure_ftp"):
+        protocol = (
+            DestinationProtocolChoices.LOCAL
+            if self.is_local_storage
+            else cleaned.get("protocol", self.instance.protocol)
+        )
+        if protocol == DestinationProtocolChoices.FTP and not cleaned.get("allow_insecure_ftp"):
             self.add_error(
                 "allow_insecure_ftp",
                 "Confirm that this internal storage may use unencrypted FTP.",
             )
+        if not self.is_local_storage and not cleaned.get("base_path"):
+            self.add_error("base_path", "Enter the directory used for plugin backup copies.")
+        if protocol == DestinationProtocolChoices.FTP:
+            cleaned["mount_path"] = ""
+            self.instance.mount_path = ""
+            for field_name, message in (
+                ("host", "Enter the FTP server name or address."),
+                ("port", "Enter the FTP control port."),
+                ("credential_profile", "Select FTP credentials."),
+                ("connect_timeout", "Enter a connection timeout."),
+            ):
+                if not cleaned.get(field_name):
+                    self.add_error(field_name, message)
+        elif protocol in MOUNTED_DESTINATION_PROTOCOLS and not cleaned.get("mount_path"):
+            self.add_error(
+                "mount_path",
+                "Enter the absolute directory where the share is mounted in the containers.",
+            )
+        elif protocol in MOUNTED_DESTINATION_PROTOCOLS:
+            cleaned["host"] = ""
+            cleaned["port"] = None
+            cleaned["credential_profile"] = None
+            cleaned["connect_timeout"] = None
+            cleaned["allow_insecure_ftp"] = False
+            # ModelForm skips omitted fields which have model defaults. The
+            # protocol-specific UI disables these FTP inputs, so clear the
+            # instance too before Django runs model validation.
+            self.instance.host = ""
+            self.instance.port = None
+            self.instance.credential_profile = None
+            self.instance.connect_timeout = None
+            self.instance.allow_insecure_ftp = False
         retention_field = (
             "local_retention_policy" if self.is_local_storage else "remote_retention_policy"
         )
@@ -1072,13 +1162,21 @@ class BackupDestinationForm(NetBoxModelForm):
     def save(self, commit=True):
         destination = super().save(commit=False)
         if not self.is_local_storage:
-            destination.protocol = DestinationProtocolChoices.FTP
+            destination.protocol = self.cleaned_data["protocol"]
             destination.host_key_type = ""
             destination.host_key_public = ""
             destination.host_key_fingerprint_sha256 = ""
             destination.host_key_fingerprint_md5 = ""
             destination.host_key_approved_at = None
             destination.host_key_approved_by = None
+            if destination.protocol in MOUNTED_DESTINATION_PROTOCOLS:
+                destination.host = ""
+                destination.port = None
+                destination.credential_profile = None
+                destination.connect_timeout = None
+                destination.allow_insecure_ftp = False
+            else:
+                destination.mount_path = ""
             if not destination.enabled or not destination.integrity_audit_enabled:
                 destination.next_integrity_audit_at = None
             elif destination.next_integrity_audit_at is None:
@@ -1096,6 +1194,7 @@ class BackupDestinationForm(NetBoxModelForm):
         model = BackupDestination
         fields = (
             "name",
+            "protocol",
             "enabled",
             "auto_replicate",
             "local_retention_policy",
@@ -1105,6 +1204,7 @@ class BackupDestinationForm(NetBoxModelForm):
             "host",
             "port",
             "base_path",
+            "mount_path",
             "credential_profile",
             "connect_timeout",
             "max_retries",
@@ -1114,29 +1214,35 @@ class BackupDestinationForm(NetBoxModelForm):
         )
         labels: ClassVar[dict[str, str]] = {
             "name": "Storage name",
+            "protocol": "Storage type",
             "enabled": "Use this storage",
             "auto_replicate": "Copy new revisions automatically",
             "local_retention_policy": "Local retention profile",
-            "remote_retention_policy": "FTP retention profile",
+            "remote_retention_policy": "Remote retention profile",
             "host": "FTP server",
             "port": "FTP port",
             "base_path": "Base directory",
+            "mount_path": "Mounted directory",
             "connect_timeout": "Connection timeout (seconds)",
             "max_retries": "Retry attempts",
             "retry_delay_minutes": "Retry delay (minutes)",
             "max_artifact_size": "Maximum artifact size (bytes)",
         }
         help_texts: ClassVar[dict[str, str]] = {
-            "enabled": "Disabled FTP storage receives no new copies, retries, or audits.",
-            "auto_replicate": "Copy each new local revision to this FTP storage automatically.",
+            "enabled": "Disabled remote storage receives no new copies, retries, or audits.",
+            "auto_replicate": "Copy each new local revision to this storage automatically.",
             "local_retention_policy": (
                 "Default cleanup profile for local revisions and run history."
             ),
-            "remote_retention_policy": "Default cleanup profile for copies on this FTP storage.",
-            "host": "DNS name or IP address reachable from the NetBox worker.",
-            "port": "FTP control port. The default is 21.",
+            "remote_retention_policy": "Default cleanup profile for copies on this storage.",
+            "host": "FTP only: DNS name or IP address reachable from the NetBox worker.",
+            "port": "FTP only: control port. The default is 21.",
             "base_path": "Directory below which device backup folders are created.",
-            "connect_timeout": "Maximum time allowed to connect to the FTP server.",
+            "mount_path": (
+                "NFS/SMB3 only: absolute mounted directory below an allowed mount root. Configure "
+                "the same read/write mount in the NetBox web and backup-worker containers."
+            ),
+            "connect_timeout": "FTP only: maximum time allowed to connect to the server.",
             "max_retries": "Number of copy retries after the first failed attempt.",
             "retry_delay_minutes": "Wait time between failed copy attempts.",
             "max_artifact_size": "Largest single backup artifact accepted by this storage.",
@@ -1251,9 +1357,9 @@ class BackupTargetForm(NetBoxModelForm):
     remote_retention_policy = forms.ModelChoiceField(
         queryset=RemoteRetentionPolicy.objects.all(),
         required=False,
-        label="FTP retention profile",
+        label="Remote retention profile",
         help_text=(
-            "Leave blank to use each FTP storage profile. Copies are kept indefinitely "
+            "Leave blank to use each remote storage profile. Copies are kept indefinitely "
             "only on a storage which also has no profile."
         ),
     )
@@ -1313,5 +1419,5 @@ class RetentionCleanupConfirmationForm(forms.Form):
 
 class RemoteRetentionCleanupConfirmationForm(forms.Form):
     confirm = forms.BooleanField(
-        label="I understand that expired FTP copies will be permanently deleted",
+        label="I understand that expired remote copies will be permanently deleted",
     )

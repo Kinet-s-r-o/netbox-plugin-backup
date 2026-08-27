@@ -10,7 +10,11 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from netbox_config_backup.choices import ReplicaStatusChoices, RunStatusChoices
+from netbox_config_backup.choices import (
+    REPLICATED_DESTINATION_PROTOCOLS,
+    ReplicaStatusChoices,
+    RunStatusChoices,
+)
 from netbox_config_backup.models import BackupDestination, BackupRun, BackupTarget, RevisionReplica
 
 from .retention import (
@@ -21,7 +25,11 @@ from .retention import (
 )
 
 ACTIVE_BACKUP_STATUSES = (RunStatusChoices.QUEUED, RunStatusChoices.RUNNING)
-REMOTE_CLEANUP_JOB_NAME = "Config backup FTP retention cleanup"
+REMOTE_CLEANUP_JOB_NAMES = (
+    "Config backup remote retention cleanup",
+    # Preserve upgrade-time deduplication while an older named job is active.
+    "Config backup FTP retention cleanup",
+)
 
 
 @dataclass(slots=True)
@@ -39,10 +47,10 @@ def dispatch_expired_remote_targets(
     now: datetime | None = None,
     limit: int = 25,
 ) -> RemoteRetentionDispatchSummary:
-    """Queue FTP cleanup for targets expired on at least one FTP storage."""
+    """Queue cleanup for targets expired on at least one remote storage."""
 
     if limit <= 0:
-        raise ValueError("FTP retention dispatcher limit must be positive.")
+        raise ValueError("Remote retention dispatcher limit must be positive.")
     now = now or timezone.now()
     summary = RemoteRetentionDispatchSummary()
     content_type = ContentType.objects.get_for_model(BackupTarget)
@@ -50,7 +58,7 @@ def dispatch_expired_remote_targets(
         BackupTarget.objects.filter(
             Q(remote_retention_policy__isnull=False)
             | Q(
-                revisions__replicas__destination__protocol="ftp",
+                revisions__replicas__destination__protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
                 revisions__replicas__destination__enabled=True,
                 revisions__replicas__destination__remote_retention_policy__isnull=False,
             )
@@ -80,7 +88,7 @@ def dispatch_expired_remote_targets(
                 if Job.objects.filter(
                     object_type=content_type,
                     object_id=target.pk,
-                    name=REMOTE_CLEANUP_JOB_NAME,
+                    name__in=REMOTE_CLEANUP_JOB_NAMES,
                     status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES,
                 ).exists():
                     summary.skipped_active_cleanup += 1
@@ -88,7 +96,7 @@ def dispatch_expired_remote_targets(
 
                 destinations = (
                     BackupDestination.objects.filter(
-                        protocol="ftp",
+                        protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
                         enabled=True,
                         replicas__revision__target=target,
                         replicas__remote_deleted_at__isnull=True,

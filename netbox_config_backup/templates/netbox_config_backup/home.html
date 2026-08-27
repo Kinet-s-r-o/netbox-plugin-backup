@@ -101,7 +101,7 @@
       <i class="mdi mdi-folder-check-outline fs-1 text-primary" aria-hidden="true"></i>
       <div>
         <div class="d-flex flex-wrap align-items-center gap-2">
-          <h2 class="h4 mb-0">FTP storage</h2>
+          <h2 class="h4 mb-0">Remote storage</h2>
           {% if ftp_attention_destination_count %}
           <span class="badge text-bg-danger">{{ ftp_attention_destination_count }} need attention</span>
           {% else %}
@@ -109,7 +109,7 @@
           {% endif %}
         </div>
         <div class="text-secondary mt-1">
-          {{ ftp_healthy_destination_count }} of {{ ftp_enabled_destination_count }} enabled FTP storages healthy ·
+          {{ ftp_healthy_destination_count }} of {{ ftp_enabled_destination_count }} enabled remote storages healthy ·
           {{ ftp_automatic_audit_count }} automatic audit{{ ftp_automatic_audit_count|pluralize }}
           {% if ftp_next_audit_at %} · next {{ ftp_next_audit_at }}{% endif %}
         </div>

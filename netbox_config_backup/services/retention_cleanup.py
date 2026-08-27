@@ -147,7 +147,7 @@ def execute_retention_cleanup(
             }
             run_ids = {decision.object_id for decision in plan.run_decisions if not decision.keep}
 
-            # Never remove the upload source while an FTP copy is active or has
+            # Never remove the upload source while a remote copy is active or has
             # a scheduled retry. An exhausted failure is no longer an active
             # replication obligation and must not retain local data forever.
             deferred_revision_ids = {

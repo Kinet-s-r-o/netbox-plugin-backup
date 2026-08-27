@@ -88,9 +88,9 @@ def settings_from_policy(policy) -> RetentionSettings:
 
 
 def settings_from_remote_policy(policy) -> RetentionSettings:
-    """Translate an FTP retention profile into the shared revision planner.
+    """Translate a remote retention profile into the shared revision planner.
 
-    Backup-run retention is deliberately disabled here: FTP retention owns only
+    Backup-run retention is deliberately disabled here: remote retention owns only
     immutable revision copies and must never remove NetBox run history.
     """
 
@@ -139,7 +139,7 @@ def effective_local_retention_policy(target, storage):
 
 
 def effective_remote_retention_policy(target, destination):
-    """Resolve FTP retention independently for one destination.
+    """Resolve remote retention independently for one destination.
 
     An enforced storage policy wins.  Otherwise the device profile remains an
     override for backward compatibility, and the storage profile is a fallback.
@@ -155,7 +155,7 @@ def effective_remote_retention_policy(target, destination):
 
 
 def effective_remote_retention_policy_id(target, destination):
-    """Resolve the effective FTP policy ID without dereferencing its row."""
+    """Resolve the effective remote policy ID without dereferencing its row."""
 
     if destination.enforce_retention_policy and destination.remote_retention_policy_id:
         return destination.remote_retention_policy_id
@@ -191,7 +191,7 @@ def has_recorded_remote_copy(replicas: Iterable[object]) -> bool:
 
     ``remote_available`` is deliberately not the only signal. A final failed
     repair can clear that flag while retaining ``remote_path`` to an older
-    complete copy or an interrupted upload which FTP retention must still be
+    complete copy or an interrupted upload which remote retention must still be
     able to reconcile exactly.
     """
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from netbox_config_backup.choices import REPLICATED_DESTINATION_PROTOCOLS
+
 
 def _zone(timezone_name: str) -> ZoneInfo:
     try:
@@ -61,7 +63,7 @@ def calculate_destination_next_ftp_audit(
     if (
         not destination.enabled
         or not destination.integrity_audit_enabled
-        or destination.protocol != "ftp"
+        or destination.protocol not in REPLICATED_DESTINATION_PROTOCOLS
     ):
         return None
     return calculate_next_ftp_audit(

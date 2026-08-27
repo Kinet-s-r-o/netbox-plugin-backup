@@ -82,14 +82,14 @@
           </td>
         </tr>
         <tr>
-          <th scope="row">FTP retention</th>
+          <th scope="row">Remote retention</th>
           <td>
             {% if object.remote_retention_policy %}
               {{ object.remote_retention_policy|linkify }}
               <span class="text-secondary">device override; an enforced storage profile wins</span>
             {% else %}
               <span class="text-secondary">
-                Uses each FTP storage profile; a storage without a profile keeps copies indefinitely.
+                Uses each remote storage profile; a storage without a profile keeps copies indefinitely.
               </span>
             {% endif %}
           </td>

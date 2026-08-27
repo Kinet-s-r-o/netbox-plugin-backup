@@ -47,7 +47,7 @@ class BackupTargetFilterSet(NetBoxModelFilterSet):
     remote_retention_policy_id = django_filters.ModelMultipleChoiceFilter(
         queryset=RemoteRetentionPolicy.objects.all(),
         distinct=False,
-        label="FTP retention profile",
+        label="Remote retention profile",
     )
 
     class Meta:

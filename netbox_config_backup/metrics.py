@@ -111,7 +111,7 @@ class ConfigBackupCollector:
         )
         yield GaugeMetricFamily(
             "netbox_config_backup_replica_destinations",
-            "Current number of FTP storages by health state.",
+            "Current number of remote storages by health state.",
             labels=["status"],
         )
         yield GaugeMetricFamily(
@@ -147,6 +147,7 @@ class ConfigBackupCollector:
         from django.utils import timezone
         from prometheus_client.core import GaugeMetricFamily
 
+        from netbox_config_backup.choices import REPLICATED_DESTINATION_PROTOCOLS
         from netbox_config_backup.models import (
             BackupDestination,
             BackupRun,
@@ -238,9 +239,9 @@ class ConfigBackupCollector:
         yield latest_success
 
         destination_counts = {state: 0 for state in DESTINATION_STATES}
-        for destination in BackupDestination.objects.filter(protocol="ftp").only(
-            "enabled", "last_error_code"
-        ):
+        for destination in BackupDestination.objects.filter(
+            protocol__in=REPLICATED_DESTINATION_PROTOCOLS
+        ).only("enabled", "last_error_code"):
             if not destination.enabled:
                 state = "disabled"
             elif destination.last_error_code:
@@ -250,7 +251,7 @@ class ConfigBackupCollector:
             destination_counts[state] += 1
         destinations = GaugeMetricFamily(
             "netbox_config_backup_replica_destinations",
-            "Current number of FTP storages by health state.",
+            "Current number of remote storages by health state.",
             labels=["status"],
         )
         for state in DESTINATION_STATES:

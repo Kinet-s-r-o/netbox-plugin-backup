@@ -99,7 +99,7 @@ class BackupDestinationViewSet(NetBoxModelViewSet):
                 "netbox_config_backup.delete_configrevision",
             )
         ):
-            raise PermissionDenied("FTP retention cleanup permissions are required.")
+            raise PermissionDenied("Remote retention cleanup permissions are required.")
 
     def perform_create(self, serializer):
         data = serializer.validated_data

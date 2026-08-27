@@ -42,6 +42,28 @@ class DestinationProtocolChoices(models.TextChoices):
     LOCAL = "local", "Local (primary storage)"
     SFTP = "sftp", "SFTP (recommended, encrypted)"
     FTP = "ftp", "FTP (unencrypted)"
+    NFS = "nfs", "NFS mount"
+    SMB = "smb", "SMB3 / Samba mount"
+
+
+# SFTP remains readable for installations upgraded from an older plugin
+# version, but new storage profiles deliberately expose only the currently
+# supported secondary-storage implementations below.
+MANAGED_DESTINATION_PROTOCOLS = (
+    DestinationProtocolChoices.LOCAL,
+    DestinationProtocolChoices.FTP,
+    DestinationProtocolChoices.NFS,
+    DestinationProtocolChoices.SMB,
+)
+REPLICATED_DESTINATION_PROTOCOLS = (
+    DestinationProtocolChoices.FTP,
+    DestinationProtocolChoices.NFS,
+    DestinationProtocolChoices.SMB,
+)
+MOUNTED_DESTINATION_PROTOCOLS = (
+    DestinationProtocolChoices.NFS,
+    DestinationProtocolChoices.SMB,
+)
 
 
 class FtpAuditFrequencyChoices(models.TextChoices):

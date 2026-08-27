@@ -155,7 +155,7 @@ class FtpStorageRetentionPrecedenceTests(unittest.TestCase):
 
 class ReplicationStorageSelectionTests(unittest.TestCase):
     @staticmethod
-    def _has_explicit_ftp_filter(function_name):
+    def _has_explicit_remote_storage_filter(function_name):
         source = (
             Path(__file__).resolve().parents[1]
             / "netbox_config_backup"
@@ -177,20 +177,18 @@ class ReplicationStorageSelectionTests(unittest.TestCase):
             for keyword in call.keywords:
                 value = keyword.value
                 if (
-                    keyword.arg == "protocol"
-                    and isinstance(value, ast.Attribute)
-                    and value.attr == "FTP"
-                    and isinstance(value.value, ast.Name)
-                    and value.value.id == "DestinationProtocolChoices"
+                    keyword.arg == "protocol__in"
+                    and isinstance(value, ast.Name)
+                    and value.id == "REPLICATED_DESTINATION_PROTOCOLS"
                 ):
                     return True
         return False
 
-    def test_new_revision_replication_explicitly_selects_ftp_storage(self):
-        self.assertTrue(self._has_explicit_ftp_filter("create_revision_replicas"))
+    def test_new_revision_replication_explicitly_selects_supported_remote_storage(self):
+        self.assertTrue(self._has_explicit_remote_storage_filter("create_revision_replicas"))
 
-    def test_unchanged_revision_repair_explicitly_selects_ftp_storage(self):
-        self.assertTrue(self._has_explicit_ftp_filter("ensure_revision_replicas"))
+    def test_unchanged_revision_repair_explicitly_selects_supported_remote_storage(self):
+        self.assertTrue(self._has_explicit_remote_storage_filter("ensure_revision_replicas"))
 
 
 if __name__ == "__main__":

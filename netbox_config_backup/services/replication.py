@@ -7,15 +7,17 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from netbox_config_backup.choices import DestinationProtocolChoices, ReplicaStatusChoices
+from netbox_config_backup.choices import (
+    REPLICATED_DESTINATION_PROTOCOLS,
+    ReplicaStatusChoices,
+)
 from netbox_config_backup.models import (
     BackupDestination,
     ConfigRevision,
     RevisionReplica,
 )
 
-from .destination import DestinationError, replicate_revision
-from .destination_ftp import reconcile_ftp_destination
+from .destination import DestinationError, reconcile_destination, replicate_revision
 from .destination_paths import ftp_revision_destination_path
 
 
@@ -31,7 +33,7 @@ def create_revision_replicas(revision_id: int) -> int:
     destination_ids = BackupDestination.objects.filter(
         enabled=True,
         auto_replicate=True,
-        protocol=DestinationProtocolChoices.FTP,
+        protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
     ).values_list("pk", flat=True)
     created_ids: list[int] = []
     for destination_id in destination_ids:
@@ -58,7 +60,7 @@ def ensure_revision_replicas(revision_id: int) -> int:
     destinations = BackupDestination.objects.filter(
         enabled=True,
         auto_replicate=True,
-        protocol=DestinationProtocolChoices.FTP,
+        protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
     )
     queued = 0
     for destination in destinations:
@@ -77,17 +79,14 @@ def ensure_revision_replicas(revision_id: int) -> int:
         }:
             continue
         if replica.remote_deleted_at is not None:
-            # An FTP retention tombstone is intentional. An unchanged backup
+            # A remote-retention tombstone is intentional. An unchanged backup
             # must not silently recreate the expired remote copy.
             continue
 
         needs_repair = replica.status != ReplicaStatusChoices.SUCCESS
-        if not needs_repair and destination.protocol == DestinationProtocolChoices.FTP:
+        if not needs_repair:
             try:
-                verification = reconcile_ftp_destination(
-                    destination,
-                    replicas=(replica,),
-                )
+                verification = reconcile_destination_for_replicas(destination, (replica,))
                 needs_repair = not bool(verification["success"])
             except DestinationError:
                 # Queue the regular replication workflow so an unavailable FTP
@@ -106,7 +105,7 @@ def enqueue_revision_replica(replica_id: int, *, user=None, force: bool = False)
     replica = (
         RevisionReplica.objects.select_for_update().select_related("destination").get(pk=replica_id)
     )
-    if replica.destination.protocol != DestinationProtocolChoices.FTP:
+    if replica.destination.protocol not in REPLICATED_DESTINATION_PROTOCOLS:
         return None
     if not replica.destination.enabled:
         return None
@@ -143,7 +142,7 @@ def execute_revision_replica(replica_id: int):
     replica = _mark_running(replica_id)
 
     try:
-        if replica.destination.protocol == DestinationProtocolChoices.FTP and replica.remote_path:
+        if replica.remote_path:
             # Repair the immutable copy at its recorded path. Rebuilding a path
             # from the current device name after a NetBox rename would orphan
             # the historical directory and lose the only database pointer to it.
@@ -191,7 +190,7 @@ def _mark_running(replica_id: int) -> RevisionReplica:
     if replica.remote_deleted_at is not None:
         raise DestinationError(
             "REPLICA_EXPIRED",
-            "The FTP revision copy has expired and cannot be uploaded again.",
+            "The remote revision copy has expired and cannot be uploaded again.",
         )
     if replica.status not in {
         ReplicaStatusChoices.PENDING,
@@ -201,7 +200,7 @@ def _mark_running(replica_id: int) -> RevisionReplica:
         raise DestinationError(
             "REPLICA_STATE_CONFLICT", "The revision replica is not ready to run."
         )
-    if replica.destination.protocol == DestinationProtocolChoices.FTP and not replica.remote_path:
+    if not replica.remote_path:
         # Record the deterministic path before any network write. If the
         # worker fails after creating a partial directory, retention and target
         # deletion still have an exact immutable location to reconcile.
@@ -290,7 +289,7 @@ def dispatch_due_replicas(*, limit: int = 100) -> ReplicationDispatchSummary:
     candidate_ids = list(
         RevisionReplica.objects.filter(
             destination__enabled=True,
-            destination__protocol=DestinationProtocolChoices.FTP,
+            destination__protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
             remote_deleted_at__isnull=True,
         )
         .filter(
@@ -329,7 +328,7 @@ def reconcile_stale_replicas(*, stale_after_minutes: int = 120) -> int:
             replica.pk,
             DestinationError(
                 "STALE_REPLICA",
-                "The FTP replication job ended without completing its replica record.",
+                "The remote replication job ended without completing its replica record.",
             ),
         )
         reconciled += 1
@@ -337,8 +336,8 @@ def reconcile_stale_replicas(*, stale_after_minutes: int = 120) -> int:
 
 
 def backfill_destination(destination: BackupDestination, *, user=None, limit: int = 1000) -> int:
-    if destination.protocol != DestinationProtocolChoices.FTP:
-        raise ValueError("Only FTP storage can receive revision replicas.")
+    if destination.protocol not in REPLICATED_DESTINATION_PROTOCOLS:
+        raise ValueError("Only supported remote storage can receive revision replicas.")
     revision_ids = (
         ConfigRevision.objects.filter(artifacts__local_available=True)
         .exclude(replicas__destination=destination)
@@ -356,3 +355,16 @@ def backfill_destination(destination: BackupDestination, *, user=None, limit: in
     for replica_id in replica_ids:
         enqueue_revision_replica(replica_id, user=user)
     return len(replica_ids)
+
+
+def reconcile_destination_for_replicas(destination, replicas):
+    """Verify selected replicas with the backend's read-only reconciliation primitive."""
+    if destination.protocol == "ftp":
+        from .destination_ftp import reconcile_ftp_destination
+
+        return reconcile_ftp_destination(destination, replicas=replicas)
+    if destination.protocol in {"nfs", "smb"}:
+        from .destination_mounted import reconcile_mounted_destination
+
+        return reconcile_mounted_destination(destination, replicas=replicas)
+    return reconcile_destination(destination)

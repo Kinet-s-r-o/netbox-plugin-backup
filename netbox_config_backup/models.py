@@ -17,6 +17,8 @@ from netbox.models import NetBoxModel
 from netbox.models.features import JobsMixin
 
 from .choices import (
+    MOUNTED_DESTINATION_PROTOCOLS,
+    REPLICATED_DESTINATION_PROTOCOLS,
     AddressPreferenceChoices,
     AuthTypeChoices,
     ConnectionProtocolChoices,
@@ -98,14 +100,14 @@ class RemoteRetentionPolicy(NetBoxModel):
         default=1000,
         validators=(MinValueValidator(1), MaxValueValidator(100000)),
         help_text=(
-            "Maximum number of revisions retained for one backup device on each FTP storage."
+            "Maximum number of revisions retained for one backup device on each remote storage."
         ),
     )
 
     class Meta:
         ordering = ("name",)
-        verbose_name = "FTP retention profile"
-        verbose_name_plural = "FTP retention profiles"
+        verbose_name = "remote retention profile"
+        verbose_name_plural = "remote retention profiles"
 
     def __str__(self) -> str:
         return self.name
@@ -302,6 +304,15 @@ class BackupDestination(JobsMixin, NetBoxModel):
         blank=True,
         help_text="Remote directory below which immutable revision copies are stored.",
     )
+    mount_path = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "Absolute directory where Docker or the operating system mounted the NFS or SMB3 "
+            "share. It must be below an allowed network-storage mount root."
+        ),
+    )
     credential_profile = models.ForeignKey(
         CredentialProfile,
         on_delete=models.PROTECT,
@@ -348,7 +359,7 @@ class BackupDestination(JobsMixin, NetBoxModel):
         null=True,
         blank=True,
         related_name="remote_storages",
-        verbose_name="FTP retention profile",
+        verbose_name="remote retention profile",
     )
     enforce_retention_policy = models.BooleanField(
         default=False,
@@ -410,6 +421,7 @@ class BackupDestination(JobsMixin, NetBoxModel):
                         connect_timeout__isnull=True,
                         credential_profile__isnull=True,
                         host="",
+                        mount_path="",
                         max_artifact_size__isnull=True,
                         max_retries__isnull=True,
                         port__isnull=True,
@@ -422,7 +434,22 @@ class BackupDestination(JobsMixin, NetBoxModel):
                 condition=(
                     Q(protocol=DestinationProtocolChoices.LOCAL)
                     | (
-                        Q(
+                        Q(protocol__in=MOUNTED_DESTINATION_PROTOCOLS)
+                        & Q(
+                            credential_profile__isnull=True,
+                            port__isnull=True,
+                            connect_timeout__isnull=True,
+                            max_retries__isnull=False,
+                            retry_delay_minutes__isnull=False,
+                            max_artifact_size__isnull=False,
+                            host="",
+                        )
+                        & ~Q(mount_path="")
+                        & ~Q(base_path="")
+                    )
+                    | (
+                        ~Q(protocol__in=MOUNTED_DESTINATION_PROTOCOLS)
+                        & Q(
                             credential_profile__isnull=False,
                             port__isnull=False,
                             connect_timeout__isnull=False,
@@ -432,6 +459,7 @@ class BackupDestination(JobsMixin, NetBoxModel):
                         )
                         & ~Q(host="")
                         & ~Q(base_path="")
+                        & Q(mount_path="")
                     )
                 ),
                 name="ncb_destination_remote_transport",
@@ -447,6 +475,8 @@ class BackupDestination(JobsMixin, NetBoxModel):
                         protocol__in=(
                             DestinationProtocolChoices.FTP,
                             DestinationProtocolChoices.SFTP,
+                            DestinationProtocolChoices.NFS,
+                            DestinationProtocolChoices.SMB,
                         ),
                         remote_retention_policy__isnull=False,
                     )
@@ -490,7 +520,7 @@ class BackupDestination(JobsMixin, NetBoxModel):
                 )
             if self.integrity_audit_enabled:
                 local_errors["integrity_audit_enabled"] = (
-                    "FTP integrity audits do not apply to the Local storage."
+                    "Remote integrity audits do not apply to the Local storage."
                 )
             if self.credential_profile_id:
                 local_errors["credential_profile"] = (
@@ -502,6 +532,8 @@ class BackupDestination(JobsMixin, NetBoxModel):
                 local_errors["port"] = "The Local storage does not use a remote port."
             if self.base_path:
                 local_errors["base_path"] = "The Local storage path is managed by the deployment."
+            if self.mount_path:
+                local_errors["mount_path"] = "The Local storage does not use a network mount path."
             for field_name in (
                 "connect_timeout",
                 "max_retries",
@@ -510,7 +542,7 @@ class BackupDestination(JobsMixin, NetBoxModel):
             ):
                 if getattr(self, field_name) is not None:
                     local_errors[field_name] = (
-                        "This FTP transport setting does not apply to the Local storage."
+                        "This remote transport setting does not apply to the Local storage."
                     )
             if self.remote_retention_policy_id:
                 local_errors["remote_retention_policy"] = (
@@ -529,20 +561,16 @@ class BackupDestination(JobsMixin, NetBoxModel):
             remote_errors["is_default"] = "Only the Local storage can be the system default."
         if self.local_retention_policy_id:
             remote_errors["local_retention_policy"] = (
-                "Select an FTP retention profile for a remote storage."
+                "Select a remote retention profile for a remote storage."
             )
         if self.enforce_retention_policy and not self.remote_retention_policy_id:
             remote_errors["remote_retention_policy"] = (
-                "Select an FTP retention profile before enforcing it."
+                "Select a remote retention profile before enforcing it."
             )
-        for field_name in (
-            "port",
-            "credential_profile",
-            "connect_timeout",
-            "max_retries",
-            "retry_delay_minutes",
-            "max_artifact_size",
-        ):
+        required_remote_fields = ["max_retries", "retry_delay_minutes", "max_artifact_size"]
+        if self.protocol not in MOUNTED_DESTINATION_PROTOCOLS:
+            required_remote_fields.extend(("port", "credential_profile", "connect_timeout"))
+        for field_name in required_remote_fields:
             value = (
                 self.credential_profile_id
                 if field_name == "credential_profile"
@@ -550,6 +578,23 @@ class BackupDestination(JobsMixin, NetBoxModel):
             )
             if value is None:
                 remote_errors[field_name] = "This remote-storage field is required."
+        if self.protocol in MOUNTED_DESTINATION_PROTOCOLS:
+            if not self.mount_path:
+                remote_errors["mount_path"] = "Select the directory containing the mounted share."
+            if self.host:
+                remote_errors["host"] = "Mounted network storage does not use a server field."
+            if self.port is not None:
+                remote_errors["port"] = "Mounted network storage does not use a port field."
+            if self.credential_profile_id:
+                remote_errors["credential_profile"] = (
+                    "Mount credentials are managed by Docker or the operating system."
+                )
+            if self.connect_timeout is not None:
+                remote_errors["connect_timeout"] = (
+                    "Mounted network storage does not use a connection timeout."
+                )
+        elif self.mount_path:
+            remote_errors["mount_path"] = "Only NFS and SMB3 storage profiles use a mount path."
         if remote_errors:
             raise ValidationError(remote_errors)
 
@@ -569,20 +614,22 @@ class BackupDestination(JobsMixin, NetBoxModel):
                     "host",
                     "port",
                     "base_path",
+                    "mount_path",
                     "credential_profile_id",
                 )
                 .get()
             )
             endpoint_errors = {
                 ("credential_profile" if field_name == "credential_profile_id" else field_name): (
-                    "This endpoint field cannot be changed while FTP copies exist. "
-                    "Create a new destination for a different FTP server or path."
+                    "This endpoint field cannot be changed while remote copies exist. "
+                    "Create a new storage for a different endpoint or path."
                 )
                 for field_name in (
                     "protocol",
                     "host",
                     "port",
                     "base_path",
+                    "mount_path",
                     "credential_profile_id",
                 )
                 if getattr(self, field_name) != original[field_name]
@@ -601,16 +648,29 @@ class BackupDestination(JobsMixin, NetBoxModel):
             raise ValidationError(
                 {"credential_profile": "FTP destinations require password credentials."}
             )
-        if self.integrity_audit_enabled and self.protocol != DestinationProtocolChoices.FTP:
+        if self.integrity_audit_enabled and self.protocol not in REPLICATED_DESTINATION_PROTOCOLS:
             raise ValidationError(
-                {"integrity_audit_enabled": "Automatic integrity audits require FTP."}
+                {"integrity_audit_enabled": "Automatic integrity audits require remote storage."}
             )
-        if (
-            not self.host
-            or any(character.isspace() for character in self.host)
-            or any(value in self.host for value in ("/", "\\", "[", "]", "\x00"))
-        ):
-            raise ValidationError({"host": "Enter a valid server host name or address."})
+        if self.protocol not in MOUNTED_DESTINATION_PROTOCOLS:
+            if (
+                not self.host
+                or any(character.isspace() for character in self.host)
+                or any(value in self.host for value in ("/", "\\", "[", "]", "\x00"))
+            ):
+                raise ValidationError({"host": "Enter a valid server host name or address."})
+        else:
+            mount_path = str(self.mount_path or "").strip()
+            if (
+                not mount_path.startswith("/")
+                or mount_path == "/"
+                or "\\" in mount_path
+                or "\x00" in mount_path
+                or any(part in {"", ".", ".."} for part in mount_path.split("/")[1:])
+            ):
+                raise ValidationError(
+                    {"mount_path": "Use an absolute Linux path below an allowed mount root."}
+                )
         path = self.base_path.strip()
         parts = path.replace("\\", "/").split("/")
         if (
@@ -876,9 +936,9 @@ class BackupTarget(JobsMixin, NetBoxModel):
         null=True,
         blank=True,
         related_name="target_overrides",
-        verbose_name="FTP retention profile",
+        verbose_name="remote retention profile",
         help_text=(
-            "Leave blank to use each FTP storage profile. Copies are kept indefinitely "
+            "Leave blank to use each remote storage profile. Copies are kept indefinitely "
             "only on a storage which also has no profile."
         ),
     )

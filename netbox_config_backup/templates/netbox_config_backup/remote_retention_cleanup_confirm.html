@@ -7,29 +7,29 @@
     <div class="card border-danger">
       <div class="card-header bg-danger-lt">
         <h2 class="card-title text-danger mb-0">
-          <i class="mdi mdi-server-minus-outline"></i> Confirm FTP retention cleanup
+          <i class="mdi mdi-server-minus-outline"></i> Confirm remote retention cleanup
         </h2>
       </div>
       <div class="card-body">
         <p>
-          This queues permanent deletion of expired FTP copies for
+          This queues permanent deletion of expired remote copies for
           <strong>{{ object }}</strong>. Local configuration artifacts and backup runs are not deleted.
         </p>
 
         {% if not remote_has_policy %}
         <div class="alert alert-warning mb-0">
-          No enabled FTP storage has an effective retention profile. Its copies are kept indefinitely.
+          No enabled remote storage has an effective retention profile. Its copies are kept indefinitely.
         </div>
         {% else %}
         <div class="row row-cards mb-3">
           <div class="col-sm-4">
-            <div class="card"><div class="card-body text-center"><div class="text-secondary">FTP storages evaluated</div><div class="h2 mb-0">{{ remote_storage_plans|length }}</div></div></div>
+            <div class="card"><div class="card-body text-center"><div class="text-secondary">Remote storages evaluated</div><div class="h2 mb-0">{{ remote_storage_plans|length }}</div></div></div>
           </div>
           <div class="col-sm-4">
             <div class="card"><div class="card-body text-center"><div class="text-secondary">Expired storage revisions</div><div class="h2 text-danger mb-0">{{ remote_revisions_to_delete }}</div></div></div>
           </div>
           <div class="col-sm-4">
-            <div class="card"><div class="card-body text-center"><div class="text-secondary">FTP copies</div><div class="h2 text-danger mb-0">{{ remote_expired_copy_count }}</div><div class="text-secondary">{{ remote_expired_bytes|filesizeformat }}</div></div></div>
+            <div class="card"><div class="card-body text-center"><div class="text-secondary">Remote copies</div><div class="h2 text-danger mb-0">{{ remote_expired_copy_count }}</div><div class="text-secondary">{{ remote_expired_bytes|filesizeformat }}</div></div></div>
           </div>
         </div>
 
@@ -51,7 +51,7 @@
           <div class="d-flex justify-content-end gap-2 mt-4">
             <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backuptarget_retention_preview' pk=object.pk %}">Cancel</a>
             <button class="btn btn-danger" type="submit">
-              <i class="mdi mdi-server-minus-outline"></i> Queue FTP cleanup
+              <i class="mdi mdi-server-minus-outline"></i> Queue remote cleanup
             </button>
           </div>
         </form>

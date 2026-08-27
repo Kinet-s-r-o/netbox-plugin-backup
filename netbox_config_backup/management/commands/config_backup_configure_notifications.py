@@ -23,6 +23,7 @@ class RuleDefinition:
     description: str
     event_type: str
     model_name: str
+    legacy_names: tuple[str, ...] = ()
 
 
 RULES = (
@@ -63,16 +64,18 @@ RULES = (
         "revisionreplica",
     ),
     RuleDefinition(
-        "Config Backup - FTP integrity audit failed",
-        "Notify when an automatic FTP integrity audit finds missing or damaged copies.",
+        "Config Backup - Remote integrity audit failed",
+        "Notify when an automatic remote-storage integrity audit finds missing or damaged copies.",
         FTP_AUDIT_FAILED,
         "backupdestination",
+        ("Config Backup - FTP integrity audit failed",),
     ),
     RuleDefinition(
-        "Config Backup - FTP integrity audit recovered",
-        "Notify when an FTP destination passes after a failed integrity audit.",
+        "Config Backup - Remote integrity audit recovered",
+        "Notify when a remote storage passes after a failed integrity audit.",
         FTP_AUDIT_RECOVERED,
         "backupdestination",
+        ("Config Backup - FTP integrity audit recovered",),
     ),
 )
 
@@ -142,7 +145,7 @@ class Command(BaseCommand):
                 defaults={
                     "description": (
                         "In-app recipients for configuration backup failures, recovery, "
-                        "stale targets, stuck runs, external copies, and FTP integrity."
+                        "stale targets, stuck runs, external copies, and remote integrity."
                     )
                 },
             )
@@ -154,6 +157,19 @@ class Command(BaseCommand):
                     app_label="netbox_config_backup",
                     model=definition.model_name,
                 )
+                # Preserve the identity of rules created by earlier releases
+                # when their user-facing name was FTP-specific.
+                if (
+                    definition.legacy_names
+                    and not EventRule.objects.filter(name=definition.name).exists()
+                ):
+                    legacy_rule = EventRule.objects.filter(
+                        name__in=definition.legacy_names,
+                        comments="Managed by config_backup_configure_notifications.",
+                    ).first()
+                    if legacy_rule is not None:
+                        legacy_rule.name = definition.name
+                        legacy_rule.save(update_fields=("name",))
                 rule, _created = EventRule.objects.update_or_create(
                     name=definition.name,
                     defaults={

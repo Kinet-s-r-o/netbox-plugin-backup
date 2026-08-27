@@ -38,7 +38,7 @@ TEST_CONNECTION_BUTTON = """
 """
 
 TEST_DESTINATION_BUTTON = """
-{% if record.protocol == 'ftp' and perms.netbox_config_backup.view_backupdestination and perms.netbox_config_backup.change_backupdestination %}
+{% if record.protocol != 'local' and record.protocol != 'sftp' and perms.netbox_config_backup.view_backupdestination and perms.netbox_config_backup.change_backupdestination %}
 <button type="submit" class="btn btn-sm btn-outline-info" title="Test storage"
         aria-label="Test storage {{ record.name }}"
         formaction="{% url 'plugins:netbox_config_backup:backupdestination_test_connection' pk=record.pk %}"
@@ -57,7 +57,7 @@ STORAGE_ACTION_BUTTONS = (
   <i class="mdi mdi-pencil" aria-hidden="true"></i>
 </a>
 {% endif %}
-{% if record.protocol == 'ftp' and not record.is_default and perms.netbox_config_backup.delete_backupdestination %}
+{% if record.protocol != 'local' and record.protocol != 'sftp' and not record.is_default and perms.netbox_config_backup.delete_backupdestination %}
 <a class="btn btn-sm btn-danger" title="Delete storage"
    href="{% url 'plugins:netbox_config_backup:backupdestination_delete' pk=record.pk %}">
   <i class="mdi mdi-trash-can-outline" aria-hidden="true"></i>
@@ -231,7 +231,13 @@ class BackupDestinationTable(NetBoxTable):
                 "Local",
                 "Default",
             )
-        return format_html('<span class="badge text-bg-info">{}</span>', "FTP")
+        labels = {
+            "ftp": ("FTP", "info"),
+            "nfs": ("NFS", "success"),
+            "smb": ("SMB3", "success"),
+        }
+        label, color = labels.get(record.protocol, (record.get_protocol_display(), "secondary"))
+        return format_html('<span class="badge text-bg-{}">{}</span>', color, label)
 
     @staticmethod
     def render_precedence(record):
@@ -256,6 +262,7 @@ class BackupDestinationTable(NetBoxTable):
             "host",
             "port",
             "base_path",
+            "mount_path",
             "credential_profile",
             "last_success_at",
             "last_integrity_audit_status",
@@ -270,12 +277,8 @@ class BackupDestinationTable(NetBoxTable):
             "retention_policy",
             "precedence",
             "integrity_audit_enabled",
-            "host",
-            "port",
-            "base_path",
             "last_success_at",
             "last_integrity_audit_status",
-            "next_integrity_audit_at",
             "last_error_code",
         )
 
@@ -284,8 +287,8 @@ class RevisionReplicaTable(NetBoxTable):
     created = columns.DateTimeColumn()
     revision = tables.Column(linkify=True)
     status = columns.ChoiceFieldColumn()
-    remote_available = columns.BooleanColumn(verbose_name="Available on FTP")
-    remote_deleted_at = columns.DateTimeColumn(verbose_name="FTP expired at")
+    remote_available = columns.BooleanColumn(verbose_name="Available remotely")
+    remote_deleted_at = columns.DateTimeColumn(verbose_name="Remote copy expired at")
     actions = columns.ActionsColumn(actions=())
 
     class Meta(NetBoxTable.Meta):
@@ -377,7 +380,7 @@ class BackupTargetTable(NetBoxTable):
     enabled = columns.BooleanColumn()
     status = columns.ChoiceFieldColumn()
     retention_override = tables.Column(verbose_name="Local retention", linkify=True)
-    remote_retention_policy = tables.Column(verbose_name="FTP retention", linkify=True)
+    remote_retention_policy = tables.Column(verbose_name="Remote retention", linkify=True)
     last_revision = tables.Column(linkify=True)
     actions = columns.ActionsColumn(extra_buttons=TEST_CONNECTION_BUTTON + RUN_BUTTON)
 

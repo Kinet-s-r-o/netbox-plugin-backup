@@ -41,7 +41,8 @@ zmeny, nereštartuje zariadenie a nevykonáva automatický restore.
 | Credential profile | Zdieľané prihlasovacie údaje alebo odkaz na environment secret. |
 | Storage / úložisko | Miesto, kde plugin uchováva lokálnu alebo vzdialenú kópiu zálohy. |
 | Local storage | Systémové primárne úložisko z `storage_root`; je vždy povolené a nedá sa zmazať. |
-| FTP storage | Samostatné sekundárne úložisko dokončených revisions na internom FTP serveri. |
+| Vzdialené storage | Samostatné sekundárne úložisko dokončených revisions: interné FTP alebo vopred pripojené NFS/SMB3. |
+| NFS/SMB3 storage | Sieťový disk pripojený operačným systémom alebo Dockerom; plugin dostane iba cestu k mountu. SMB1 sa nepodporuje. |
 | Lokálny retenčný profil | Pravidlá uchovávania lokálnych revisions, artifactov a BackupRun záznamov; môže byť na zariadení, backup policy alebo Local storage. |
 | FTP retenčný profil | Pravidlá uchovávania kópií revisions, ktoré sa vyhodnocujú samostatne pre každé zariadenie a každé FTP storage. |
 
@@ -377,11 +378,11 @@ vytvoril.
 Chránenú revision retention neodstráni. Použi ochranu pre dôležitý stav pred
 zmenou, incidentom alebo upgradeom. Po skončení potreby ju možno odomknúť.
 
-## 14. Storages a FTP kópia
+## 14. Storages a vzdialené kópie
 
 Sekcia **Config Backup → Storages** obsahuje presne jedno systémové **Local
 storage**. Reprezentuje primárne úložisko nakonfigurované cez `storage_root`, je
-vždy povolené a nedá sa zmazať, vypnúť ani zmeniť na FTP. Administrátor na ňom
+vždy povolené a nedá sa zmazať, vypnúť ani zmeniť na vzdialené storage. Administrátor na ňom
 môže vybrať iba lokálnu retenčnú politiku a rozhodnúť, či má byť povinná pre
 všetky zariadenia.
 
@@ -391,6 +392,13 @@ určuje po uložení do primárneho lokálneho úložiska. Výpadok FTP preto ne
 
 FTP prenáša používateľské meno, heslo aj konfiguráciu bez šifrovania. Použi ho
 iba v izolovanej dôveryhodnej internej sieti a obmedz FTP účet na určený adresár.
+
+NFS a SMB3 sa nepripájajú priamo z pluginu. Správca najprv pripojí share na
+hostiteľovi alebo cez Docker a rovnakú absolútnu cestu sprístupní NetBox webu,
+bežnému workeru aj backup workeru. Plugin pred operáciou overí, že cesta je
+skutočný aktívny mount. Ak share vypadne, odmietne zápis, aby záloha neskončila
+omylom na lokálnom filesystéme kontajnera. Používa sa iba aktuálne SMB3; SMB1
+sa nepodporuje.
 
 ### Vytvorenie FTP storage
 
@@ -406,6 +414,20 @@ iba v izolovanej dôveryhodnej internej sieti a obmedz FTP účet na určený ad
 
 Test vytvorí malý súbor, prečíta ho späť, porovná obsah a odstráni ho. Úspešný
 test preto overuje spojenie, login, zápis, čítanie aj mazanie.
+
+### Vytvorenie NFS alebo SMB3 storage
+
+1. Správca pripojí NFS export alebo SMB3 share podľa
+   `docs/NFS_AND_SMB3_STORAGE.md`.
+2. Rovnaký mount sprístupní NetBox webu a obom workerom, napríklad ako
+   `/mnt/netbox-config-backup/nfs`.
+3. Otvor **Config Backup → Storages → Add** a vyber **NFS mount** alebo
+   **SMB3 / Samba mount**.
+4. Zadaj mounted directory a base directory. Meno ani heslo sa do pluginu
+   nezadáva; prihlasovanie rieši chránená konfigurácia mountu na hostiteľovi.
+5. Ulož storage a spusti **Test storage**.
+6. Ak už existujú lokálne revisions, použi **Copy existing revisions** a potom
+   **Check stored copies**.
 
 ### Adresárová štruktúra
 
@@ -448,9 +470,9 @@ Na existujúcej inštalácii pred prvým zapnutím FTP cleanupu spusti read-only
 integrity audit na každom FTP storage. Najprv vyrieš všetky chýbajúce alebo
 poškodené historické kópie, ktoré plugin eviduje ako úspešné.
 
-## 15. FTP integrity audit
+## 15. Integrity audit vzdialeného storage
 
-Na detaile FTP storage možno spustiť **Check stored copies** alebo zapnúť
+Na detaile FTP, NFS alebo SMB3 storage možno spustiť **Check stored copies** alebo zapnúť
 **Run integrity audits automatically** denne alebo týždenne.
 
 Audit je read-only. Pre úspešné replica záznamy kontroluje:
@@ -459,7 +481,7 @@ Audit je read-only. Pre úspešné replica záznamy kontroluje:
 - veľkosť,
 - SHA-256 hash.
 
-Audit na FTP nič nenahráva, nepremenúva ani nemaže. Výsledok ukáže počet
+Audit nič nenahráva, nepremenúva ani nemaže. Výsledok ukáže počet
 zdravých kópií, poškodených/chýbajúcich kópií a skontrolovaných súborov.
 Zlyhanie a následné zotavenie môžu vytvoriť NetBox alert.
 

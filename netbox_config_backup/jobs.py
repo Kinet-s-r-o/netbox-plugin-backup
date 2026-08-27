@@ -207,7 +207,8 @@ class DestinationConnectionTestJob(JobRunner):
 
 class DestinationReconciliationJob(JobRunner):
     class Meta:
-        name = "Config backup FTP integrity audit"
+        # Keep this stable because the scheduler uses the job name for active-job deduplication.
+        name = "Config backup remote integrity audit"
 
     def run(self, *args, **kwargs):
         destination_id = kwargs["destination_id"]
@@ -215,7 +216,7 @@ class DestinationReconciliationJob(JobRunner):
             pk=destination_id
         )
         previous_status = destination.last_integrity_audit_status
-        self.logger.info("Starting read-only FTP integrity audit for %s.", destination.name)
+        self.logger.info("Starting read-only storage integrity audit for %s.", destination.name)
         try:
             result = reconcile_destination(destination)
         except DestinationError as exc:
@@ -242,11 +243,11 @@ class DestinationReconciliationJob(JobRunner):
 
                 queue_destination_event(FTP_AUDIT_FAILED, destination.pk)
             self.logger.error(
-                "FTP integrity audit for %s failed with code %s.",
+                "Storage integrity audit for %s failed with code %s.",
                 destination.name,
                 exc.error_code,
             )
-            raise JobFailed(f"FTP integrity audit failed: {exc.error_code}") from exc
+            raise JobFailed(f"Storage integrity audit failed: {exc.error_code}") from exc
 
         self.job.data = {"destination_reconciliation": result}
         self.job.save(update_fields=("data",))
@@ -282,7 +283,7 @@ class DestinationReconciliationJob(JobRunner):
             queue_destination_event(FTP_AUDIT_FAILED, destination.pk)
         log = self.logger.info if result["success"] else self.logger.warning
         log(
-            "FTP integrity audit for %s completed: revisions=%s files=%s problems=%s.",
+            "Storage integrity audit for %s completed: revisions=%s files=%s problems=%s.",
             destination.name,
             result["checked_replicas"],
             result["checked_files"],
@@ -416,18 +417,18 @@ class RetentionCleanupJob(JobRunner):
 
 class RemoteRetentionCleanupJob(JobRunner):
     class Meta:
-        name = "Config backup FTP retention cleanup"
+        name = "Config backup remote retention cleanup"
 
     def run(self, *args, **kwargs):
         target_id = kwargs["target_id"]
-        self.logger.info("Starting FTP retention cleanup for backup target %s.", target_id)
+        self.logger.info("Starting remote retention cleanup for backup target %s.", target_id)
         try:
             summary = execute_remote_retention_cleanup(target_id)
         except RemoteRetentionCleanupError as exc:
             self.logger.error(str(exc))
             raise JobFailed(str(exc)) from exc
         self.logger.info(
-            "FTP retention for target %s expired %s revision(s), deleted %s file(s) "
+            "Remote retention for target %s expired %s revision(s), deleted %s file(s) "
             "(%s bytes), cancelled %s incomplete replica(s), and deferred %s active revision(s).",
             target_id,
             summary.revision_count,
@@ -496,7 +497,7 @@ class ScheduledRetentionDispatcherJob(JobRunner):
             operational_settings and operational_settings.remote_retention_scheduler_enabled
         )
         if not local_enabled and not remote_enabled:
-            self.logger.info("Automatic local and FTP retention cleanup are disabled.")
+            self.logger.info("Automatic local and remote retention cleanup are disabled.")
             return {"enabled": False, "queued": 0}
 
         limit = operational_settings.retention_scheduler_batch_size
@@ -516,7 +517,7 @@ class ScheduledRetentionDispatcherJob(JobRunner):
             )
         if remote_summary:
             self.logger.info(
-                f"FTP retention dispatcher: considered={remote_summary.considered} "
+                f"Remote retention dispatcher: considered={remote_summary.considered} "
                 f"expired={remote_summary.expired} queued={remote_summary.queued} "
                 f"active_backups={remote_summary.skipped_active_backup} "
                 f"active_cleanups={remote_summary.skipped_active_cleanup} "
@@ -536,7 +537,7 @@ class ScheduledRetentionDispatcherJob(JobRunner):
 @system_job(interval=1)
 class ScheduledReplicationDispatcherJob(JobRunner):
     class Meta:
-        name = "Scheduled config backup FTP replication dispatcher"
+        name = "Scheduled config backup remote replication dispatcher"
 
     def run(self, *args, **kwargs):
         reconciled = reconcile_stale_replicas(
@@ -545,7 +546,7 @@ class ScheduledReplicationDispatcherJob(JobRunner):
         summary = dispatch_due_replicas(limit=100)
         if summary.considered or reconciled:
             self.logger.info(
-                "FTP replica dispatcher: considered=%s queued=%s skipped=%s reconciled=%s.",
+                "Remote replica dispatcher: considered=%s queued=%s skipped=%s reconciled=%s.",
                 summary.considered,
                 summary.queued,
                 summary.skipped,
@@ -562,13 +563,13 @@ class ScheduledReplicationDispatcherJob(JobRunner):
 @system_job(interval=1)
 class ScheduledFtpIntegrityAuditDispatcherJob(JobRunner):
     class Meta:
-        name = "Scheduled config backup FTP integrity audit dispatcher"
+        name = "Scheduled config backup remote integrity audit dispatcher"
 
     def run(self, *args, **kwargs):
         summary = dispatch_due_ftp_audits(limit=25)
         if summary.initialized or summary.due:
             self.logger.info(
-                "FTP integrity audit dispatcher: initialized=%s due=%s queued=%s "
+                "Remote integrity audit dispatcher: initialized=%s due=%s queued=%s "
                 "active=%s conflicts=%s.",
                 summary.initialized,
                 summary.due,

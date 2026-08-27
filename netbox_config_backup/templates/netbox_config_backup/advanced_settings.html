@@ -64,7 +64,7 @@
           {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:retentionpolicy_list' icon='mdi-history' title='Local retention profiles' description='Control Local revisions and completed backup-run history.' only %}
         {% endif %}
         {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
-          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:remoteretentionpolicy_list' icon='mdi-server-minus-outline' title='FTP retention profiles' description='Control copies independently on each FTP storage.' only %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:remoteretentionpolicy_list' icon='mdi-server-minus-outline' title='Remote retention profiles' description='Control copies independently on each remote storage.' only %}
         {% endif %}
       </div>
     </section>
@@ -86,13 +86,13 @@
         {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:ssh_host_key_list' icon='mdi-fingerprint' title='SSH host keys' description='Review device identities discovered during SSH connection tests.' only %}
       {% endif %}
       {% if perms.netbox_config_backup.view_sftpreceiverprofile %}
-        {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:sftpreceiverprofile_list' icon='mdi-inbox-arrow-down-outline' title='Device upload receivers' description='Configure an inbound receiver only when a driver requires a device-pushed native export. This is not an FTP storage.' only %}
+        {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:sftpreceiverprofile_list' icon='mdi-inbox-arrow-down-outline' title='Device upload receivers' description='Configure an inbound receiver only when a driver requires a device-pushed native export. This is not remote replica storage.' only %}
       {% endif %}
     </div>
     <div class="settings-advanced-help">
       <a href="{% url 'plugins:netbox_config_backup:help' %}#receivers">
         <i class="mdi mdi-help-circle-outline" aria-hidden="true"></i>
-        FTP storage or device upload receiver?
+        Remote storage or device upload receiver?
       </a>
     </div>
   </details>
@@ -143,20 +143,20 @@
 
           <div class="automation-control">
             <div class="automation-control-title">
-              <strong>FTP cleanup</strong>
+              <strong>Remote cleanup</strong>
               <span class="badge {% if remote_retention_scheduler_enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if remote_retention_scheduler_enabled %}Enabled{% else %}Disabled{% endif %}</span>
             </div>
-            <p>Runs every 24 hours and evaluates every enabled FTP storage separately.</p>
+            <p>Runs every 24 hours and evaluates every enabled remote storage separately.</p>
             <div class="form-check form-switch settings-switch">
               {{ operational_settings_form.remote_retention_scheduler_enabled }}
-              <label class="form-check-label fw-semibold" for="{{ operational_settings_form.remote_retention_scheduler_enabled.id_for_label }}">Enable FTP cleanup</label>
+              <label class="form-check-label fw-semibold" for="{{ operational_settings_form.remote_retention_scheduler_enabled.id_for_label }}">Enable remote cleanup</label>
             </div>
             {% if operational_settings_form.remote_retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.remote_retention_scheduler_enabled.errors }}</div>{% endif %}
             {% if not remote_retention_scheduler_enabled %}
             <div class="settings-confirmation">
               {{ operational_settings_form.confirm_remote_enable }}
               <div>
-                <label class="form-check-label fw-semibold" for="{{ operational_settings_form.confirm_remote_enable.id_for_label }}">Confirm permanent deletion of expired FTP copies</label>
+                <label class="form-check-label fw-semibold" for="{{ operational_settings_form.confirm_remote_enable.id_for_label }}">Confirm permanent deletion of expired remote copies</label>
                 {% if operational_settings_form.confirm_remote_enable.errors %}<div class="invalid-feedback d-block">{{ operational_settings_form.confirm_remote_enable.errors }}</div>{% endif %}
               </div>
             </div>
@@ -221,7 +221,7 @@
         </div>
         <div class="read-only-row">
           <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-server-minus-outline"></i></span>
-          <div><strong>FTP cleanup</strong><span>{% if remote_retention_scheduler_enabled %}Enabled{% else %}Disabled{% endif %}</span></div>
+          <div><strong>Remote cleanup</strong><span>{% if remote_retention_scheduler_enabled %}Enabled{% else %}Disabled{% endif %}</span></div>
           <span class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i> Administrators can change this setting.</span>
         </div>
         <div class="read-only-row">

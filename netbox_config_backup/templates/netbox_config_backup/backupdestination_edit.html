@@ -1,0 +1,57 @@
+{% extends 'generic/object_edit.html' %}
+
+{% block pre_form_fields %}
+  {% if not object.pk or object.protocol != 'local' %}
+  <div id="mounted-storage-help" class="alert alert-info d-none" role="status">
+    <div class="d-flex gap-3 align-items-start">
+      <i class="mdi mdi-folder-network-outline fs-2" aria-hidden="true"></i>
+      <div>
+        <strong>NFS and SMB3 are mounted outside NetBox</strong>
+        <div>Mount the share at the same absolute path in the NetBox web and backup-worker containers. SMB1 is not supported. The plugin verifies that the mount is active before every operation.</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+{% endblock pre_form_fields %}
+
+{% block javascript %}
+  {{ block.super }}
+  <script>
+    (() => {
+      const protocol = document.getElementById('id_protocol');
+      if (!protocol) return;
+
+      const ftpFields = [
+        'id_host',
+        'id_port',
+        'id_credential_profile',
+        'id_connect_timeout',
+        'id_allow_insecure_ftp'
+      ];
+      const mountedFields = ['id_mount_path'];
+      const mountedHelp = document.getElementById('mounted-storage-help');
+
+      const setFieldVisible = (id, visible) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        const row = input.closest('.row');
+        if (row) row.classList.toggle('d-none', !visible);
+        input.disabled = !visible;
+      };
+
+      const refresh = () => {
+        const isFtp = protocol.value === 'ftp';
+        const isMounted = protocol.value === 'nfs' || protocol.value === 'smb';
+        ftpFields.forEach((id) => setFieldVisible(id, isFtp));
+        mountedFields.forEach((id) => setFieldVisible(id, isMounted));
+        if (mountedHelp) mountedHelp.classList.toggle('d-none', !isMounted);
+
+        const port = document.getElementById('id_port');
+        if (isFtp && port && !port.value) port.value = '21';
+      };
+
+      protocol.addEventListener('change', refresh);
+      refresh();
+    })();
+  </script>
+{% endblock javascript %}

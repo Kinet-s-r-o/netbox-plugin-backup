@@ -37,7 +37,7 @@ def destination_reconciliation_status_payload(job) -> dict[str, object]:
             "Queued",
             "secondary",
             "mdi-clock-outline",
-            "FTP integrity audit is queued",
+            "Storage integrity audit is queued",
             "Waiting for an available backup worker.",
         )
     elif status == "running":
@@ -45,15 +45,15 @@ def destination_reconciliation_status_payload(job) -> dict[str, object]:
             "Running",
             "info",
             "mdi-shield-search-outline",
-            "Checking FTP revision copies",
-            "Reading file sizes and hashes. Nothing on the FTP server is changed.",
+            "Checking remote revision copies",
+            "Reading file sizes and hashes. Nothing on the storage is changed.",
         )
     elif status == "completed" and result.get("success") is False:
         values = (
             "Attention needed",
             "warning",
             "mdi-alert-outline",
-            "FTP audit found integrity problems",
+            "Storage audit found integrity problems",
             result.get("safe_message") or "One or more expected files did not match.",
         )
     elif status == "completed":
@@ -61,7 +61,7 @@ def destination_reconciliation_status_payload(job) -> dict[str, object]:
             "Healthy",
             "success",
             "mdi-check-decagram-outline",
-            "FTP revision copies are healthy",
+            "Remote revision copies are healthy",
             result.get("safe_message") or "All expected files passed integrity verification.",
         )
     else:
@@ -69,7 +69,7 @@ def destination_reconciliation_status_payload(job) -> dict[str, object]:
             "Failed",
             "danger",
             "mdi-alert-circle-outline",
-            "FTP integrity audit could not complete",
+            "Storage integrity audit could not complete",
             result.get("safe_message") or "The destination could not be audited.",
         )
         payload["error_code"] = result.get("error_code") or "DESTINATION_RECONCILIATION_FAILED"

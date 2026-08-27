@@ -40,6 +40,9 @@ PLUGINS_CONFIG = {
     "netbox_config_backup": {
         "storage_root": "/var/lib/netbox-config-backup",
         "storage_backend": "local",
+        # Allowed roots for host/runtime-mounted NFS and SMB3 shares.
+        "network_storage_mount_roots": ["/mnt/netbox-config-backup"],
+        "network_storage_require_mountpoint": True,
         # Temporary, verified ZIPs prepared from successful FTP replicas.
         "recovery_package_ttl_minutes": 60,
         "recovery_package_max_bytes": 1024 * 1024 * 1024,
@@ -94,6 +97,12 @@ use file mode `0600`, expire after `recovery_package_ttl_minutes`, and are
 removed by an hourly system job. `recovery_package_max_bytes` limits the total
 uncompressed FTP source data accepted for one package.
 
+Optional NFS and SMB3 secondary storage is mounted by the host or container
+runtime, never by the NetBox process. Present the same absolute mount path to
+the web and worker services and keep active-mount verification enabled. See
+[NFS_AND_SMB3_STORAGE.md](NFS_AND_SMB3_STORAGE.md) for NFSv4 and SMB 3.1.1
+examples and the required permissions.
+
 ## 3. Upgrade the database and static files
 
 ```shell
@@ -113,36 +122,36 @@ including development deployments which bind-mount changed Python source.
 
 ### Retention workers and safe defaults
 
-Local and FTP retention use the same dedicated backup queue but are dispatched
+Local and remote retention use the same dedicated backup queue but are dispatched
 independently. In **Config Backup > Settings**, enable the local scheduler and
-FTP scheduler separately only after reviewing representative device previews.
+remote scheduler separately only after reviewing representative device previews.
 Both schedulers are disabled by default.
 
 The storage-profile migration creates exactly one protected **Local storage**
 row representing the deployment's configured `storage_root`. It is always
-enabled and cannot be deleted, disabled, or changed to FTP. Existing FTP rows
+enabled and cannot be deleted, disabled, or changed to a remote type. Existing FTP rows
 remain FTP storages with their transport and replication behavior unchanged.
 Their new retention-policy fields are empty and policy enforcement is disabled,
 so the migration alone cannot make existing history eligible for deletion.
 
-Before enabling FTP cleanup for the first time on an upgraded installation,
-run the read-only integrity audit for every FTP storage. Resolve each missing
+Before enabling remote cleanup for the first time on an upgraded installation,
+run the read-only integrity audit for every remote storage. Resolve each missing
 object, size/hash mismatch, and unexpected path among historical replica rows
 recorded as successful before assigning/enabling FTP cleanup.
 
-Retention is resolved separately for the Local storage and for every FTP
+Retention is resolved separately for the Local storage and for every remote
 storage. A storage policy is normally a fallback; **Always use this storage's
 retention profile** makes it mandatory and prevents device overrides. The exact
 precedence is:
 
 1. Local: enforced storage policy, device Local override, backup-policy
    retention, Local-storage fallback, then keep indefinitely.
-2. Each FTP storage: enforced storage policy, device FTP override, that
+2. Each remote storage: enforced storage policy, device remote override, that
    storage's fallback, then keep indefinitely.
 
 The Local policy controls primary artifacts, revision history, and completed
-run records. Each FTP plan controls only copies on that FTP storage. The
-`max_copies_per_target` limit therefore applies per device per FTP storage: one
+run records. Each remote plan controls only copies on that remote storage. The
+`max_copies_per_target` limit therefore applies per device per remote storage: one
 revision on two storages consumes one slot on each, while multiple artifact
 files in the revision still consume one slot. A protected revision and the
 latest usable copy are retained in every scope.

@@ -92,6 +92,7 @@ class BackupDestinationSerializer(NetBoxModelSerializer):
                 "host",
                 "port",
                 "base_path",
+                "mount_path",
                 "credential_profile",
                 "connect_timeout",
                 "max_retries",
@@ -134,10 +135,10 @@ class BackupDestinationSerializer(NetBoxModelSerializer):
         ):
             errors = {
                 field_name: (
-                    "This endpoint field cannot be changed while FTP copies exist. "
-                    "Create a new destination for a different FTP server or path."
+                    "This endpoint field cannot be changed while remote copies exist. "
+                    "Create a new destination for a different endpoint or path."
                 )
-                for field_name in ("protocol", "host", "port", "base_path")
+                for field_name in ("protocol", "host", "port", "base_path", "mount_path")
                 if field_name in attrs and attrs[field_name] != getattr(original, field_name)
             }
             if (
@@ -146,7 +147,7 @@ class BackupDestinationSerializer(NetBoxModelSerializer):
                 != original.credential_profile_id
             ):
                 errors["credential_profile"] = (
-                    "This endpoint field cannot be changed while FTP copies exist. "
+                    "This endpoint field cannot be changed while remote copies exist. "
                     "Rotate the password inside the current credential profile or create a new "
                     "destination."
                 )

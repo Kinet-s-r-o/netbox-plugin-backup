@@ -6,7 +6,11 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from netbox_config_backup.choices import ReplicaStatusChoices, RunStatusChoices
+from netbox_config_backup.choices import (
+    REPLICATED_DESTINATION_PROTOCOLS,
+    ReplicaStatusChoices,
+    RunStatusChoices,
+)
 from netbox_config_backup.models import (
     BackupDestination,
     BackupRun,
@@ -16,7 +20,7 @@ from netbox_config_backup.models import (
     RevisionReplica,
 )
 
-from .destination_ftp import delete_revision_replica_ftp
+from .destination import delete_revision_replica
 from .destination_types import DestinationError
 from .retention import (
     RevisionCandidate,
@@ -27,7 +31,7 @@ from .retention import (
 
 
 class RemoteRetentionCleanupError(RuntimeError):
-    """An FTP retention cleanup stopped safely."""
+    """A remote-storage retention cleanup stopped safely."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +53,7 @@ def execute_remote_retention_cleanup(
     *,
     now=None,
 ) -> RemoteRetentionCleanupSummary:
-    """Apply one target's FTP policy without touching local artifact bytes.
+    """Apply one target's remote-storage policies without touching local artifact bytes.
 
     The database transaction intentionally remains open while FTP objects are
     removed. FTP deletion cannot be rolled back, but the operation is strictly
@@ -70,7 +74,7 @@ def execute_remote_retention_cleanup(
                 status__in=(RunStatusChoices.QUEUED, RunStatusChoices.RUNNING),
             ).exists():
                 raise RemoteRetentionCleanupError(
-                    "FTP retention cannot run while the target has an active backup."
+                    "Remote retention cannot run while the target has an active backup."
                 )
 
             # Serialize retention with enqueue/retry workers. Without row locks,
@@ -80,7 +84,7 @@ def execute_remote_retention_cleanup(
                 RevisionReplica.objects.select_for_update()
                 .filter(
                     revision__target=target,
-                    destination__protocol="ftp",
+                    destination__protocol__in=REPLICATED_DESTINATION_PROTOCOLS,
                     remote_deleted_at__isnull=True,
                 )
                 .select_related("destination", "revision__target__device")
@@ -96,7 +100,7 @@ def execute_remote_retention_cleanup(
             locked_destinations = (
                 BackupDestination.objects.select_for_update(of=("self",))
                 .select_related("remote_retention_policy")
-                .filter(pk__in=destination_ids, protocol="ftp")
+                .filter(pk__in=destination_ids, protocol__in=REPLICATED_DESTINATION_PROTOCOLS)
                 .order_by("pk")
                 .in_bulk()
             )
@@ -158,7 +162,7 @@ def execute_remote_retention_cleanup(
                 policy = locked_policies.get(policy_id)
                 if policy is None:
                     raise RemoteRetentionCleanupError(
-                        "The effective FTP retention profile no longer exists."
+                        "The effective remote retention profile no longer exists."
                     )
                 configured_policy_count += 1
                 replicas_by_revision = replicas_by_destination.get(destination_id, {})
@@ -230,7 +234,7 @@ def execute_remote_retention_cleanup(
                         continue
 
                     for replica in replicas:
-                        result = delete_revision_replica_ftp(replica)
+                        result = delete_revision_replica(replica)
                         replica_count += 1
                         deleted_file_count += result.deleted_file_count
                         missing_file_count += result.missing_file_count
@@ -254,8 +258,8 @@ def execute_remote_retention_cleanup(
 
             if configured_policy_count == 0:
                 raise RemoteRetentionCleanupError(
-                    "No enabled FTP storage has an effective retention profile. "
-                    "FTP copies are kept indefinitely."
+                    "No enabled remote storage has an effective retention profile. "
+                    "Remote copies are kept indefinitely."
                 )
 
             metadata_revision_ids = {
@@ -301,11 +305,11 @@ def execute_remote_retention_cleanup(
         raise
     except DestinationError as exc:
         raise RemoteRetentionCleanupError(
-            f"FTP retention stopped safely ({exc.error_code}). No database state was changed."
+            f"Remote retention stopped safely ({exc.error_code}). No database state was changed."
         ) from exc
     except BackupTarget.DoesNotExist as exc:
         raise RemoteRetentionCleanupError("The backup target no longer exists.") from exc
     except Exception as exc:
         raise RemoteRetentionCleanupError(
-            "FTP retention failed before its database state could be committed."
+            "Remote retention failed before its database state could be committed."
         ) from exc
