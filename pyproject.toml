@@ -43,7 +43,7 @@ test = [
 include = ["netbox_config_backup*"]
 
 [tool.setuptools.package-data]
-netbox_config_backup = ["templates/**/*.html"]
+netbox_config_backup = ["templates/**/*.html", "static/**/*"]
 
 [tool.coverage.run]
 branch = true

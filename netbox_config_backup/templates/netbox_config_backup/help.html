@@ -1,0 +1,188 @@
+{% extends 'generic/_base.html' %}
+{% load static %}
+
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'netbox_config_backup/settings.css' %}">
+{% endblock %}
+
+{% block title %}Help{% endblock %}
+
+{% block subtitle %}
+  Learn the backup flow, settings, retention rules, and common recovery steps.
+{% endblock %}
+
+{% block content %}
+<div class="help-shell">
+  <nav class="help-quick-nav" aria-label="Help topics">
+    <a class="btn btn-sm btn-outline-secondary" href="#setup">Recommended setup</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#flow">Backup flow</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#settings-reference">Settings reference</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#retention">Retention</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#receivers">Storages and receivers</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#errors">Common errors</a>
+  </nav>
+
+  <section class="help-section" id="setup" aria-labelledby="setup-title">
+    <div class="help-section-heading">
+      <h2 id="setup-title">Recommended setup</h2>
+      <p>Start with one representative device. Reuse profiles only after the first test succeeds.</p>
+    </div>
+    <div class="card">
+      <ol class="help-steps">
+        <li>
+          <strong>Create access profiles</strong>
+          <span>Store a reusable connection and encrypted login when several devices share them.</span>
+        </li>
+        <li>
+          <strong>Map the platform</strong>
+          <span>Select the driver and defaults for the device's NetBox platform.</span>
+        </li>
+        <li>
+          <strong>Add and test a device</strong>
+          <span>Save the backup device, test connectivity, then run its first manual backup.</span>
+        </li>
+        <li>
+          <strong>Add FTP if needed</strong>
+          <span>Test the FTP storage and copy existing revisions before relying on replication.</span>
+        </li>
+        <li>
+          <strong>Review retention</strong>
+          <span>Preview Local and FTP decisions before enabling either cleanup scheduler.</span>
+        </li>
+      </ol>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:backuptarget_list' %}">Open devices</a>
+      {% if perms.netbox_config_backup.view_operationalsettings %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:advanced_settings' %}">Open settings</a>{% endif %}
+      {% if perms.netbox_config_backup.view_backupdestination %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">Open storages</a>{% endif %}
+      {% if perms.netbox_config_backup.view_retentionpolicy and perms.netbox_config_backup.view_backuppolicy and perms.netbox_config_backup.view_connectionprofile and perms.netbox_config_backup.view_credentialprofile and perms.netbox_config_backup.view_platformmapping %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:examples' %}">Open safe examples</a>{% endif %}
+    </div>
+  </section>
+
+  <section class="help-section" id="flow" aria-labelledby="flow-title">
+    <div class="help-section-heading">
+      <h2 id="flow-title">How a backup moves</h2>
+      <p>A successful device backup and an FTP copy are related, but they are separate operations.</p>
+    </div>
+    <div class="card help-flow">
+      <div class="help-flow-item">
+        <strong>1. Collect from device</strong>
+        <span>The selected driver connects with the effective connection and credential profiles.</span>
+      </div>
+      <div class="help-flow-item">
+        <strong>2. Store Local revision</strong>
+        <span>The plugin hashes the artifacts and records a ConfigRevision in primary Local storage.</span>
+      </div>
+      <div class="help-flow-item">
+        <strong>3. Replicate to FTP</strong>
+        <span>Each enabled automatic FTP storage receives an independent immutable copy.</span>
+      </div>
+    </div>
+    <div class="alert alert-info mt-3 mb-0" role="note">
+      A temporary FTP outage does not change a successful device backup to failed. The Local revision remains valid and the FTP copy can be retried without reconnecting to the device.
+    </div>
+  </section>
+
+  <section class="help-section" id="settings-reference" aria-labelledby="settings-reference-title">
+    <div class="help-section-heading">
+      <h2 id="settings-reference-title">Settings reference</h2>
+      <p>Each page has one responsibility. Most installations use all six reusable profile types.</p>
+    </div>
+    <div class="card help-reference">
+      {% if perms.netbox_config_backup.view_platformmapping %}
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:platformmapping_list' %}">Platform mappings</a></strong><p>Select a driver and optional profile defaults from the NetBox platform.</p></div>
+      {% endif %}
+      {% if perms.netbox_config_backup.view_connectionprofile %}
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:connectionprofile_list' %}">Connection profiles</a></strong><p>Define protocol, port, NetBox address order, host-key verification, and timeouts.</p></div>
+      {% endif %}
+      {% if perms.netbox_config_backup.view_credentialprofile %}
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:credentialprofile_list' %}">Credential profiles</a></strong><p>Store encrypted write-only logins or environment references for device and FTP access.</p></div>
+      {% endif %}
+      {% if perms.netbox_config_backup.view_backuppolicy %}
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:backuppolicy_list' %}">Backup policies</a></strong><p>Control schedules, retry timing, collection timeouts, storage mode, and default Local retention.</p></div>
+      {% endif %}
+      {% if perms.netbox_config_backup.view_retentionpolicy %}
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">Local retention</a></strong><p>Keep Local configuration revisions and completed BackupRun history for defined periods.</p></div>
+      {% endif %}
+      {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">FTP retention</a></strong><p>Keep copied revisions independently for each device and each FTP storage.</p></div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="help-section" id="retention" aria-labelledby="retention-title">
+    <div class="help-section-heading">
+      <h2 id="retention-title">Local and FTP retention</h2>
+      <p>Local and FTP retention are resolved separately. A profile selects what may expire; a scheduler performs the deletion.</p>
+    </div>
+    <div class="help-retention-grid">
+      <div class="help-retention-panel">
+        <h3 class="h4">Local profile precedence</h3>
+        <ol>
+          <li>Enforced profile on the Local storage</li>
+          <li>Local retention override on the device</li>
+          <li>Retention profile from the backup policy</li>
+          <li>Fallback profile on the Local storage</li>
+          <li>Keep indefinitely when no profile is available</li>
+        </ol>
+      </div>
+      <div class="help-retention-panel">
+        <h3 class="h4">FTP profile precedence</h3>
+        <ol>
+          <li>Enforced profile on that FTP storage</li>
+          <li>FTP retention override on the device</li>
+          <li>Fallback profile on that FTP storage</li>
+          <li>Keep indefinitely when no profile is available</li>
+        </ol>
+      </div>
+    </div>
+    <div class="alert alert-warning mt-3 mb-0" role="note">
+      Local cleanup and FTP cleanup are disabled independently. Preview retention on a device before enabling either scheduler. FTP deletion has no recycle bin.
+    </div>
+  </section>
+
+  <section class="help-section" id="receivers" aria-labelledby="receivers-title">
+    <div class="help-section-heading">
+      <h2 id="receivers-title">FTP storage or device upload receiver?</h2>
+      <p>They move data in opposite directions and cannot replace one another.</p>
+    </div>
+    <div class="card help-reference">
+      <div class="help-reference-item">
+        <strong>FTP storage</strong>
+        <p>The plugin copies an already successful Local revision to your internal FTP server. Configure this under Storages.</p>
+      </div>
+      <div class="help-reference-item">
+        <strong>Device upload receiver</strong>
+        <p>A vendor driver asks the device to push a native export into the plugin. Use it only for drivers which explicitly require one.</p>
+      </div>
+    </div>
+    <div class="alert alert-warning mt-3 mb-0" role="note">
+      FTP is unencrypted. Use it only on an isolated, trusted internal management network with a dedicated restricted account.
+    </div>
+  </section>
+
+  <section class="help-section mb-4" id="errors" aria-labelledby="errors-title">
+    <div class="help-section-heading">
+      <h2 id="errors-title">Common connection and storage errors</h2>
+      <p>The reason code identifies which layer failed before you change device settings.</p>
+    </div>
+    <details class="card help-errors">
+      <summary>Show reason codes and first checks</summary>
+      <dl class="help-error-list">
+        <dt><code>HOST_KEY_UNKNOWN</code></dt><dd>The SSH identity has not been approved. Verify its fingerprint and approve it under SSH host keys.</dd>
+        <dt><code>AUTH_FAILED</code></dt><dd>The service is reachable, but the username, password, or allowed authentication method was rejected.</dd>
+        <dt><code>CONNECTION_REFUSED</code></dt><dd>The address is reachable, but no compatible service accepts the configured port.</dd>
+        <dt><code>TIMEOUT</code></dt><dd>Check the effective NetBox management address, route or VPN, firewall, protocol, and port.</dd>
+        <dt><code>COMMAND_UNSUPPORTED</code></dt><dd>Login succeeded, but this firmware does not support the driver's read-only configuration command.</dd>
+        <dt><code>DESTINATION_TEST_FAILED</code></dt><dd>The FTP login may work while directory creation, write, read-back, or probe cleanup is denied.</dd>
+      </dl>
+    </details>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      {% if perms.netbox_config_backup.view_backuprun %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backuprun_list' %}">Open runs</a>{% endif %}
+      {% if perms.netbox_config_backup.view_sshhostkey %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:ssh_host_key_list' %}">Open SSH host keys</a>{% endif %}
+      {% if perms.netbox_config_backup.view_backupdestination %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">Open storages</a>{% endif %}
+    </div>
+  </section>
+</div>
+{% endblock content %}

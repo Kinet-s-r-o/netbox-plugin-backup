@@ -8,6 +8,7 @@ app_name = "netbox_config_backup"
 urlpatterns = [
     path("", views.ConfigBackupHomeView.as_view(), name="home"),
     path("settings/", views.AdvancedSettingsView.as_view(), name="advanced_settings"),
+    path("help/", views.ConfigBackupHelpView.as_view(), name="help"),
     path("examples/", views.ExampleConfigurationView.as_view(), name="examples"),
     path("ssh-host-keys/", views.SSHHostKeyListView.as_view(), name="ssh_host_key_list"),
     path("ssh-host-keys/scan/", views.SSHHostKeyScanView.as_view(), name="ssh_host_key_scan"),

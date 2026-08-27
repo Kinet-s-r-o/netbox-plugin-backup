@@ -52,6 +52,7 @@ try:
     client.force_login(no_access)
     assert client.get("/plugins/config-backup/").status_code == 403
     assert client.get("/plugins/config-backup/settings/").status_code == 403
+    assert client.get("/plugins/config-backup/help/").status_code == 403
     assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 403
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 403
     assert (
@@ -65,6 +66,10 @@ try:
     client.force_login(reader)
     assert client.get("/plugins/config-backup/").status_code == 200
     assert client.get("/plugins/config-backup/settings/").status_code == 403
+    help_response = client.get("/plugins/config-backup/help/")
+    assert help_response.status_code == 200
+    assert b"Recommended setup" in help_response.content
+    assert b'name="password"' not in help_response.content
     assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 403
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 403
     assert (
@@ -77,6 +82,11 @@ try:
     client = Client()
     client.force_login(operator)
     assert b"Add device" not in client.get("/plugins/config-backup/").content
+    operator_settings = client.get("/plugins/config-backup/settings/")
+    assert operator_settings.status_code == 200
+    assert b"Administrators can change this setting." in operator_settings.content
+    assert b'name="retention_scheduler_enabled"' not in operator_settings.content
+    assert client.get("/plugins/config-backup/help/").status_code == 200
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 200
     assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 200
     assert operator.has_perm("netbox_config_backup.view_remoteretentionpolicy")
@@ -125,6 +135,10 @@ try:
     client = Client()
     client.force_login(administrator)
     assert b"Add device" in client.get("/plugins/config-backup/").content
+    administrator_settings = client.get("/plugins/config-backup/settings/")
+    assert administrator_settings.status_code == 200
+    assert b'name="retention_scheduler_enabled"' in administrator_settings.content
+    assert client.get("/plugins/config-backup/help/").status_code == 200
     assert client.get("/plugins/config-backup/ssh-host-keys/").status_code == 200
     assert client.get("/plugins/config-backup/ftp-retention-policies/").status_code == 200
     assert administrator.has_perm("netbox_config_backup.add_remoteretentionpolicy")

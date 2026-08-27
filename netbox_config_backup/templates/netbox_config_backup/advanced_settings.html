@@ -1,373 +1,169 @@
 {% extends 'generic/_base.html' %}
+{% load static %}
 
 {% block head %}
   {{ block.super }}
-  <style>
-    .settings-shell {
-      width: 100%;
-      max-width: 1080px;
-      margin-inline: auto;
-    }
-    .settings-section {
-      margin-top: 1.5rem;
-    }
-    .settings-section:first-child {
-      margin-top: 1rem;
-    }
-    .settings-section-heading {
-      margin-bottom: 0.75rem;
-    }
-    .settings-section-heading h2 {
-      margin-bottom: 0.2rem;
-      font-size: 1.15rem;
-    }
-    .settings-section-heading p {
-      max-width: 62rem;
-      margin-bottom: 0;
-      color: var(--tblr-secondary-color, #8a97a6);
-    }
-    .settings-card {
-      overflow: hidden;
-    }
-    .settings-primary-grid,
-    .settings-advanced-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .settings-link {
-      display: flex;
-      gap: 0.8rem;
-      align-items: center;
-      min-height: 4.25rem;
-      padding: 0.85rem 1rem;
-      color: inherit;
-      text-decoration: none;
-    }
-    .settings-primary-grid .settings-link:nth-child(even),
-    .settings-advanced-grid .settings-link:nth-child(even) {
-      border-left: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
-    }
-    .settings-primary-grid .settings-link:nth-child(n + 3),
-    .settings-advanced-grid .settings-link:nth-child(n + 3) {
-      border-top: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
-    }
-    .settings-link:hover,
-    .settings-link:focus-visible {
-      color: inherit;
-      background: rgba(var(--tblr-secondary-rgb, 98, 105, 118), 0.08);
-      text-decoration: none;
-    }
-    .settings-link-icon,
-    .runtime-icon {
-      display: grid;
-      flex: 0 0 auto;
-      place-items: center;
-      width: 2.35rem;
-      height: 2.35rem;
-      color: var(--tblr-secondary-color, #8a97a6);
-      background: rgba(var(--tblr-secondary-rgb, 98, 105, 118), 0.09);
-      border-radius: var(--tblr-border-radius, 0.375rem);
-      font-size: 1.15rem;
-    }
-    .settings-link-copy {
-      min-width: 0;
-      flex: 1 1 auto;
-    }
-    .settings-link-copy strong,
-    .settings-link-copy span {
-      display: block;
-    }
-    .settings-link-copy span {
-      margin-top: 0.1rem;
-      color: var(--tblr-secondary-color, #8a97a6);
-      font-size: 0.875rem;
-      line-height: 1.35;
-    }
-    .settings-link-arrow {
-      flex: 0 0 auto;
-      color: var(--tblr-secondary-color, #8a97a6);
-      font-size: 1.15rem;
-    }
-    .settings-advanced {
-      border-top: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
-    }
-    .settings-advanced summary {
-      display: flex;
-      gap: 0.75rem;
-      align-items: center;
-      padding: 0.85rem 1rem;
-      color: var(--tblr-secondary-color, #8a97a6);
-      cursor: pointer;
-      list-style: none;
-    }
-    .settings-advanced summary::-webkit-details-marker {
-      display: none;
-    }
-    .settings-advanced summary:hover,
-    .settings-advanced summary:focus-visible {
-      color: inherit;
-      background: rgba(var(--tblr-secondary-rgb, 98, 105, 118), 0.06);
-    }
-    .settings-advanced summary .mdi-chevron-down {
-      margin-left: auto;
-    }
-    .settings-advanced[open] summary .mdi-chevron-down {
-      transform: rotate(180deg);
-    }
-    .settings-advanced-grid {
-      border-top: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
-    }
-    .runtime-row {
-      display: block;
-      margin: 0;
-      padding: 1.1rem;
-    }
-    .runtime-row + .runtime-row {
-      border-top: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
-    }
-    .runtime-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(17rem, 23rem);
-      gap: 2rem;
-      align-items: start;
-    }
-    .runtime-summary {
-      display: flex;
-      gap: 0.85rem;
-      align-items: flex-start;
-    }
-    .runtime-summary h3 {
-      margin: 0 0 0.2rem;
-      font-size: 1rem;
-    }
-    .runtime-summary p {
-      margin: 0;
-      color: var(--tblr-secondary-color, #8a97a6);
-    }
-    .runtime-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-top: 0.75rem;
-    }
-    .runtime-controls {
-      display: grid;
-      gap: 0.8rem;
-    }
-    .settings-switch {
-      display: flex;
-      gap: 0.7rem;
-      align-items: flex-start;
-      margin: 0;
-      padding: 0;
-    }
-    .settings-switch .form-check-input {
-      float: none;
-      flex: 0 0 auto;
-      width: 2.6rem;
-      height: 1.35rem;
-      margin: 0.15rem 0 0;
-      cursor: pointer;
-    }
-    .settings-switch .form-check-label {
-      cursor: pointer;
-    }
-    .settings-confirmation {
-      display: flex;
-      gap: 0.65rem;
-      align-items: flex-start;
-      padding: 0.7rem 0.8rem;
-      background: rgba(var(--tblr-warning-rgb, 245, 159, 0), 0.07);
-      border: 1px solid rgba(var(--tblr-warning-rgb, 245, 159, 0), 0.24);
-      border-radius: var(--tblr-border-radius, 0.375rem);
-    }
-    .settings-confirmation .form-check-input {
-      flex: 0 0 auto;
-      margin-top: 0.15rem;
-    }
-    .runtime-advanced {
-      border-top: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
-      padding-top: 0.65rem;
-    }
-    .runtime-advanced summary {
-      color: var(--tblr-secondary-color, #8a97a6);
-      cursor: pointer;
-      font-size: 0.875rem;
-    }
-    .runtime-advanced .settings-switch {
-      margin-top: 0.75rem;
-    }
-    .runtime-actions {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 1rem;
-    }
-    .read-only-state {
-      display: flex;
-      gap: 0.65rem;
-      align-items: center;
-      color: var(--tblr-secondary-color, #8a97a6);
-    }
-    @media (max-width: 767.98px) {
-      .settings-primary-grid,
-      .settings-advanced-grid,
-      .runtime-layout {
-        grid-template-columns: 1fr;
-      }
-      .settings-primary-grid .settings-link,
-      .settings-advanced-grid .settings-link {
-        border-top: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
-        border-left: 0 !important;
-      }
-      .settings-primary-grid .settings-link:first-child,
-      .settings-advanced-grid .settings-link:first-child {
-        border-top: 0;
-      }
-      .runtime-layout {
-        gap: 1rem;
-      }
-      .runtime-actions .btn {
-        width: 100%;
-      }
-    }
-  </style>
+  <link rel="stylesheet" href="{% static 'netbox_config_backup/settings.css' %}">
 {% endblock %}
 
 {% block title %}Settings{% endblock %}
 
 {% block subtitle %}
-  Shared profiles and automation used by Config Backup.
+  Reusable defaults and automation for Config Backup.
 {% endblock %}
 
 {% block content %}
 <div class="settings-shell">
-  <section class="settings-section" aria-labelledby="shared-configuration-title">
-    <div class="settings-section-heading">
-      <h2 id="shared-configuration-title">Shared configuration</h2>
-      <p>These settings are reused when devices are added or backed up.</p>
+  <div class="settings-intro" role="note">
+    <div class="settings-intro-copy">
+      <i class="mdi mdi-information-outline" aria-hidden="true"></i>
+      <div>
+        <strong>Use Devices for day-to-day backup work.</strong>
+        <span>Configure reusable defaults here only when several devices share the same settings.</span>
+      </div>
     </div>
-    <div class="card settings-card">
-      <div class="settings-primary-grid">
+    <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:help' %}">
+      <i class="mdi mdi-help-circle-outline" aria-hidden="true"></i>
+      Open help
+    </a>
+  </div>
+
+  <div class="settings-config-grid">
+    <section class="card settings-panel" aria-labelledby="device-defaults-title">
+      <header class="settings-panel-header">
+        <div>
+          <h2 id="device-defaults-title">Device defaults</h2>
+          <p>Reuse access profiles across devices. Platform mappings can select them automatically.</p>
+        </div>
+      </header>
+      <div class="settings-links">
         {% if perms.netbox_config_backup.view_platformmapping %}
-        <a class="settings-link" href="{% url 'plugins:netbox_config_backup:platformmapping_list' %}">
-          <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-directions-fork"></i></span>
-          <span class="settings-link-copy"><strong>Platform mappings</strong><span>Choose drivers and profiles automatically.</span></span>
-          <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-        </a>
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:platformmapping_list' icon='mdi-directions-fork' title='Platform mappings' description="Select the driver and reusable profiles from a device's NetBox platform." only %}
         {% endif %}
         {% if perms.netbox_config_backup.view_connectionprofile %}
-        <a class="settings-link" href="{% url 'plugins:netbox_config_backup:connectionprofile_list' %}">
-          <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-lan-connect"></i></span>
-          <span class="settings-link-copy"><strong>Connections</strong><span>Manage addresses, ports, protocols, and timeouts.</span></span>
-          <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-        </a>
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:connectionprofile_list' icon='mdi-lan-connect' title='Connection profiles' description='Reuse protocol, port, NetBox address preference, host-key verification, and timeouts.' only %}
         {% endif %}
         {% if perms.netbox_config_backup.view_credentialprofile %}
-        <a class="settings-link" href="{% url 'plugins:netbox_config_backup:credentialprofile_list' %}">
-          <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-shield-key-outline"></i></span>
-          <span class="settings-link-copy"><strong>Credentials</strong><span>Manage encrypted reusable logins.</span></span>
-          <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-        </a>
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:credentialprofile_list' icon='mdi-shield-key-outline' title='Credential profiles' description='Reuse encrypted or environment-based device logins.' only %}
         {% endif %}
       </div>
+    </section>
 
-      <details class="settings-advanced">
+    <section class="card settings-panel" aria-labelledby="policies-title">
+      <header class="settings-panel-header">
+        <div>
+          <h2 id="policies-title">Schedules and retention</h2>
+          <p>Define when backups run and how long Local and FTP data is kept.</p>
+        </div>
+      </header>
+      <div class="settings-links">
+        {% if perms.netbox_config_backup.view_backuppolicy %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:backuppolicy_list' icon='mdi-calendar-clock-outline' title='Backup policies' description='Set schedules, retries, timeouts, and the default Local retention profile.' only %}
+        {% endif %}
+        {% if perms.netbox_config_backup.view_retentionpolicy %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:retentionpolicy_list' icon='mdi-history' title='Local retention profiles' description='Control Local revisions and completed backup-run history.' only %}
+        {% endif %}
+        {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:remoteretentionpolicy_list' icon='mdi-server-minus-outline' title='FTP retention profiles' description='Control copies independently on each FTP storage.' only %}
+        {% endif %}
+      </div>
+      <details class="settings-inline-help">
         <summary>
-          <i class="mdi mdi-tune-variant" aria-hidden="true"></i>
-          <span><strong>Advanced profiles</strong> for schedules, retention, host trust, and native exports</span>
-          <i class="mdi mdi-chevron-down" aria-hidden="true"></i>
+          <i class="mdi mdi-help-circle-outline" aria-hidden="true"></i>
+          How is a retention profile selected?
+          <i class="mdi mdi-chevron-down settings-chevron" aria-hidden="true"></i>
         </summary>
-        <div class="settings-advanced-grid">
-          {% if perms.netbox_config_backup.view_backuppolicy %}
-          <a class="settings-link" href="{% url 'plugins:netbox_config_backup:backuppolicy_list' %}">
-            <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-calendar-clock-outline"></i></span>
-            <span class="settings-link-copy"><strong>Backup policies</strong><span>Schedules, retries, and job timeouts.</span></span>
-            <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-          </a>
-          {% endif %}
-          {% if perms.netbox_config_backup.view_retentionpolicy %}
-          <a class="settings-link" href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">
-            <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-history"></i></span>
-            <span class="settings-link-copy"><strong>Local retention profiles</strong><span>Rules for local revisions and run history.</span></span>
-            <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-          </a>
-          {% endif %}
-          {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
-          <a class="settings-link" href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">
-            <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-server-minus-outline"></i></span>
-            <span class="settings-link-copy"><strong>FTP retention profiles</strong><span>Independent rules for remote FTP copies.</span></span>
-            <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-          </a>
-          {% endif %}
-          {% if perms.netbox_config_backup.view_sshhostkey %}
-          <a class="settings-link" href="{% url 'plugins:netbox_config_backup:ssh_host_key_list' %}">
-            <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-fingerprint"></i></span>
-            <span class="settings-link-copy"><strong>SSH host keys</strong><span>Review and approve device identities.</span></span>
-            <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-          </a>
-          {% endif %}
-          {% if perms.netbox_config_backup.view_sftpreceiverprofile %}
-          <a class="settings-link" href="{% url 'plugins:netbox_config_backup:sftpreceiverprofile_list' %}">
-            <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-inbox-arrow-down-outline"></i></span>
-            <span class="settings-link-copy"><strong>Native backup receivers</strong><span>Used only by device drivers that push an export.</span></span>
-            <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
-          </a>
-          {% endif %}
+        <div class="settings-inline-help-body">
+          <p><strong>Local:</strong> enforced Local storage, device override, backup policy, Local storage default, then keep indefinitely.</p>
+          <p><strong>FTP:</strong> enforced FTP storage, device override, that FTP storage default, then keep indefinitely.</p>
+          <p class="mb-0">No data is deleted until the matching cleanup switch below is enabled. <a href="{% url 'plugins:netbox_config_backup:help' %}#retention">Read the retention guide</a>.</p>
         </div>
       </details>
+    </section>
+  </div>
+
+  <details class="card settings-advanced">
+    <summary>
+      <span class="settings-advanced-summary">
+        <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-shield-cog-outline"></i></span>
+        <span>
+          <strong>Security and vendor-specific setup</strong>
+          <small>Open this only for SSH identity approval or device-pushed native exports.</small>
+        </span>
+      </span>
+      <i class="mdi mdi-chevron-down settings-chevron" aria-hidden="true"></i>
+    </summary>
+    <div class="settings-advanced-links">
+      {% if perms.netbox_config_backup.view_sshhostkey %}
+        {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:ssh_host_key_list' icon='mdi-fingerprint' title='SSH host keys' description='Review device identities discovered during SSH connection tests.' only %}
+      {% endif %}
+      {% if perms.netbox_config_backup.view_sftpreceiverprofile %}
+        {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:sftpreceiverprofile_list' icon='mdi-inbox-arrow-down-outline' title='Device upload receivers' description='Configure an inbound receiver only when a driver requires a device-pushed native export. This is not an FTP storage.' only %}
+      {% endif %}
     </div>
-  </section>
+    <div class="settings-advanced-help">
+      <a href="{% url 'plugins:netbox_config_backup:help' %}#receivers">
+        <i class="mdi mdi-help-circle-outline" aria-hidden="true"></i>
+        Storage or upload receiver: which one do I need?
+      </a>
+    </div>
+  </details>
 
   <section class="settings-section mb-4" aria-labelledby="automation-title">
     <div class="settings-section-heading">
       <h2 id="automation-title">Automation</h2>
-      <p>Cleanup and NetBox alerts apply immediately and do not require a Docker restart.</p>
+      <p>These controls apply immediately. They do not require a Docker restart.</p>
     </div>
-    <div class="card settings-card">
+    <div class="card settings-automation-card">
       {% if can_change_operational_settings %}
-      <form class="runtime-row" method="post">
+      <form class="automation-block" method="post">
         {% csrf_token %}
         <input type="hidden" name="settings_action" value="retention">
         {{ operational_settings_form.retention_scheduler_batch_size }}
         {% if operational_settings_form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ operational_settings_form.non_field_errors }}</div>{% endif %}
-        <div class="runtime-layout">
-          <div class="runtime-summary">
-            <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-delete-clock-outline"></i></span>
-            <div>
-              <h3>Expired backup data</h3>
-              <p>Runs every 24 hours. Local history and FTP copies use separate profiles and separate opt-in switches.</p>
-            </div>
+
+        <div class="automation-heading">
+          <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-delete-clock-outline"></i></span>
+          <div>
+            <h3>Automatic cleanup</h3>
+            <p>Profiles decide what expires. These switches allow the daily cleanup job to remove it.</p>
           </div>
-          <div class="runtime-controls">
-            <div>
-              <div class="form-check form-switch settings-switch">
-                {{ operational_settings_form.retention_scheduler_enabled }}
-                <div>
-                  <label class="form-check-label fw-semibold" for="{{ operational_settings_form.retention_scheduler_enabled.id_for_label }}">Enable local cleanup</label>
-                  <div class="form-text mt-1">Removes expired local artifacts and run history.</div>
-                </div>
-              </div>
-              {% if operational_settings_form.retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.retention_scheduler_enabled.errors }}</div>{% endif %}
+        </div>
+
+        <div class="automation-controls-grid">
+          <div class="automation-control">
+            <div class="automation-control-title">
+              <strong>Local cleanup</strong>
+              <span class="badge {% if retention_scheduler_enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if retention_scheduler_enabled %}Enabled{% else %}Disabled{% endif %}</span>
             </div>
+            <p>Runs every 24 hours and applies the effective Local retention profile.</p>
+            <div class="form-check form-switch settings-switch">
+              {{ operational_settings_form.retention_scheduler_enabled }}
+              <label class="form-check-label fw-semibold" for="{{ operational_settings_form.retention_scheduler_enabled.id_for_label }}">Enable Local cleanup</label>
+            </div>
+            {% if operational_settings_form.retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.retention_scheduler_enabled.errors }}</div>{% endif %}
             {% if not retention_scheduler_enabled %}
             <div class="settings-confirmation">
               {{ operational_settings_form.confirm_enable }}
               <div>
-                <label class="form-check-label fw-semibold" for="{{ operational_settings_form.confirm_enable.id_for_label }}">Confirm permanent deletion of expired history</label>
+                <label class="form-check-label fw-semibold" for="{{ operational_settings_form.confirm_enable.id_for_label }}">Confirm permanent deletion of expired Local data</label>
                 {% if operational_settings_form.confirm_enable.errors %}<div class="invalid-feedback d-block">{{ operational_settings_form.confirm_enable.errors }}</div>{% endif %}
               </div>
             </div>
             {% endif %}
-            <div>
-              <div class="form-check form-switch settings-switch">
-                {{ operational_settings_form.remote_retention_scheduler_enabled }}
-                <div>
-                  <label class="form-check-label fw-semibold" for="{{ operational_settings_form.remote_retention_scheduler_enabled.id_for_label }}">Enable FTP cleanup</label>
-                  <div class="form-text mt-1">Only devices with an FTP retention profile are affected.</div>
-                </div>
-              </div>
-              {% if operational_settings_form.remote_retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.remote_retention_scheduler_enabled.errors }}</div>{% endif %}
+          </div>
+
+          <div class="automation-control">
+            <div class="automation-control-title">
+              <strong>FTP cleanup</strong>
+              <span class="badge {% if remote_retention_scheduler_enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if remote_retention_scheduler_enabled %}Enabled{% else %}Disabled{% endif %}</span>
             </div>
+            <p>Runs every 24 hours and evaluates every enabled FTP storage separately.</p>
+            <div class="form-check form-switch settings-switch">
+              {{ operational_settings_form.remote_retention_scheduler_enabled }}
+              <label class="form-check-label fw-semibold" for="{{ operational_settings_form.remote_retention_scheduler_enabled.id_for_label }}">Enable FTP cleanup</label>
+            </div>
+            {% if operational_settings_form.remote_retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.remote_retention_scheduler_enabled.errors }}</div>{% endif %}
             {% if not remote_retention_scheduler_enabled %}
             <div class="settings-confirmation">
               {{ operational_settings_form.confirm_remote_enable }}
@@ -379,74 +175,71 @@
             {% endif %}
           </div>
         </div>
-        <div class="runtime-actions">
-          <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> Save cleanup</button>
+        <div class="automation-actions">
+          <a class="btn btn-link" href="{% url 'plugins:netbox_config_backup:help' %}#retention">Retention help</a>
+          <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> Save cleanup settings</button>
         </div>
       </form>
 
-      <form class="runtime-row" method="post">
+      <form class="automation-block" method="post">
         {% csrf_token %}
         <input type="hidden" name="settings_action" value="notifications">
         {% if notification_settings_form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ notification_settings_form.non_field_errors }}</div>{% endif %}
-        <div class="runtime-layout">
-          <div class="runtime-summary">
+        <div class="automation-layout">
+          <div class="automation-heading">
             <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-bell-outline"></i></span>
             <div>
               <h3>NetBox alerts</h3>
-              <p>Sends failures, recoveries, stale devices, stuck runs, and FTP copy events through NetBox.</p>
+              <p>Publishes backup, recovery, stale, stuck, and FTP-copy events to NetBox Event Rules.</p>
               <div class="runtime-links">
                 {% if perms.extras.view_eventrule %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'extras:eventrule_list' %}">Event rules</a>{% endif %}
                 {% if perms.extras.view_notificationgroup %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'extras:notificationgroup_list' %}">Recipients</a>{% endif %}
               </div>
             </div>
           </div>
-          <div class="runtime-controls">
-            <div>
-              <div class="form-check form-switch settings-switch">
-                {{ notification_settings_form.events_enabled }}
-                <div>
-                  <label class="form-check-label fw-semibold" for="{{ notification_settings_form.events_enabled.id_for_label }}">Enable NetBox alerts</label>
-                  <div class="form-text mt-1">Event rules decide who receives each alert.</div>
-                </div>
-              </div>
-              {% if notification_settings_form.events_enabled.errors %}<div class="invalid-feedback d-block">{{ notification_settings_form.events_enabled.errors }}</div>{% endif %}
-            </div>
-            <details class="runtime-advanced">
-              <summary>Advanced alert behavior</summary>
+          <div class="automation-alert-controls">
+            <div class="form-check form-switch settings-switch">
+              {{ notification_settings_form.events_enabled }}
               <div>
-                <div class="form-check form-switch settings-switch">
-                  {{ notification_settings_form.notify_on_every_failure }}
-                  <div>
-                    <label class="form-check-label fw-semibold" for="{{ notification_settings_form.notify_on_every_failure.id_for_label }}">Repeat alerts for every failed attempt</label>
-                    <div class="form-text mt-1">Leave off to alert only on the first failure.</div>
-                  </div>
-                </div>
-                {% if notification_settings_form.notify_on_every_failure.errors %}<div class="invalid-feedback d-block">{{ notification_settings_form.notify_on_every_failure.errors }}</div>{% endif %}
+                <label class="form-check-label fw-semibold" for="{{ notification_settings_form.events_enabled.id_for_label }}">Enable NetBox alerts</label>
+                <div class="form-text mt-1">Event rules decide which events create notifications and who receives them.</div>
               </div>
+            </div>
+            {% if notification_settings_form.events_enabled.errors %}<div class="invalid-feedback d-block">{{ notification_settings_form.events_enabled.errors }}</div>{% endif %}
+            <details class="runtime-advanced">
+              <summary>Repeated failure behavior</summary>
+              <div class="form-check form-switch settings-switch mt-3">
+                {{ notification_settings_form.notify_on_every_failure }}
+                <div>
+                  <label class="form-check-label fw-semibold" for="{{ notification_settings_form.notify_on_every_failure.id_for_label }}">Alert on every failed attempt</label>
+                  <div class="form-text mt-1">Leave off to alert only on the first failure until the device recovers.</div>
+                </div>
+              </div>
+              {% if notification_settings_form.notify_on_every_failure.errors %}<div class="invalid-feedback d-block">{{ notification_settings_form.notify_on_every_failure.errors }}</div>{% endif %}
             </details>
           </div>
         </div>
-        <div class="runtime-actions">
-          <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> Save alerts</button>
+        <div class="automation-actions">
+          <span></span>
+          <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> Save alert settings</button>
         </div>
       </form>
       {% else %}
-      <div class="runtime-row">
-        <div class="runtime-layout">
-          <div class="runtime-summary">
-            <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-delete-clock-outline"></i></span>
-            <div><h3>Retention</h3><p>Local cleanup: {% if retention_scheduler_enabled %}enabled{% else %}disabled{% endif %}. FTP cleanup: {% if remote_retention_scheduler_enabled %}enabled{% else %}disabled{% endif %}.</p></div>
-          </div>
-          <div class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i>Administrators can change this setting.</div>
+      <div class="read-only-automation">
+        <div class="read-only-row">
+          <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-harddisk-remove"></i></span>
+          <div><strong>Local cleanup</strong><span>{% if retention_scheduler_enabled %}Enabled{% else %}Disabled{% endif %}</span></div>
+          <span class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i> Administrators can change this setting.</span>
         </div>
-      </div>
-      <div class="runtime-row">
-        <div class="runtime-layout">
-          <div class="runtime-summary">
-            <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-bell-outline"></i></span>
-            <div><h3>NetBox alerts</h3><p>Alerts are {% if backup_events_enabled %}enabled{% else %}disabled{% endif %}. Repeated failures: {% if backup_notify_every_failure %}every attempt{% else %}first failure only{% endif %}.</p></div>
-          </div>
-          <div class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i>Administrators can change this setting.</div>
+        <div class="read-only-row">
+          <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-server-minus-outline"></i></span>
+          <div><strong>FTP cleanup</strong><span>{% if remote_retention_scheduler_enabled %}Enabled{% else %}Disabled{% endif %}</span></div>
+          <span class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i> Administrators can change this setting.</span>
+        </div>
+        <div class="read-only-row">
+          <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-bell-outline"></i></span>
+          <div><strong>NetBox alerts</strong><span>{% if backup_events_enabled %}Enabled{% else %}Disabled{% endif %}; repeated failures: {% if backup_notify_every_failure %}every attempt{% else %}first failure only{% endif %}</span></div>
+          <span class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i> Administrators can change this setting.</span>
         </div>
       </div>
       {% endif %}

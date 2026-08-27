@@ -318,6 +318,14 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
         return redirect("plugins:netbox_config_backup:advanced_settings")
 
 
+class ConfigBackupHelpView(PermissionRequiredMixin, LoginRequiredMixin, TemplateView):
+    """Read-only operator guide which never exposes deployment values or secrets."""
+
+    template_name = "netbox_config_backup/help.html"
+    permission_required = "netbox_config_backup.view_backuptarget"
+    raise_exception = True
+
+
 def _queryset_fully_permitted(queryset, user, action: str) -> bool:
     permitted_ids = queryset.restrict(user, action).values("pk")
     return not queryset.exclude(pk__in=permitted_ids).exists()

@@ -8,8 +8,13 @@ from netbox_config_backup.choices import DestinationProtocolChoices
 from netbox_config_backup.credentials.encrypted_database import DatabaseCredentialCipher
 from netbox_config_backup.forms import (
     BackupDestinationForm,
+    BackupPolicyForm,
     BackupTargetForm,
+    ConnectionProfileForm,
     CredentialProfileForm,
+    PlatformMappingForm,
+    RemoteRetentionPolicyForm,
+    RetentionPolicyForm,
 )
 from netbox_config_backup.models import BackupDestination, BackupTarget
 
@@ -35,6 +40,15 @@ assert (
     "enforced Local storage profile always wins"
     in target_form.fields["retention_override"].help_text
 )
+
+assert "Keep every local revision" in RetentionPolicyForm().fields["keep_all_days"].help_text
+assert (
+    "per device and FTP storage"
+    in RemoteRetentionPolicyForm().fields["max_copies_per_target"].help_text
+)
+assert "JSON list of delays" in BackupPolicyForm().fields["retry_backoff_minutes"].help_text
+assert "NetBox device address" in ConnectionProfileForm().fields["address_preference"].help_text
+assert "driver-specific settings" in PlatformMappingForm().fields["driver_options"].help_text
 
 local_storages = BackupDestination.objects.filter(
     protocol=DestinationProtocolChoices.LOCAL,
@@ -64,14 +78,32 @@ assert response.status_code == 200
 assert b"Platform mappings" in response.content
 assert b"FTP destination" not in response.content
 assert b"Add device" not in response.content
-assert b"Advanced profiles" in response.content
+assert b"Device defaults" in response.content
+assert b"Schedules and retention" in response.content
+assert b"Security and vendor-specific setup" in response.content
 assert b"Automation" in response.content
+assert b"Open help" in response.content
+assert b"netbox_config_backup/settings.css" in response.content
 assert b'type="hidden" name="retention_scheduler_batch_size"' in response.content
 assert b"Maximum cleanup jobs" not in response.content
 assert b"Open examples" not in response.content
 for field_name in (b"events_enabled", b"notify_on_every_failure"):
     assert b'name="' + field_name + b'"' in response.content
 assert b"Prometheus metrics" not in response.content
+
+help_response = client.get(reverse("plugins:netbox_config_backup:help"))
+assert help_response.status_code == 200
+for expected in (
+    b"Recommended setup",
+    b"How a backup moves",
+    b"Local profile precedence",
+    b"FTP profile precedence",
+    b"FTP storage or device upload receiver?",
+    b"HOST_KEY_UNKNOWN",
+):
+    assert expected in help_response.content
+assert b'name="password"' not in help_response.content
+assert b'name="secret_reference"' not in help_response.content
 
 response = client.get(reverse("plugins:netbox_config_backup:backupdestination_add"))
 assert response.status_code == 200
@@ -135,6 +167,7 @@ print(
         "encrypted_fields_present": True,
         "quick_setup_present": True,
         "advanced_settings_present": True,
+        "help_present": True,
         "runtime_controls_present": True,
         "storage_profiles_ui": True,
         "protected_local_storage": True,

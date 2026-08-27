@@ -10,6 +10,7 @@ read-only SSH drivers backed by Netmiko.
 Implemented:
 
 - NetBox `PluginConfig`, dashboard, navigation, and configuration UI
+- task-oriented Settings page and permission-aware, read-only Help center
 - initial Django models and migration
 - `BackupDriver`, `DriverRegistry`, and `FakeDriver`
 - `ConfigStorage` and `LocalConfigStorage`
@@ -394,6 +395,13 @@ individual profile and policy pages remain available from **Settings**.
 Because it assigns a Local retention policy, Quick Setup requires the
 Administrator retention and runtime permissions; Operators can run, test, and
 reschedule existing targets but cannot indirectly authorize future deletion.
+
+The **Settings** page groups reusable defaults by task: device access,
+scheduling and retention, exceptional vendor/security setup, and global
+automation. **Config Backup > Help** provides the recommended setup order,
+Local-versus-FTP retention precedence, storage/receiver differences, and safe
+first checks for common error codes. Help is read-only and is available to the
+Reader role without granting access to Settings or secret values.
 
 Deleting a backup device is an explicit cascade within this plugin: the
 confirmation page lists its runs, revisions, and artifacts, then removes their

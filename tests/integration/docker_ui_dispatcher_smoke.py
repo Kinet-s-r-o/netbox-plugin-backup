@@ -59,6 +59,7 @@ target = BackupTarget.objects.create(device=device, enabled=True, driver_overrid
 list_urls = (
     "home",
     "examples",
+    "help",
     "advanced_settings",
     "backuptarget_list",
     "backuprun_list",

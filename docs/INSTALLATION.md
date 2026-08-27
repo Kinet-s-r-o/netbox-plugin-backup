@@ -118,6 +118,8 @@ replication, audit, and recovery jobs use NetBox's background job system.
 ## 6. Initial UI setup
 
 1. Open **Config Backup → Settings**.
+   Use **Config Backup → Help** for the recommended workflow and retention
+   precedence; the Help page is read-only and is suitable for Reader accounts.
 2. Create the Reader, Operator, and Administrator groups with
    `python manage.py config_backup_create_rbac_groups`, then assign
    users deliberately.

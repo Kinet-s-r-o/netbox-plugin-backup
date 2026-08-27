@@ -50,8 +50,8 @@ zmeny, nereštartuje zariadenie a nevykonáva automatický restore.
 Predpokladom je nainštalovaný plugin, spustený bežný NetBox worker aj dedikovaný
 backup worker a nastavený master key.
 
-1. V **Config Backup → Settings → Credentials** vytvor credential profile.
-2. V **Settings → Connections** vytvor connection profile.
+1. V **Config Backup → Settings → Credential profiles** vytvor credential profile.
+2. V **Settings → Connection profiles** vytvor connection profile.
 3. V **Settings → Platform mappings** priraď platformu k driveru a profilom.
 4. Otvor **Config Backup → Devices → Add device**.
 5. Vyber zariadenie, plán, lokálnu históriu a podľa potreby FTP retenčnú výnimku.
@@ -117,12 +117,20 @@ porovnať verzie, stiahnuť artifact a pripraviť overený balík z FTP kópie.
 
 Stránka je rozdelená na tieto časti:
 
-- **Shared configuration**: Platform mappings, Connections a Credentials,
-- **Advanced profiles**: Backup policies, Local retention profiles, FTP retention profiles, SSH host keys a Native backup receivers,
-- **Automation**: dve samostatné automatické čistenia a NetBox alerts.
+- **Device defaults**: platform mappings, connection profiles a credential profiles,
+- **Schedules and retention**: backup policies, Local retention profiles a FTP retention profiles,
+- **Security and vendor-specific setup**: SSH host keys a device upload receivers; táto časť je predvolene zbalená,
+- **Automation**: samostatné Local a FTP čistenie a NetBox alerts.
 
 Bežné zariadenie sa má dať pridať cez **Add device** bez ručnej tvorby nového
 profilu pre každý kus.
+
+### Help
+
+Read-only stránka **Config Backup → Help** vysvetľuje odporúčané poradie
+nastavenia, tok zálohy, rozdiel medzi Local a FTP úložiskom, poradie retenčných
+pravidiel a prvé kontroly pri bežných error kódoch. Help nezobrazuje heslá ani
+aktuálne nasadené secret hodnoty a je dostupný aj skupine Readers.
 
 ## 4. Príprava NetBox zariadenia
 
@@ -261,7 +269,7 @@ Bezpečný postup:
 2. ak sa zhoduje, klikni na **Trust key and test again**,
 3. pri nezhode ho neschvaľuj a skontroluj IP/DNS a zariadenie.
 
-Hromadný read-only scan je v **Settings → Advanced profiles → SSH host keys**.
+Hromadný read-only scan je v **Settings → Security and vendor-specific setup → SSH host keys**.
 Scan nepoužíva heslo a nespúšťa konfiguračný príkaz.
 
 Vypnutie **Verify host key** odstráni ochranu pred zámennou zariadenia a
@@ -385,7 +393,7 @@ iba v izolovanej dôveryhodnej internej sieti a obmedz FTP účet na určený ad
 
 ### Vytvorenie FTP storage
 
-1. V **Settings → Credentials** vytvor password credential pre FTP účet.
+1. V **Settings → Credential profiles** vytvor password credential pre FTP účet.
 2. Otvor **Config Backup → Storages → Add**. Formulár automaticky vytvorí FTP storage.
 3. Vyplň názov, host, port, base path a credential profile.
 4. Potvrď, že ide o nešifrované FTP v internej sieti.
@@ -640,7 +648,7 @@ otestuj jeden reprezentatívny kus každej platformy a verzie firmvéru.
 ### Natívne backup receivers
 
 Niektoré zariadenia zálohu posielajú smerom k pluginu. Pre ne administrátor
-nastaví **Settings → Advanced profiles → Native backup receivers**. Ide o inú
+nastaví **Settings → Security and vendor-specific setup → Device upload receivers**. Ide o inú
 funkciu než FTP storage:
 
 - native receiver prijíma súbor priamo zo zariadenia počas zberu,

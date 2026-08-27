@@ -597,6 +597,33 @@ class RetentionPolicyForm(NetBoxModelForm):
             "max_runs_per_target",
             "tags",
         )
+        labels: ClassVar[dict[str, str]] = {
+            "name": "Profile name",
+            "keep_all_days": "Keep all revisions (days)",
+            "daily_days": "Keep daily revisions (days)",
+            "weekly_weeks": "Keep weekly revisions (weeks)",
+            "monthly_months": "Keep monthly revisions (months)",
+            "minimum_changed_revisions": "Minimum changed revisions",
+            "unchanged_run_days": "Keep unchanged runs (days)",
+            "changed_run_days": "Keep changed runs (days)",
+            "failed_run_days": "Keep failed runs (days)",
+            "max_runs_per_target": "Maximum completed runs per device",
+        }
+        help_texts: ClassVar[dict[str, str]] = {
+            "keep_all_days": "Keep every local revision created within this period.",
+            "daily_days": "After that, keep the newest local revision from each day.",
+            "weekly_weeks": "Keep the newest local revision from each week in this period.",
+            "monthly_months": "Keep the newest local revision from each month in this period.",
+            "minimum_changed_revisions": (
+                "Always keep at least this many revisions where the configuration changed."
+            ),
+            "unchanged_run_days": "Keep successful run records with no configuration change.",
+            "changed_run_days": "Keep successful run records that created a changed revision.",
+            "failed_run_days": "Keep failed, partial, errored, and skipped run records.",
+            "max_runs_per_target": (
+                "Final safety limit for completed runs. Queued and running jobs are not removed."
+            ),
+        }
 
 
 class RemoteRetentionPolicyForm(NetBoxModelForm):
@@ -612,10 +639,35 @@ class RemoteRetentionPolicyForm(NetBoxModelForm):
             "max_copies_per_target",
             "tags",
         )
+        labels: ClassVar[dict[str, str]] = {
+            "name": "Profile name",
+            "keep_all_days": "Keep all FTP copies (days)",
+            "daily_days": "Keep daily FTP copies (days)",
+            "weekly_weeks": "Keep weekly FTP copies (weeks)",
+            "monthly_months": "Keep monthly FTP copies (months)",
+            "minimum_changed_revisions": "Minimum changed copies",
+            "max_copies_per_target": "Maximum FTP copies per device",
+        }
+        help_texts: ClassVar[dict[str, str]] = {
+            "keep_all_days": "Keep every FTP copy created within this period.",
+            "daily_days": "After that, keep the newest FTP copy from each day.",
+            "weekly_weeks": "Keep the newest FTP copy from each week in this period.",
+            "monthly_months": "Keep the newest FTP copy from each month in this period.",
+            "minimum_changed_revisions": (
+                "Always keep at least this many copies where the configuration changed."
+            ),
+            "max_copies_per_target": (
+                "Final safety limit per device and FTP storage. Latest and protected copies remain."
+            ),
+        }
 
 
 class BackupPolicyForm(NetBoxModelForm):
-    retention_policy = forms.ModelChoiceField(queryset=RetentionPolicy.objects.all())
+    retention_policy = forms.ModelChoiceField(
+        queryset=RetentionPolicy.objects.all(),
+        label="Local retention profile",
+        help_text="Controls local revision and backup run cleanup for devices using this policy.",
+    )
 
     class Meta:
         model = BackupPolicy
@@ -638,6 +690,34 @@ class BackupPolicyForm(NetBoxModelForm):
         widgets: ClassVar[dict[str, forms.Widget]] = {
             "time_of_day": forms.TimeInput(attrs={"type": "time"}),
             "retry_backoff_minutes": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels: ClassVar[dict[str, str]] = {
+            "name": "Policy name",
+            "schedule_type": "Schedule",
+            "interval_minutes": "Run every (minutes)",
+            "time_of_day": "Run at",
+            "timezone_mode": "Time zone source",
+            "jitter_minutes": "Start delay window (minutes)",
+            "connection_timeout": "Connection timeout (seconds)",
+            "command_timeout": "Command timeout (seconds)",
+            "max_retries": "Retry attempts",
+            "retry_backoff_minutes": "Retry delays (minutes)",
+            "store_mode": "Revision creation",
+        }
+        help_texts: ClassVar[dict[str, str]] = {
+            "enabled": "Disabled policies do not queue scheduled backups.",
+            "schedule_type": "Run at a fixed daily time or at a repeating interval.",
+            "interval_minutes": "Required only for an interval schedule.",
+            "time_of_day": "Required only for a daily schedule.",
+            "timezone_mode": (
+                "Use the device site's time zone or the default time zone configured in NetBox."
+            ),
+            "jitter_minutes": "Spread start times randomly across this window to reduce load.",
+            "connection_timeout": "Maximum time allowed to establish a device connection.",
+            "command_timeout": "Maximum time allowed for a backup command to finish.",
+            "max_retries": "Number of retries after the first failed attempt.",
+            "retry_backoff_minutes": "JSON list of delays, for example [1, 5, 15].",
+            "store_mode": "Store only changes or create a revision after every successful run.",
         }
 
     def save(self, commit=True):
@@ -672,6 +752,31 @@ class ConnectionProfileForm(NetBoxModelForm):
             "known_hosts_path",
             "tags",
         )
+        labels: ClassVar[dict[str, str]] = {
+            "name": "Profile name",
+            "protocol": "Connection protocol",
+            "address_preference": "Management address",
+            "port": "TCP port",
+            "connect_timeout": "Connection timeout (seconds)",
+            "command_timeout": "Command timeout (seconds)",
+            "keepalive": "Keepalive interval (seconds)",
+            "verify_host_key": "Verify SSH host key",
+            "known_hosts_path": "Known hosts file",
+        }
+        help_texts: ClassVar[dict[str, str]] = {
+            "protocol": "Automatic lets the selected driver and port choose SSH or Telnet.",
+            "address_preference": "Choose which NetBox device address is tried first.",
+            "port": "Use 22 for SSH or 23 for Telnet unless the device uses a custom port.",
+            "connect_timeout": "Maximum time allowed to establish the session.",
+            "command_timeout": "Maximum time allowed for one backup command to finish.",
+            "keepalive": "Send a keepalive at this interval. Use 0 to disable it.",
+            "verify_host_key": (
+                "Require the device SSH key to match the configured known hosts file."
+            ),
+            "known_hosts_path": (
+                "Path available inside both the NetBox and worker containers. Not used for Telnet."
+            ),
+        }
 
 
 class CredentialProfileForm(NetBoxModelForm):
@@ -680,24 +785,24 @@ class CredentialProfileForm(NetBoxModelForm):
             ("environment", "Environment variables"),
             ("encrypted_database", "Encrypted database (write-only password)"),
         ),
-        help_text=(
-            "Use an encrypted write-only password in NetBox or reference an environment variable."
-        ),
+        label="Credential source",
+        help_text="Store an encrypted password or reference an environment variable.",
     )
     secret_reference = forms.CharField(
         required=False,
-        help_text="Environment example: env://ROUTER_1.",
+        label="Environment reference",
+        help_text="Required for environment credentials. Example: env://ROUTER_1.",
     )
     username = forms.CharField(
         required=False,
         max_length=255,
-        help_text="Used only by the encrypted database provider.",
+        help_text="Used only when the password is stored by the plugin.",
     )
     password = forms.CharField(
         required=False,
         strip=False,
         widget=forms.PasswordInput(render_value=False),
-        help_text="Write-only. Leave blank while editing to keep the current password.",
+        help_text="Stored encrypted and never displayed. Leave blank while editing to keep it.",
     )
     password_confirm = forms.CharField(
         required=False,
@@ -836,6 +941,13 @@ class CredentialProfileForm(NetBoxModelForm):
             "password_confirm",
             "tags",
         )
+        labels: ClassVar[dict[str, str]] = {
+            "name": "Profile name",
+            "auth_type": "Authentication method",
+        }
+        help_texts: ClassVar[dict[str, str]] = {
+            "auth_type": "Select the authentication method expected by the device.",
+        }
 
 
 class FtpIntegrityAuditScheduleForm(forms.ModelForm):
@@ -894,16 +1006,18 @@ class BackupDestinationForm(NetBoxModelForm):
     )
     allow_insecure_ftp = forms.BooleanField(
         required=False,
-        label=(
-            "I understand that FTP sends the password and backup configuration without encryption"
+        label="Allow unencrypted FTP",
+        help_text=(
+            "Required to save. Use only on a trusted internal network because FTP does not "
+            "encrypt credentials or backup data."
         ),
-        help_text="Required because this FTP storage is intended for a trusted internal network.",
     )
     credential_profile = forms.ModelChoiceField(
         queryset=CredentialProfile.objects.filter(auth_type="password").exclude(
             provider_id="vault_kv2"
         ),
-        help_text="Reusable password login for the internal FTP server.",
+        label="FTP credentials",
+        help_text="Reusable username and password used to sign in to this FTP server.",
     )
 
     def __init__(self, *args, **kwargs):
@@ -998,6 +1112,35 @@ class BackupDestinationForm(NetBoxModelForm):
             "max_artifact_size",
             "tags",
         )
+        labels: ClassVar[dict[str, str]] = {
+            "name": "Storage name",
+            "enabled": "Use this storage",
+            "auto_replicate": "Copy new revisions automatically",
+            "local_retention_policy": "Local retention profile",
+            "remote_retention_policy": "FTP retention profile",
+            "host": "FTP server",
+            "port": "FTP port",
+            "base_path": "Base directory",
+            "connect_timeout": "Connection timeout (seconds)",
+            "max_retries": "Retry attempts",
+            "retry_delay_minutes": "Retry delay (minutes)",
+            "max_artifact_size": "Maximum artifact size (bytes)",
+        }
+        help_texts: ClassVar[dict[str, str]] = {
+            "enabled": "Disabled FTP storage receives no new copies, retries, or audits.",
+            "auto_replicate": "Copy each new local revision to this FTP storage automatically.",
+            "local_retention_policy": (
+                "Default cleanup profile for local revisions and run history."
+            ),
+            "remote_retention_policy": "Default cleanup profile for copies on this FTP storage.",
+            "host": "DNS name or IP address reachable from the NetBox worker.",
+            "port": "FTP control port. The default is 21.",
+            "base_path": "Directory below which device backup folders are created.",
+            "connect_timeout": "Maximum time allowed to connect to the FTP server.",
+            "max_retries": "Number of copy retries after the first failed attempt.",
+            "retry_delay_minutes": "Wait time between failed copy attempts.",
+            "max_artifact_size": "Largest single backup artifact accepted by this storage.",
+        }
 
 
 class SftpReceiverProfileForm(NetBoxModelForm):
@@ -1032,17 +1175,34 @@ class SftpReceiverProfileForm(NetBoxModelForm):
 
 
 class PlatformMappingForm(NetBoxModelForm):
-    platform = DynamicModelChoiceField(queryset=Platform.objects.all())
+    platform = DynamicModelChoiceField(
+        queryset=Platform.objects.all(),
+        label="NetBox platform",
+        help_text="Devices using this platform inherit the defaults below.",
+    )
     connection_profile = forms.ModelChoiceField(
-        queryset=ConnectionProfile.objects.all(), required=False
+        queryset=ConnectionProfile.objects.all(),
+        required=False,
+        label="Default connection",
+        help_text="Address selection, protocol, port, timeouts, and SSH verification.",
     )
     credential_profile = forms.ModelChoiceField(
-        queryset=CredentialProfile.objects.exclude(provider_id="vault_kv2"), required=False
+        queryset=CredentialProfile.objects.exclude(provider_id="vault_kv2"),
+        required=False,
+        label="Default credentials",
+        help_text="Login used unless the backup device has its own credential override.",
     )
     receiver_profile = forms.ModelChoiceField(
-        queryset=SftpReceiverProfile.objects.all(), required=False
+        queryset=SftpReceiverProfile.objects.all(),
+        required=False,
+        label="Native backup receiver",
+        help_text="Required only for drivers where the device sends a native backup file.",
     )
-    driver_id = forms.ChoiceField(choices=(), label="Driver")
+    driver_id = forms.ChoiceField(
+        choices=(),
+        label="Backup driver",
+        help_text="Select the driver that matches devices using this NetBox platform.",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1065,6 +1225,14 @@ class PlatformMappingForm(NetBoxModelForm):
         )
         widgets: ClassVar[dict[str, forms.Widget]] = {
             "driver_options": forms.Textarea(attrs={"rows": 5})
+        }
+        labels: ClassVar[dict[str, str]] = {
+            "enabled": "Use this mapping",
+            "driver_options": "Driver options (JSON)",
+        }
+        help_texts: ClassVar[dict[str, str]] = {
+            "enabled": "Disabled mappings are ignored by automatic device setup.",
+            "driver_options": "Optional driver-specific settings as a JSON object.",
         }
 
 

@@ -41,6 +41,11 @@ menu = PluginMenu(
                     link_text="Settings",
                     permissions=("netbox_config_backup.view_operationalsettings",),
                 ),
+                PluginMenuItem(
+                    link="plugins:netbox_config_backup:help",
+                    link_text="Help",
+                    permissions=("netbox_config_backup.view_backuptarget",),
+                ),
             ),
         ),
     ),

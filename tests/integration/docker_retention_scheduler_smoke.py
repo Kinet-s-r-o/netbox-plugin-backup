@@ -276,8 +276,8 @@ try:
     assert operational_settings.remote_retention_scheduler_enabled is False
     settings_response = client.get(reverse("plugins:netbox_config_backup:advanced_settings"))
     assert settings_response.status_code == 200
-    assert b"Expired backup data" in settings_response.content
-    assert b"Enable local cleanup" in settings_response.content
+    assert b"Automatic cleanup" in settings_response.content
+    assert b"Enable Local cleanup" in settings_response.content
     assert b"Enable FTP cleanup" in settings_response.content
     assert b"Runs every 24 hours" in settings_response.content
     assert b'name="retention_scheduler_batch_size"' in settings_response.content
@@ -351,6 +351,34 @@ try:
     assert operational_settings.retention_scheduler_enabled is True
     assert operational_settings.remote_retention_scheduler_enabled is False
 
+    enable_remote_response = client.post(
+        reverse("plugins:netbox_config_backup:advanced_settings"),
+        {
+            "settings_action": "retention",
+            "retention_scheduler_enabled": "on",
+            "remote_retention_scheduler_enabled": "on",
+            "retention_scheduler_batch_size": "25",
+            "confirm_remote_enable": "on",
+        },
+    )
+    assert enable_remote_response.status_code == 302
+    operational_settings.refresh_from_db()
+    assert operational_settings.retention_scheduler_enabled is True
+    assert operational_settings.remote_retention_scheduler_enabled is True
+
+    disable_remote_response = client.post(
+        reverse("plugins:netbox_config_backup:advanced_settings"),
+        {
+            "settings_action": "retention",
+            "retention_scheduler_enabled": "on",
+            "retention_scheduler_batch_size": "25",
+        },
+    )
+    assert disable_remote_response.status_code == 302
+    operational_settings.refresh_from_db()
+    assert operational_settings.retention_scheduler_enabled is True
+    assert operational_settings.remote_retention_scheduler_enabled is False
+
     enabled_settings_response = client.get(
         reverse("plugins:netbox_config_backup:advanced_settings")
     )
@@ -395,6 +423,8 @@ try:
             "default_disabled": True,
             "remote_default_disabled": True,
             "remote_requires_separate_confirmation": True,
+            "remote_positive_enable": True,
+            "shared_form_preserves_local_switch": True,
             "enabled_queued": enabled_result["queued"],
             "active_backup_skipped": True,
             "active_cleanup_skipped": True,

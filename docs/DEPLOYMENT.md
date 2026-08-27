@@ -172,7 +172,7 @@ currently Ceragon IP-50/CeraOS and first-generation SIAE ALFOplus.
    encrypted database credential. Use a unique username and password. CeraOS
    CLI-safe values contain letters, numbers and `._@%+,:=-`; the password must
    be at least eight characters.
-2. In **Config Backup > Settings > Backup receivers**, create a profile named
+2. In **Config Backup > Settings > Security and vendor-specific setup > Device upload receivers**, create a profile named
    `default` and select that credential.
 3. Prefer **Direct from device** when devices can reach the receiver. Set
    `advertised_host` to the stable DNS name or IP visible from the management

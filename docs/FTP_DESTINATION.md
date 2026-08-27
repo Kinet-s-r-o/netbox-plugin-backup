@@ -29,7 +29,7 @@ for that storage and ignores the corresponding device override.
 
 1. Create a dedicated password account on the FTP server. Restrict it to one
    directory and do not grant administrator access.
-2. In **Config Backup → Settings → Credentials**, create an encrypted database
+2. In **Config Backup → Settings → Credential profiles**, create an encrypted database
    password credential or a supported environment reference.
 3. Open **Config Backup → Storages → Add**. The Add form creates an FTP
    storage; the protected Local storage is created only by the plugin.
