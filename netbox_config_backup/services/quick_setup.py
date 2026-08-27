@@ -128,6 +128,7 @@ def create_quick_setup(
     restore_point: str = "restore-point-1",
     port: int,
     verify_host_key: bool,
+    auto_trust_first_host_key: bool = False,
     username: str,
     password: str,
     schedule: str,
@@ -164,10 +165,10 @@ def create_quick_setup(
             verify_host_key=(
                 verify_host_key if resolved_protocol != ConnectionProtocolChoices.TELNET else False
             ),
-            known_hosts_path=(
-                "/etc/netbox-config-backup/ssh/known_hosts"
-                if verify_host_key and resolved_protocol != ConnectionProtocolChoices.TELNET
-                else ""
+            auto_trust_first_host_key=(
+                auto_trust_first_host_key
+                if resolved_protocol != ConnectionProtocolChoices.TELNET and verify_host_key
+                else False
             ),
         )
 

@@ -1,8 +1,9 @@
+{% load i18n %}
 <a class="settings-link" href="{% url link_name %}">
   <span class="settings-link-icon" aria-hidden="true"><i class="mdi {{ icon }}"></i></span>
   <span class="settings-link-copy">
-    <strong>{{ title }}</strong>
-    <span>{{ description }}</span>
+    <strong>{% translate title %}</strong>
+    <span>{% translate description %}</span>
   </span>
   <i class="mdi mdi-chevron-right settings-link-arrow" aria-hidden="true"></i>
 </a>

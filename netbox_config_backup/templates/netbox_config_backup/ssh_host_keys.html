@@ -89,7 +89,9 @@
   </div>
 
   <div class="alert alert-warning mt-3 mb-0">
-    A changed fingerprint is always shown as a new pending key. The plugin never replaces a trusted identity automatically.
+    A changed fingerprint is always shown as a new pending key. When a replacement is approved,
+    the previous key remains only as a rejected audit record and is no longer accepted. Profiles
+    with SSH identity verification disabled do not use this list.
   </div>
 </div>
 {% endblock content %}

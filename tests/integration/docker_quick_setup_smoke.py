@@ -24,6 +24,7 @@ from netbox_config_backup.models import (
     StoredCredential,
 )
 from netbox_config_backup.services.quick_setup import create_quick_setup
+from netbox_config_backup.services.ui_language import SESSION_KEY
 
 # Every database mutation in this smoke test lives inside one outer
 # transaction. The atexit rollback runs after both a successful script and an
@@ -73,6 +74,9 @@ user = get_user_model().objects.create_superuser(
 )
 client = Client()
 client.force_login(user)
+session = client.session
+session[SESSION_KEY] = "en"
+session.save()
 
 add_url = reverse("plugins:netbox_config_backup:backuptarget_add")
 available_devices_url = reverse("plugins-api:netbox_config_backup-api:available-device-list")
@@ -88,7 +92,7 @@ assert b"Advanced settings" in response.content
 assert b"Usually not required" in response.content
 assert b"Technical defaults are applied automatically" in response.content
 assert b'name="remote_retention_days"' in response.content
-assert b"Use FTP storage profile" in response.content
+assert b"Use remote storage profile" in response.content
 assert b"Allow the device to create and send a backup file" in response.content
 assert b'<details class="card advanced-settings mt-4">' in response.content
 
@@ -99,7 +103,7 @@ response = client.post(
         "driver_id": "",
         "protocol": "auto",
         "port": 2222,
-        "verify_host_key": "on",
+        "host_key_policy": "strict",
         "username": "quick-user",
         "password": plaintext,
         "password_confirm": plaintext,
@@ -132,6 +136,7 @@ assert any(item["id"] == available_device.pk for item in response.json()["result
 assert target.driver_override == "fake"
 assert target.connection_override.port == 2222
 assert target.connection_override.verify_host_key is True
+assert target.connection_override.auto_trust_first_host_key is False
 assert target.policy_override.schedule_type == "interval"
 assert target.policy_override.interval_minutes == 360
 assert target.policy_override.retention_policy.daily_days == 90
@@ -290,7 +295,7 @@ response = client.get(reverse("plugins:netbox_config_backup:advanced_settings"))
 assert response.status_code == 200
 assert b"Platform mappings" in response.content
 assert b"Add device" not in response.content
-assert b"Credentials" in response.content
+assert b"Credential profiles" in response.content
 
 response = client.post(
     add_url,

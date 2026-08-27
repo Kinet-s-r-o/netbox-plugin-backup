@@ -28,9 +28,11 @@ from .choices import (
     MANAGED_DESTINATION_PROTOCOLS,
     REPLICATED_DESTINATION_PROTOCOLS,
     DestinationProtocolChoices,
+    InterfaceLanguageChoices,
     ReplicaStatusChoices,
     RunSourceChoices,
     RunStatusChoices,
+    SSHHostKeyPolicyChoices,
 )
 from .drivers import driver_registry
 from .jobs import (
@@ -107,6 +109,7 @@ from .services.runtime_controls import get_runtime_controls
 from .services.scheduling import apply_target_schedule
 from .services.ssh_host_keys import reject_host_key, trust_host_key
 from .services.target_deletion import TargetDeletionError, delete_backup_target
+from .services.ui_language import SESSION_KEY, resolve_ui_language
 
 
 def _connection_test_job(target, job_id):
@@ -245,6 +248,11 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
                     "notification_settings_form",
                     forms.NotificationSettingsForm(instance=operational_settings),
                 ),
+                "interface_language_form": kwargs.get(
+                    "interface_language_form",
+                    forms.InterfaceLanguageSettingsForm(instance=operational_settings),
+                ),
+                "current_ui_language": resolve_ui_language(self.request),
                 "can_change_operational_settings": self.request.user.has_perm(
                     "netbox_config_backup.change_operationalsettings"
                 ),
@@ -263,6 +271,8 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
             raise PermissionDenied
         operational_settings = self._operational_settings()
         settings_action = request.POST.get("settings_action", "retention")
+        if settings_action == "language":
+            return self._save_language(request, operational_settings)
         if settings_action in {"notifications", "runtime_integrations"}:
             return self._save_notifications(request, operational_settings)
         if settings_action != "retention":
@@ -293,6 +303,31 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
             f"Automatic local retention is {local_state}; remote retention is {remote_state}. "
             "No Docker restart is required.",
         )
+        return redirect("plugins:netbox_config_backup:advanced_settings")
+
+    def _save_language(self, request, operational_settings):
+        form = forms.InterfaceLanguageSettingsForm(
+            request.POST,
+            instance=operational_settings,
+        )
+        if not form.is_valid():
+            if operational_settings.pk:
+                operational_settings.refresh_from_db()
+            context = self.get_context_data(
+                operational_settings=operational_settings,
+                interface_language_form=form,
+            )
+            return render(request, self.template_name, context, status=400)
+
+        if operational_settings.pk and hasattr(operational_settings, "snapshot"):
+            operational_settings.snapshot()
+        operational_settings._changelog_message = "Updated Config Backup interface language."
+        operational_settings = form.save()
+        request.session.pop(SESSION_KEY, None)
+        if operational_settings.ui_language == InterfaceLanguageChoices.SLOVAK:
+            messages.success(request, "Jazyk pluginu bol nastavený na slovenčinu.")
+        else:
+            messages.success(request, "The plugin language was set to English.")
         return redirect("plugins:netbox_config_backup:advanced_settings")
 
     def _save_notifications(self, request, operational_settings):
@@ -326,6 +361,20 @@ class ConfigBackupHelpView(PermissionRequiredMixin, LoginRequiredMixin, Template
     template_name = "netbox_config_backup/help.html"
     permission_required = "netbox_config_backup.view_backuptarget"
     raise_exception = True
+
+    def get(self, request, *args, **kwargs):
+        requested_language = request.GET.get("language")
+        if requested_language is not None:
+            if requested_language not in InterfaceLanguageChoices.values:
+                return HttpResponseBadRequest("Unsupported interface language.")
+            request.session[SESSION_KEY] = requested_language
+            return redirect("plugins:netbox_config_backup:help")
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["current_ui_language"] = resolve_ui_language(self.request)
+        return context
 
 
 def _queryset_fully_permitted(queryset, user, action: str) -> bool:
@@ -734,8 +783,7 @@ class ConnectionProfileView(ConfigObjectView):
         "connect_timeout",
         "command_timeout",
         "keepalive",
-        "verify_host_key",
-        "known_hosts_path",
+        "host_key_policy_label",
     )
 
 
@@ -1528,7 +1576,12 @@ class BackupTargetQuickSetupView(LoginRequiredMixin, PermissionRequiredMixin, Fo
             restore_point=form.cleaned_data["restore_point"],
             port=form.cleaned_data["port"],
             protocol=form.cleaned_data["protocol"],
-            verify_host_key=form.cleaned_data["verify_host_key"],
+            verify_host_key=(
+                form.cleaned_data["host_key_policy"] != SSHHostKeyPolicyChoices.DISABLED
+            ),
+            auto_trust_first_host_key=(
+                form.cleaned_data["host_key_policy"] == SSHHostKeyPolicyChoices.TRUST_ON_FIRST_USE
+            ),
             username=form.cleaned_data["username"],
             password=form.cleaned_data["password"],
             schedule=form.cleaned_data["schedule"],

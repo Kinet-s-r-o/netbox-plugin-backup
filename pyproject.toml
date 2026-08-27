@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-config-backup"
-version = "0.6.0"
+version = "0.7.0"
 description = "A NetBox plugin for auditable network device configuration backups."
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ dependencies = [
   "sqlparse>=0.6,<1",
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Framework :: Django",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
@@ -36,14 +36,17 @@ vault = [
   "hvac>=2.4,<3",
 ]
 test = [
+  "build>=1.2,<2",
   "coverage[toml]>=7.6",
+  "ruff>=0.12,<1",
+  "twine>=6,<7",
 ]
 
 [tool.setuptools.packages.find]
 include = ["netbox_config_backup*"]
 
 [tool.setuptools.package-data]
-netbox_config_backup = ["templates/**/*.html", "static/**/*"]
+netbox_config_backup = ["templates/**/*.html", "static/**/*", "locale/**/*"]
 
 [tool.coverage.run]
 branch = true

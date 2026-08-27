@@ -57,7 +57,9 @@ backup worker a nastavený master key.
 4. Otvor **Config Backup → Devices → Add device**.
 5. Vyber zariadenie, plán, lokálnu históriu a podľa potreby FTP retenčnú výnimku.
 6. Klikni na **Save & test connection**.
-7. Pri prvom SSH spojení over fingerprint a schváľ host key.
+7. Pri SSH profile skontroluj výsledok podľa zvoleného režimu identity. V
+   manuálnom režime porovnaj fingerprint a schváľ host key; TOFU prijme iba
+   úplne prvý kľúč automaticky.
 8. Po úspešnom teste otvor detail zariadenia a klikni na **Run backup**.
 9. Skontroluj výsledok v **Runs** a uložený obsah v **Revisions**.
 10. Ak používaš FTP, najprv otestuj FTP storage a potom over reálnu kópiu revision.
@@ -73,6 +75,36 @@ Bez efektívnej politiky sa príslušná história uchováva bez časového limi
 
 Zariadenie, ktoré už má backup target, sa v zozname **Add device** znova
 nezobrazí.
+
+### Jazyk pluginu
+
+Správca nastaví predvolený jazyk v **Config Backup → Settings → Jazyk pluginu**.
+Voľba platí iba pre stránky Config Backup a nemení jazyk ostatných častí
+NetBoxu. Aktuálne sú dostupné **Slovenčina** a **English**.
+
+Každý používateľ si môže jazyk dočasne prepnúť aj priamo v **Config Backup →
+Help**. Táto osobná voľba sa uloží iba do jeho prihlásenej relácie a má prednosť
+pred globálnym nastavením. Používateľ ju prepne späť rovnakými tlačidlami v
+Help; po skončení relácie sa opäť použije globálny jazyk.
+
+### Overovanie identity SSH zariadenia
+
+Connection profile ponúka tri režimy:
+
+- **Vyžadovať manuálne schválenie** – prvý fingerprint musí schváliť administrátor;
+  ide o najbezpečnejšiu predvolenú voľbu.
+- **Automaticky dôverovať prvému kľúču** – prvý kľúč zistený pre dané zariadenie,
+  adresu a port sa automaticky označí ako dôveryhodný. Každá neskoršia zmena
+  sa zablokuje a musí sa schváliť manuálne.
+- **Neoverovať SSH identitu** – plugin identitu SSH servera nekontroluje.
+  Používajte iba ako vedomú výnimku v dôveryhodnej manažmentovej sieti.
+
+Pri manuálnom schválení náhradného kľúča sa všetky staršie dôveryhodné kľúče
+rovnakého endpointu označia ako odmietnuté. Z databázy sa automaticky nemažú,
+pretože slúžia ako auditná história, ale pri spojení sa už neakceptujú.
+Samotné vypnutie overovania existujúce záznamy nemaže ani nemení: profil ich
+počas vypnutia iba nepoužíva. Plugin zároveň počas vypnutia nedokáže rozpoznať
+zmenu identity zariadenia.
 
 ## 3. Navigácia pluginu
 
@@ -139,11 +171,12 @@ aktuálne nasadené secret hodnoty a je dostupný aj skupine Readers.
 Plugin potrebuje použiteľnú management adresu. Connection profile určuje jej
 poradie:
 
-- **OOB first** – najskôr OOB IP, potom primárna IP,
+- **Najprv samostatná management IP (OOB)** – najskôr pole OOB IP zariadenia
+  v NetBoxe, potom primárna IP,
 - **Primary IPv4 first** – uprednostní primárnu IPv4,
 - **Primary IPv6 first** – uprednostní primárnu IPv6.
 
-OOB znamená *out-of-band management*: samostatná správcovská adresa alebo sieť,
+OOB znamená *out-of-band management*: samostatná management adresa alebo sieť,
 ktorá nemusí používať produkčnú dátovú cestu. Zvolená adresa musí byť dostupná
 z NetBox/backup worker kontajnera, nie iba z počítača používateľa.
 
@@ -191,12 +224,12 @@ Connection profile sa zdieľa medzi zariadeniami s rovnakým spôsobom prístupu
 Obsahuje:
 
 - protokol **Automatic**, **SSH** alebo **Telnet**,
-- preferenciu OOB/primárnej adresy,
+- prioritu samostatnej management IP (OOB) alebo primárnej adresy,
 - port,
 - connect timeout,
 - command timeout,
 - keepalive,
-- SSH host-key verification a cestu ku `known_hosts`.
+- režim overovania SSH identity; dôveryhodné kľúče spravuje plugin automaticky.
 
 **Automatic** používa rozhodnutie drivera a portu; štandardne SSH na porte 22
 a Telnet na porte 23. Pri Telnete sa host-key kontrola nepoužíva.
@@ -247,7 +280,7 @@ politika je povinná a tieto voľby zariadenia ju neprepíšu.
 
 Rozbaľ ich iba vtedy, keď automatic mapping nestačí. Obsahujú driver, native
 receiver, restore point/workspace, connection profile, protokol, port,
-host-key kontrolu a dedicated login.
+režim overovania SSH identity a dedicated login.
 
 Ak vyberieš credential profile, polia dedicated login sa nepoužijú. Ak vyberieš
 connection profile, adresa, port, timeouty a host-key správanie sa prevezmú z
@@ -261,22 +294,43 @@ Neznamená súhlas s obnovou konfigurácie ani rebootom.
 
 ## 9. SSH host keys
 
-Pri zapnutej voľbe **Verify host key** plugin overuje, že sa pripája k správnemu
-zariadeniu. Prvý test môže skončiť `HOST_KEY_UNKNOWN` a zobraziť SHA-256
-fingerprint.
+Režim sa vyberá v **Connection profile → SSH identity verification** a rovnaká
+voľba je dostupná v Advanced settings pri rýchlom pridaní zariadenia.
 
-Bezpečný postup:
+### Vyžadovať manuálne schválenie
+
+Toto je bezpečné predvolené nastavenie. Prvý test môže skončiť
+`HOST_KEY_UNKNOWN` a zobraziť SHA-256 fingerprint:
 
 1. porovnaj fingerprint s konzolou, webovým rozhraním, PuTTY alebo správcom zariadenia,
 2. ak sa zhoduje, klikni na **Trust key and test again**,
 3. pri nezhode ho neschvaľuj a skontroluj IP/DNS a zariadenie.
 
-Hromadný read-only scan je v **Settings → Security and vendor-specific setup → SSH host keys**.
-Scan nepoužíva heslo a nespúšťa konfiguračný príkaz.
+### Automaticky dôverovať prvému kľúču (TOFU)
 
-Vypnutie **Verify host key** odstráni ochranu pred zámennou zariadenia a
-man-in-the-middle útokom. Má byť iba dočasným diagnostickým krokom v dôveryhodnej
-sieti, nie bežným produkčným nastavením.
+Plugin automaticky prijme iba prvú SSH identitu, ktorá bola kedy zaznamenaná
+pre kombináciu backup targetu, adresy a portu. Ak už pre endpoint existuje
+pending, trusted alebo rejected história, ďalší kľúč sa automaticky neprijme.
+Zmena fingerprintu preto zostane zablokovaná a čaká na manuálne overenie.
+
+### Neoverovať SSH identitu
+
+Plugin sa môže pripojiť bez kontroly host key. Záznamy v zozname dôveryhodných
+identít sa nepoužijú, no automaticky sa nevymažú. Tento režim odstráni ochranu
+pred zámennou zariadenia a man-in-the-middle útokom. Použi ho iba ako vedomú
+výnimku v izolovanej dôveryhodnej manažmentovej sieti.
+
+Hromadný read-only scan je v **Settings → Security and vendor-specific setup → SSH host keys**.
+Scan nepoužíva heslo a nespúšťa konfiguračný príkaz. Profily s vypnutým
+overovaním sa pri skene preskočia.
+
+### Výmena alebo starý kľúč
+
+Zmenený fingerprint sa nikdy automaticky neprijme, a to ani v TOFU režime.
+Keď administrátor po nezávislom overení schváli náhradu, plugin označí všetky
+staršie dôveryhodné kľúče rovnakého targetu, adresy a portu ako **Rejected**.
+Starý kľúč sa už nepoužíva, ale riadok zostáva v PostgreSQL ako auditná stopa.
+Fyzické automatické mazanie starých SSH identít sa nevykonáva.
 
 ## 10. Test connection
 
@@ -689,7 +743,7 @@ nemusí podporovať úplný `show running-config`. Ak automatický driver oznám
 | `CONNECTION_REFUSED` | Správny protokol, port a zapnutú službu na zariadení. |
 | `TIMEOUT` | Routing/VPN, firewall, IP, port a connect timeout. |
 | `AUTH_FAILED` | Credential profile, používateľské meno, heslo a povolený spôsob loginu. |
-| `HOST_KEY_UNKNOWN` | Over a schváľ zobrazený fingerprint. |
+| `HOST_KEY_UNKNOWN` | V manuálnom alebo TOFU režime over nový fingerprint; zmenený kľúč schváľ iba po nezávislom potvrdení. |
 | `HOST_KEY_FAILED` / `HOST_KEY_MISMATCH` | Zariadenie mohlo vymeniť kľúč alebo ide o inú IP; neschvaľuj bez overenia. |
 | `COMMAND_UNSUPPORTED` | Model alebo firmware nepodporuje príkaz drivera; potrebuje iný bezpečný workflow. |
 | `INCOMPLETE_CONFIG` | Výstup neobsahuje úplnú konfiguráciu; skontroluj driver, oprávnenia a paging. |
@@ -711,7 +765,8 @@ používajú aj bežný NetBox worker.
 
 - Plugin spúšťaj z oddelenej management siete.
 - Používaj samostatné účty s minimálnymi právami.
-- SSH host keys overuj podľa fingerprintu.
+- V produkcii používaj manuálne schválenie SSH identity a fingerprint overuj nezávislým kanálom.
+- TOFU používaj iba pri kontrolovanom prvom nasadení; vypnuté overovanie iba ako zdokumentovanú výnimku v izolovanej sieti.
 - Telnet a FTP povoľ iba v izolovanej dôveryhodnej sieti.
 - Master key a PostgreSQL zálohuj oddelene, ale obnovuj ich spolu.
 - Artifact volume musí byť perzistentné a prístupné iba NetBox service účtu.
@@ -731,7 +786,7 @@ Podrobnosti sú v [SECURITY.md](SECURITY.md).
 3. Priprav connection profile a credential profile.
 4. Vytvor platform mapping.
 5. Pridaj jeden testovací kus.
-6. Over host key.
+6. Vyber režim SSH identity; pri manuálnom režime over a schváľ host key.
 7. Spusti connection test.
 8. Spusti manuálny backup.
 9. Otvor revision, náhľad a artifact download.

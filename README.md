@@ -15,7 +15,7 @@ Implemented:
 - `BackupDriver`, `DriverRegistry`, and `FakeDriver`
 - `ConfigStorage` and `LocalConfigStorage`
 - `SecretProvider`, safe credential material, provider registry, and an environment provider
-- shared Netmiko 4 transport with strict host-key support and stable safe errors
+- shared Netmiko 4 transport with configurable SSH identity verification and stable safe errors
 - read-only MikroTik RouterOS driver using a terse, secret-hidden text export
 - read-only Cisco IOS and IOS-XE drivers using `show running-config`
 - declarative Dell, FS, HP, Huawei, TP-Link, Ubiquiti, and ZTE driver profiles
@@ -57,7 +57,7 @@ Deferred by design:
 
 ## Install in NetBox
 
-The supported production path for release `0.6.x` is NetBox 4.6, local primary
+The supported production path for release `0.7.x` is NetBox 4.6, local primary
 artifact storage, and optional FTP, NFS, or SMB3 replication configured from the UI. Vault,
 S3, and external SFTP replication are not required for a standard installation.
 The S3 and Vault client libraries are optional package extras; install
@@ -72,6 +72,8 @@ is in [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
 Review [SECURITY.md](SECURITY.md) before a production deployment, especially
 the host-key, master-key, RBAC, FTP-network, and dependency requirements.
+Maintainers should use the repeatable checklist in
+[docs/RELEASING.md](docs/RELEASING.md) before publishing a package or image.
 
 Enable the plugin:
 
@@ -203,8 +205,8 @@ NetBox; never put a password or private key in a database field.
 ## Netmiko transport
 
 Vendor drivers can use the shared transport to inherit connection-profile
-settings, in-memory password/private-key authentication, strict SSH host-key
-checking, command timeouts, and guaranteed disconnect handling. Transport
+settings, in-memory password/private-key authentication, the selected SSH
+server-identity policy, command timeouts, and guaranteed disconnect handling. Transport
 failures are converted to stable codes such as `AUTH_FAILED`, `TIMEOUT`,
 `HOST_KEY_FAILED`, and `CONNECTION_FAILED`; raw exception messages are not
 persisted.
@@ -234,7 +236,7 @@ The registry currently includes these real network profiles:
 
 - Cisco IOS and IOS-XE. The IOS driver supports independently trusted legacy
   `ssh-rsa` appliance host keys for older Catalyst hardware while retaining
-  strict `known_hosts` verification and disabling legacy user-key authentication.
+  host-key verification when it is enabled and disabling legacy user-key authentication.
 - Dell OS6, OS9/Force10, SmartFabric OS10, and PowerConnect
 - FS/Fiberstore FSOS and FSOS v2
 - HP/HPE Comware and HP/Aruba ProCurve
@@ -260,8 +262,8 @@ registered as hidden compatibility backends and are not offered in normal UI
 forms. The default method runs only `show running-config`; the result is a text snapshot of the SM-OS configuration
 and not a full restorable `.bku`/`.bak` package. Prefer SSH. Its compatibility
 exception permits the old
-`ssh-rsa` appliance host key only for this driver, retains strict `known_hosts`
-verification, disables SSH agent use, and does not enable legacy `ssh-rsa`
+`ssh-rsa` appliance host key only for this driver, retains the configured
+server-identity policy, disables SSH agent use, and does not enable legacy `ssh-rsa`
 user-key authentication. The Telnet profile sends credentials and configuration
 without transport encryption and should be limited to a trusted management
 network or protected VPN.
@@ -358,15 +360,16 @@ artifact counts/sizes are recorded in the job log.
 For the local Docker stack, copy
 `C:\dev\netbox-docker\env\config-backup.env.example` to
 `C:\dev\netbox-docker\env\config-backup.env`. Both the web and worker services
-load this ignored file. Deployment-wide SSH host keys may still be kept in
-`C:\dev\netbox-docker\env\config-backup-ssh\known_hosts`, mounted read-only at
-`/etc/netbox-config-backup/ssh/known_hosts`. The normal onboarding workflow is
-available in **Config Backup > Settings > Security and vendor-specific setup >
-SSH host keys**: the plugin scans the pre-authentication
+load this ignored file. SSH identities are normally managed in PostgreSQL by
+the plugin and do not require a manually configured file in a Connection
+Profile. The onboarding workflow is available in **Config Backup > Settings > Security and vendor-specific setup >
+SSH host keys**. Under manual approval the plugin scans the pre-authentication
 SSH handshake, presents the SHA256 fingerprint for administrator approval, and
-stores approved public host keys in PostgreSQL. A changed key always creates a
-new pending candidate and never replaces an approved key automatically. Do not
-populate either environment file from chat history or commit it to Git.
+stores approved public host keys in PostgreSQL. TOFU stores and trusts only the
+first identity ever seen for one target, address, and port. A later identity
+always remains pending until an administrator verifies and approves it. Profiles
+with identity verification disabled neither require nor use this trust store.
+Do not populate the environment file from chat history or commit it to Git.
 
 The `encrypted_database` credential provider exposes a Username plus write-only
 Password and Confirm password fields in the Credential Profile form. Passwords
@@ -408,9 +411,28 @@ reschedule existing targets but cannot indirectly authorize future deletion.
 The **Settings** page groups reusable defaults by task: device defaults,
 scheduling and retention, exceptional vendor/security setup, and global
 automation. **Config Backup > Help** provides the recommended setup order,
-Local-versus-FTP retention precedence, storage/receiver differences, and safe
+Local-versus-remote retention precedence, storage/receiver differences, and safe
 first checks for common error codes. Help is read-only and is available to the
 Reader role without granting access to Settings or secret values.
+
+Administrators can select the default plugin language under **Config Backup >
+Settings > Plugin language**. English and Slovak are included. The setting is
+applied only to Config Backup URLs and does not change the language of the rest
+of NetBox. A user can temporarily override the default from **Config Backup >
+Help**; the personal choice is stored in that user's browser session and can be
+changed back at any time.
+
+Connection profiles expose three SSH server-identity modes. **Require manual
+approval** is the secure default. **Trust first key automatically** implements
+TOFU: it accepts only the first identity ever observed for the target endpoint
+and blocks every later change. **Do not verify SSH identity** is an explicit
+opt-out intended only for a separately trusted management network. Approving a
+replacement marks every older trusted key for the same target, address, and
+port as rejected; the rows are retained for audit but are no longer accepted.
+Switching verification off does not delete existing rows: they are ignored while
+the profile is disabled and can be audited later. If verification is enabled
+again after the device identity changed, the old trusted identity causes the
+connection to fail until the replacement fingerprint is independently verified.
 
 Deleting a backup device is an explicit cascade within this plugin: the
 confirmation page lists its runs, revisions, and artifacts, then removes their

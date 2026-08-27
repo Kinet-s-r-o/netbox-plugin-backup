@@ -26,6 +26,7 @@ class ConnectionParameters:
     command_timeout: int = 60
     keepalive: int = 30
     verify_host_key: bool = True
+    auto_trust_first_host_key: bool = False
     known_hosts_path: str = ""
     trusted_host_keys: tuple[str, ...] = ()
 

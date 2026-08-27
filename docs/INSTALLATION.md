@@ -29,15 +29,17 @@ procedure. A direct installation is also possible:
 
 ```shell
 sudo /opt/netbox/venv/bin/python -m pip install \
-  /path/to/netbox_config_backup-0.6.0-py3-none-any.whl
+  /path/to/netbox_config_backup-0.7.0-py3-none-any.whl
 ```
 
-For netbox-docker, build the non-editable release image:
+For netbox-docker, build the non-editable release image. The supplied
+multi-stage Dockerfile first builds a wheel and installs that immutable wheel
+into the final NetBox image; the source checkout is not present at runtime:
 
 ```shell
 docker build -f docker/Dockerfile.release \
   --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
-  -t netbox-config-backup:0.6.0 .
+  -t netbox-config-backup:0.7.0 .
 ```
 
 Use this same image for `netbox`, the normal NetBox worker, and the dedicated
@@ -122,6 +124,9 @@ replication, audit, and recovery jobs use NetBox's background job system.
 1. Open **Config Backup → Settings**.
    Use **Config Backup → Help** for the recommended workflow and retention
    precedence; the Help page is read-only and is suitable for Reader accounts.
+   Administrators can also choose the default Config Backup language here.
+   English and Slovak are bundled; users may temporarily override the default
+   from the Help page without changing the language of the rest of NetBox.
 2. Create the Reader, Operator, and Administrator groups with
    `python manage.py config_backup_create_rbac_groups`, then assign
    users deliberately.
@@ -131,6 +136,13 @@ replication, audit, and recovery jobs use NetBox's background job system.
 4. As a Config Backup Administrator, create a connection profile and platform
    mapping, or use **Add device** for one test device. Quick Setup assigns a
    Local retention profile and therefore requires retention/runtime authority.
+   Select an SSH identity policy deliberately:
+   - **Require manual approval** is the production default. Scan the key and
+     compare its SHA256 fingerprint out of band before approving it.
+   - **Trust first key automatically** accepts only the first identity ever
+     observed for the target endpoint. Any later change remains pending.
+   - **Do not verify SSH identity** bypasses server identity checks and should
+     be limited to an isolated trusted management network.
 5. Use **Save & test connection** before enabling automatic scheduling.
 6. Run one manual backup and verify the revision content and download
    permissions with a non-superuser account.
@@ -164,6 +176,17 @@ python manage.py showmigrations netbox_config_backup
 python manage.py check
 python -m pip check
 ```
+
+The official netbox-docker image uses `uv` and intentionally may not include
+the `pip` module. Run the dependency check there as:
+
+```shell
+/usr/local/bin/uv pip check --python /opt/netbox/venv/bin/python
+```
+
+Treat a dependency conflict reported by the unmodified base NetBox image as a
+base-image release issue; do not silence it or pin an unrelated package inside
+the plugin without first validating the complete NetBox dependency set.
 
 Run `config_backup_create_rbac_groups` again after every plugin upgrade. The
 command is idempotent: it refreshes the plugin-managed object permissions for

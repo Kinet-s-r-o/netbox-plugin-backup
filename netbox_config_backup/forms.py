@@ -1,25 +1,16 @@
 import uuid
 from typing import ClassVar
 
-from dcim.models import Device, Platform, Site
+from dcim.models import Device, Platform
 from django import forms
-from django.conf import settings
 from django.db import transaction
-from django.urls import reverse
 from django.utils import timezone
-from netbox.forms import NetBoxModelFilterSetForm, NetBoxModelForm
-from utilities.forms import BOOLEAN_WITH_BLANK_CHOICES
-from utilities.forms.fields import DynamicModelChoiceField, DynamicModelMultipleChoiceField
-from utilities.forms.rendering import FieldSet
-from utilities.forms.widgets import DateTimePicker
+from netbox.forms import NetBoxModelForm
+from utilities.forms.fields import DynamicModelChoiceField
 
 from .choices import (
-    MOUNTED_DESTINATION_PROTOCOLS,
     ConnectionProtocolChoices,
-    DestinationProtocolChoices,
-    RunSourceChoices,
-    RunStatusChoices,
-    TargetStatusChoices,
+    SSHHostKeyPolicyChoices,
 )
 from .credentials.base import SecretProviderError
 from .credentials.encrypted_database import (
@@ -27,559 +18,55 @@ from .credentials.encrypted_database import (
     EncryptedDatabaseSecretProvider,
     MasterKeyConfigurationError,
 )
-from .drivers import driver_registry
+from .forms_filters import BackupRunFilterForm, BackupTargetFilterForm, ConfigRevisionFilterForm
+from .forms_setup import (
+    InterfaceLanguageSettingsForm,
+    NotificationSettingsForm,
+    OperationalSettingsForm,
+    QuickSetupForm,
+)
+from .forms_setup import (
+    driver_choices as _driver_choices,
+)
+from .forms_storage import (
+    BackupDestinationForm,
+    FtpIntegrityAuditScheduleForm,
+    SftpReceiverProfileForm,
+)
 from .models import (
-    BackupDestination,
     BackupPolicy,
-    BackupRun,
     BackupTarget,
-    ConfigRevision,
     ConnectionProfile,
     CredentialProfile,
-    OperationalSettings,
     PlatformMapping,
     RemoteRetentionPolicy,
     RetentionPolicy,
     SftpReceiverProfile,
     StoredCredential,
 )
-from .services.ftp_audit_scheduling import calculate_destination_next_ftp_audit
-from .services.reporting_period import REPORTING_PERIOD_CHOICES
 from .services.scheduling import apply_target_schedule
 
-REPORTING_PERIOD_FORM_CHOICES = (("", "Any time"), *REPORTING_PERIOD_CHOICES)
-
-
-class BackupTargetFilterForm(NetBoxModelFilterSetForm):
-    model = BackupTarget
-    fieldsets = (
-        FieldSet("q", "filter_id"),
-        FieldSet(
-            "status",
-            "enabled",
-            "device_id",
-            "site_id",
-            "policy_override_id",
-            "retention_override_id",
-            "remote_retention_policy_id",
-            "driver_override",
-            name="Health and device",
-        ),
-    )
-    status = forms.MultipleChoiceField(
-        choices=TargetStatusChoices.choices,
-        required=False,
-    )
-    enabled = forms.NullBooleanField(
-        required=False,
-        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
-    )
-    device_id = DynamicModelMultipleChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        label="Device",
-    )
-    site_id = DynamicModelMultipleChoiceField(
-        queryset=Site.objects.all(),
-        required=False,
-        label="Site",
-    )
-    policy_override_id = DynamicModelMultipleChoiceField(
-        queryset=BackupPolicy.objects.all(),
-        required=False,
-        label="Backup policy",
-    )
-    retention_override_id = DynamicModelMultipleChoiceField(
-        queryset=RetentionPolicy.objects.all(),
-        required=False,
-        label="Local retention profile",
-    )
-    remote_retention_policy_id = DynamicModelMultipleChoiceField(
-        queryset=RemoteRetentionPolicy.objects.all(),
-        required=False,
-        label="Remote retention profile",
-    )
-    driver_override = forms.CharField(required=False, label="Driver override")
-
-
-class BackupRunFilterForm(NetBoxModelFilterSetForm):
-    model = BackupRun
-    fieldsets = (
-        FieldSet("q", "filter_id"),
-        FieldSet("status", "source", "failed", "stuck", "error_code", name="Result"),
-        FieldSet("target_id", "device_id", "site_id", name="Target"),
-        FieldSet("period", "date_from", "date_to", name="Period"),
-        FieldSet("queued_at_after", "queued_at_before", name="Exact queued time"),
-    )
-    status = forms.MultipleChoiceField(
-        choices=RunStatusChoices.choices,
-        required=False,
-    )
-    source = forms.MultipleChoiceField(
-        choices=RunSourceChoices.choices,
-        required=False,
-    )
-    failed = forms.NullBooleanField(
-        required=False,
-        label="Failure",
-        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
-    )
-    stuck = forms.NullBooleanField(
-        required=False,
-        label="Stuck",
-        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
-    )
-    error_code = forms.CharField(required=False, label="Error code contains")
-    period = forms.ChoiceField(
-        choices=REPORTING_PERIOD_FORM_CHOICES,
-        required=False,
-        label="Period",
-    )
-    date_from = forms.DateField(
-        required=False,
-        label="From date",
-        widget=forms.DateInput(attrs={"type": "date"}),
-    )
-    date_to = forms.DateField(
-        required=False,
-        label="To date",
-        widget=forms.DateInput(attrs={"type": "date"}),
-    )
-    target_id = DynamicModelMultipleChoiceField(
-        queryset=BackupTarget.objects.all(),
-        required=False,
-        label="Backup target",
-    )
-    device_id = DynamicModelMultipleChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        label="Device",
-    )
-    site_id = DynamicModelMultipleChoiceField(
-        queryset=Site.objects.all(),
-        required=False,
-        label="Site",
-    )
-    queued_at_after = forms.DateTimeField(
-        required=False,
-        label="Queued after",
-        widget=DateTimePicker(),
-    )
-    queued_at_before = forms.DateTimeField(
-        required=False,
-        label="Queued before",
-        widget=DateTimePicker(),
-    )
-
-
-class ConfigRevisionFilterForm(NetBoxModelFilterSetForm):
-    model = ConfigRevision
-    fieldsets = (
-        FieldSet("q", "filter_id"),
-        FieldSet("period", "date_from", "date_to", name="Period"),
-        FieldSet("target_id", "device_id", "site_id", name="Target"),
-        FieldSet("driver_id", "content_changed", "protected", name="Revision"),
-    )
-    period = forms.ChoiceField(
-        choices=REPORTING_PERIOD_FORM_CHOICES,
-        required=False,
-        label="Period",
-    )
-    date_from = forms.DateField(
-        required=False,
-        label="From date",
-        widget=forms.DateInput(attrs={"type": "date"}),
-    )
-    date_to = forms.DateField(
-        required=False,
-        label="To date",
-        widget=forms.DateInput(attrs={"type": "date"}),
-    )
-    target_id = DynamicModelMultipleChoiceField(
-        queryset=BackupTarget.objects.all(),
-        required=False,
-        label="Backup target",
-    )
-    device_id = DynamicModelMultipleChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        label="Device",
-    )
-    site_id = DynamicModelMultipleChoiceField(
-        queryset=Site.objects.all(),
-        required=False,
-        label="Site",
-    )
-    driver_id = forms.CharField(required=False, label="Driver")
-    content_changed = forms.NullBooleanField(
-        required=False,
-        label="Configuration changed",
-        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
-    )
-    protected = forms.NullBooleanField(
-        required=False,
-        label="Protected",
-        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
-    )
-
-
-def _driver_choices(
-    *,
-    blank: bool = False,
-    include_ids: tuple[str, ...] = (),
-) -> list[tuple[str, str]]:
-    choices = [
-        (driver.driver_id, driver.display_name)
-        for driver in driver_registry.classes()
-        if driver.user_selectable or driver.driver_id in include_ids
-    ]
-    return [("", "---------"), *choices] if blank else choices
-
-
-class OperationalSettingsForm(NetBoxModelForm):
-    confirm_enable = forms.BooleanField(
-        required=False,
-        label="I understand that automatic retention can permanently delete expired history",
-        help_text="Required only when automatic retention is being enabled.",
-    )
-    confirm_remote_enable = forms.BooleanField(
-        required=False,
-        label="I understand that remote retention permanently deletes expired copies",
-        help_text="Required only when automatic remote retention is being enabled.",
-    )
-
-    def clean(self):
-        super().clean()
-        cleaned = self.cleaned_data
-        enabling = bool(cleaned.get("retention_scheduler_enabled")) and not bool(
-            self.instance.retention_scheduler_enabled
-        )
-        if enabling and not cleaned.get("confirm_enable"):
-            self.add_error(
-                "confirm_enable",
-                "Confirm the automatic deletion warning before enabling retention.",
-            )
-        enabling_remote = bool(cleaned.get("remote_retention_scheduler_enabled")) and not bool(
-            self.instance.remote_retention_scheduler_enabled
-        )
-        if enabling_remote and not cleaned.get("confirm_remote_enable"):
-            self.add_error(
-                "confirm_remote_enable",
-                "Confirm the permanent deletion warning before enabling remote cleanup.",
-            )
-        return self.cleaned_data
-
-    class Meta:
-        model = OperationalSettings
-        fields = (
-            "retention_scheduler_enabled",
-            "remote_retention_scheduler_enabled",
-            "retention_scheduler_batch_size",
-        )
-        widgets: ClassVar[dict[str, forms.Widget]] = {
-            "retention_scheduler_batch_size": forms.HiddenInput(),
-        }
-
-
-class NotificationSettingsForm(NetBoxModelForm):
-    events_enabled = forms.BooleanField(
-        required=False,
-        label="Emit backup events",
-        help_text="Send failure, recovery, stale, and stuck events to NetBox Event Rules.",
-    )
-    notify_on_every_failure = forms.BooleanField(
-        required=False,
-        label="Notify on every failed attempt",
-        help_text="When disabled, repeated failures stay quiet until the device recovers.",
-    )
-
-    def clean(self):
-        super().clean()
-        cleaned = self.cleaned_data
-        if cleaned.get("notify_on_every_failure") and not cleaned.get("events_enabled"):
-            self.add_error(
-                "notify_on_every_failure",
-                "Enable backup events before enabling notifications for every failure.",
-            )
-        return cleaned
-
-    class Meta:
-        model = OperationalSettings
-        fields = (
-            "events_enabled",
-            "notify_on_every_failure",
-        )
-
-
-class QuickSetupForm(forms.Form):
-    advanced_field_names = (
-        "driver_id",
-        "receiver_profile",
-        "sync_receiver_credentials",
-        "restore_point",
-        "connection_profile",
-        "protocol",
-        "port",
-        "verify_host_key",
-        "username",
-        "password",
-        "password_confirm",
-    )
-
-    device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        help_text="Select a NetBox device which does not already have a backup target.",
-    )
-    driver_id = forms.ChoiceField(
-        choices=(),
-        required=False,
-        label="Backup driver",
-        help_text="Automatic uses the enabled platform mapping. Select a driver if none exists.",
-    )
-    receiver_profile = DynamicModelChoiceField(
-        queryset=SftpReceiverProfile.objects.filter(enabled=True),
-        required=False,
-        label="Device upload receiver",
-        help_text="Automatic uses the device upload receiver from the platform mapping.",
-    )
-    allow_device_export = forms.BooleanField(
-        required=False,
-        label="Allow the device to create and send a backup file",
-        help_text=(
-            "Required for native backup drivers such as Ceragon IP-50. The plugin may replace "
-            "the selected backup workspace, but it never imports a configuration, activates "
-            "changes, or reboots the device."
-        ),
-    )
-    sync_receiver_credentials = forms.BooleanField(
-        required=False,
-        label="Configure the legacy FTP login on ALFOplus",
-        help_text=(
-            "Optional. This writes the selected receiver username and password into the "
-            "device file-transfer settings. Leave disabled when the radio already uses "
-            "matching FTP credentials."
-        ),
-    )
-    restore_point = forms.ChoiceField(
-        choices=(
-            ("restore-point-1", "Restore point 1"),
-            ("restore-point-2", "Restore point 2"),
-            ("restore-point-3", "Restore point 3"),
-        ),
-        initial="restore-point-1",
-        required=False,
-    )
-    connection_profile = DynamicModelChoiceField(
-        queryset=ConnectionProfile.objects.all(),
-        required=False,
-        label="Connection profile",
-        help_text=(
-            "Automatic uses the platform mapping. If none exists, the device address and values "
-            "below are used."
-        ),
-    )
-    protocol = forms.ChoiceField(
-        choices=ConnectionProtocolChoices.choices,
-        initial=ConnectionProtocolChoices.AUTOMATIC,
-        label="Protocol",
-        help_text="Automatic uses SSH on port 22 and Telnet on port 23.",
-    )
-    port = forms.IntegerField(
-        min_value=1,
-        max_value=65535,
-        initial=22,
-        required=False,
-    )
-    verify_host_key = forms.BooleanField(
-        required=False,
-        initial=True,
-        help_text="Recommended. The host key must exist in the configured known_hosts file.",
-    )
-    credential_profile = DynamicModelChoiceField(
-        queryset=CredentialProfile.objects.exclude(provider_id="vault_kv2"),
-        required=False,
-        label="Credential profile",
-        help_text=(
-            "Automatic uses the platform mapping. Select a profile to override it, or enter a "
-            "dedicated login under Advanced settings."
-        ),
-    )
-    username = forms.CharField(max_length=255, required=False)
-    password = forms.CharField(
-        required=False,
-        strip=False,
-        widget=forms.PasswordInput(
-            render_value=False,
-            attrs={"autocomplete": "new-password"},
-        ),
-        help_text="Stored encrypted and never displayed again.",
-    )
-    password_confirm = forms.CharField(
-        required=False,
-        strip=False,
-        label="Confirm password",
-        widget=forms.PasswordInput(
-            render_value=False,
-            attrs={"autocomplete": "new-password"},
-        ),
-    )
-    schedule = forms.ChoiceField(
-        choices=(
-            ("6h", "Every 6 hours"),
-            ("12h", "Every 12 hours"),
-            ("daily", "Daily at 02:00"),
-        ),
-        initial="daily",
-    )
-    retention_days = forms.TypedChoiceField(
-        choices=((30, "30 days"), (90, "90 days"), (365, "365 days")),
-        coerce=int,
-        initial=90,
-        label="Local history",
-    )
-    remote_retention_days = forms.TypedChoiceField(
-        choices=(
-            ("", "Use remote storage profile"),
-            (90, "90 days"),
-            (365, "365 days"),
-            (730, "730 days"),
-        ),
-        coerce=int,
-        empty_value=None,
-        required=False,
-        initial="",
-        label="Remote FTP history",
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["device"].queryset = Device.objects.filter(config_backup_target__isnull=True)
-        self.fields["device"].widget.attrs["data-url"] = reverse(
-            "plugins-api:netbox_config_backup-api:available-device-list"
-        )
-        self.fields["driver_id"].choices = (
-            ("", "Automatic from platform mapping"),
-            *_driver_choices(),
-        )
-        self.fields["receiver_profile"].empty_label = "Automatic from platform mapping"
-        self.fields[
-            "connection_profile"
-        ].empty_label = "Automatic from platform mapping or device address"
-        self.fields["credential_profile"].empty_label = "Automatic from platform mapping"
-
-    @property
-    def advanced_has_errors(self) -> bool:
-        return any(name in self.errors for name in self.advanced_field_names)
-
-    def clean(self):
-        super().clean()
-        cleaned = self.cleaned_data
-        device = cleaned.get("device")
-        driver_id = cleaned.get("driver_id")
-        mapping = None
-
-        if device and BackupTarget.objects.filter(device=device).exists():
-            self.add_error("device", "This device already has a backup target.")
-
-        if device and device.platform_id:
-            mapping = PlatformMapping.objects.filter(
-                platform_id=device.platform_id,
-                enabled=True,
-            ).first()
-
-        if device and not driver_id:
-            if mapping and driver_registry.contains(mapping.driver_id):
-                cleaned["driver_id"] = mapping.driver_id
-                cleaned["restore_point"] = mapping.driver_options.get(
-                    "restore_point", cleaned.get("restore_point") or "restore-point-1"
-                )
-            else:
-                self.add_error(
-                    "driver_id",
-                    "No enabled platform mapping was found. Select a backup driver.",
-                )
-
-        if mapping:
-            if not cleaned.get("receiver_profile") and mapping.receiver_profile_id:
-                cleaned["receiver_profile"] = mapping.receiver_profile
-            if not cleaned.get("connection_profile") and mapping.connection_profile_id:
-                cleaned["connection_profile"] = mapping.connection_profile
-            has_new_login = bool(cleaned.get("username") or cleaned.get("password"))
-            if (
-                not cleaned.get("credential_profile")
-                and not has_new_login
-                and mapping.credential_profile_id
-            ):
-                cleaned["credential_profile"] = mapping.credential_profile
-
-        effective_driver = cleaned.get("driver_id")
-        selected_connection = cleaned.get("connection_profile")
-        protocol = selected_connection.protocol if selected_connection else cleaned.get("protocol")
-        if effective_driver == "siae_smos_cli":
-            if protocol == ConnectionProtocolChoices.SSH:
-                self.add_error(
-                    "protocol",
-                    "The selected SIAE Telnet driver cannot use an SSH connection profile.",
-                )
-            cleaned["protocol"] = ConnectionProtocolChoices.TELNET
-        elif effective_driver == "siae_smos_ssh":
-            if protocol == ConnectionProtocolChoices.TELNET:
-                self.add_error(
-                    "protocol",
-                    "The selected SIAE SSH driver cannot use a Telnet connection profile.",
-                )
-            cleaned["protocol"] = ConnectionProtocolChoices.SSH
-        if effective_driver == "ceragon_ip50" and not cleaned.get("receiver_profile"):
-            enabled_receivers = SftpReceiverProfile.objects.filter(enabled=True)
-            if enabled_receivers.count() == 1:
-                cleaned["receiver_profile"] = enabled_receivers.first()
-        if effective_driver == "ceragon_ip50" and not cleaned.get("receiver_profile"):
-            self.add_error(
-                "receiver_profile",
-                "No receiver could be selected automatically. Open Advanced settings and choose "
-                "an enabled device upload receiver.",
-            )
-        if effective_driver == "ceragon_ip50" and not cleaned.get("allow_device_export"):
-            self.add_error(
-                "allow_device_export",
-                "Confirm the device-side backup export before saving.",
-            )
-        selected_receiver = cleaned.get("receiver_profile")
-        if (
-            effective_driver == "siae_smos_auto"
-            and selected_receiver
-            and selected_receiver.protocol == "ftp"
-            and not cleaned.get("allow_device_export")
-        ):
-            self.add_error(
-                "allow_device_export",
-                "Confirm the legacy ALFOplus native export before saving.",
-            )
-
-        if not cleaned.get("connection_profile") and not cleaned.get("port"):
-            self.add_error("port", "Enter a port or select a connection profile.")
-
-        credential_profile = cleaned.get("credential_profile")
-        password = cleaned.get("password") or ""
-        username = cleaned.get("username") or ""
-        if credential_profile:
-            cleaned["username"] = ""
-            cleaned["password"] = ""
-            cleaned["password_confirm"] = ""
-        else:
-            if not username:
-                self.add_error("username", "Enter a username or select a credential profile.")
-            if not password:
-                self.add_error("password", "Enter a password or select a credential profile.")
-            if password != (cleaned.get("password_confirm") or ""):
-                self.add_error("password_confirm", "Passwords do not match.")
-
-        if password and not credential_profile:
-            try:
-                DatabaseCredentialCipher().active_key()
-            except MasterKeyConfigurationError as exc:
-                self.add_error("password", str(exc))
-        return cleaned
+__all__ = [
+    "BackupDestinationForm",
+    "BackupPolicyForm",
+    "BackupRunFilterForm",
+    "BackupTargetFilterForm",
+    "BackupTargetForm",
+    "ConfigRevisionFilterForm",
+    "ConnectionProfileForm",
+    "CredentialProfileForm",
+    "FtpIntegrityAuditScheduleForm",
+    "InterfaceLanguageSettingsForm",
+    "NotificationSettingsForm",
+    "OperationalSettingsForm",
+    "PlatformMappingForm",
+    "QuickSetupForm",
+    "RemoteRetentionCleanupConfirmationForm",
+    "RemoteRetentionPolicyForm",
+    "RetentionCleanupConfirmationForm",
+    "RetentionPolicyForm",
+    "SftpReceiverProfileForm",
+]
 
 
 class RetentionPolicyForm(NetBoxModelForm):
@@ -731,12 +218,31 @@ class BackupPolicyForm(NetBoxModelForm):
 
 
 class ConnectionProfileForm(NetBoxModelForm):
+    host_key_policy = forms.ChoiceField(
+        choices=SSHHostKeyPolicyChoices.choices,
+        label="SSH identity verification",
+        help_text=(
+            "Manual approval is safest. Trust on first use accepts only the first observed key; "
+            "later changes still require approval. Disabled skips server identity verification."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["host_key_policy"].initial = self.instance.host_key_policy
+
     def clean(self):
         super().clean()
         cleaned = self.cleaned_data
         if cleaned.get("protocol") == ConnectionProtocolChoices.TELNET:
-            cleaned["verify_host_key"] = False
-            cleaned["known_hosts_path"] = ""
+            cleaned["host_key_policy"] = SSHHostKeyPolicyChoices.DISABLED
+        policy = cleaned.get("host_key_policy", SSHHostKeyPolicyChoices.STRICT)
+        self.instance.verify_host_key = policy != SSHHostKeyPolicyChoices.DISABLED
+        self.instance.auto_trust_first_host_key = (
+            policy == SSHHostKeyPolicyChoices.TRUST_ON_FIRST_USE
+        )
+        if policy == SSHHostKeyPolicyChoices.DISABLED:
+            self.instance.known_hosts_path = ""
         return cleaned
 
     class Meta:
@@ -749,33 +255,32 @@ class ConnectionProfileForm(NetBoxModelForm):
             "connect_timeout",
             "command_timeout",
             "keepalive",
-            "verify_host_key",
-            "known_hosts_path",
+            "host_key_policy",
             "tags",
         )
         labels: ClassVar[dict[str, str]] = {
             "name": "Profile name",
             "protocol": "Connection protocol",
-            "address_preference": "Management address",
+            "address_preference": "Management IP priority",
             "port": "TCP port",
             "connect_timeout": "Connection timeout (seconds)",
             "command_timeout": "Command timeout (seconds)",
             "keepalive": "Keepalive interval (seconds)",
-            "verify_host_key": "Verify SSH host key",
-            "known_hosts_path": "Known hosts file",
+            "host_key_policy": "SSH identity verification",
         }
         help_texts: ClassVar[dict[str, str]] = {
             "protocol": "Automatic lets the selected driver and port choose SSH or Telnet.",
-            "address_preference": "Choose which NetBox device address is tried first.",
+            "address_preference": (
+                "Choose which NetBox device address is tried first. Dedicated management IP "
+                "(OOB) means the device's OOB IP field in NetBox."
+            ),
             "port": "Use 22 for SSH or 23 for Telnet unless the device uses a custom port.",
             "connect_timeout": "Maximum time allowed to establish the session.",
             "command_timeout": "Maximum time allowed for one backup command to finish.",
             "keepalive": "Send a keepalive at this interval. Use 0 to disable it.",
-            "verify_host_key": (
-                "Require the device SSH key to match the configured known hosts file."
-            ),
-            "known_hosts_path": (
-                "Path available inside both the NetBox and worker containers. Not used for Telnet."
+            "host_key_policy": (
+                "Choose manual approval, trust only the first observed key, or explicitly disable "
+                "SSH server identity verification."
             ),
         }
 
@@ -949,335 +454,6 @@ class CredentialProfileForm(NetBoxModelForm):
         help_texts: ClassVar[dict[str, str]] = {
             "auth_type": "Select the authentication method expected by the device.",
         }
-
-
-class FtpIntegrityAuditScheduleForm(forms.ModelForm):
-    integrity_audit_enabled = forms.BooleanField(
-        required=False,
-        label="Run integrity audits automatically",
-        help_text="Read-only: verifies expected remote file sizes and SHA-256 hashes.",
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-    )
-
-    def clean(self):
-        super().clean()
-        if self.cleaned_data.get("integrity_audit_enabled") and not self.instance.enabled:
-            self.add_error(
-                "integrity_audit_enabled",
-                "Enable the remote storage before enabling automatic audits.",
-            )
-        return self.cleaned_data
-
-    def save(self, commit=True):
-        destination = super().save(commit=False)
-        destination.next_integrity_audit_at = calculate_destination_next_ftp_audit(
-            destination,
-            now=timezone.now(),
-            timezone_name=settings.TIME_ZONE,
-        )
-        if commit:
-            destination.save()
-        return destination
-
-    class Meta:
-        model = BackupDestination
-        fields = (
-            "integrity_audit_enabled",
-            "integrity_audit_frequency",
-            "integrity_audit_weekday",
-            "integrity_audit_time",
-        )
-        widgets: ClassVar[dict[str, forms.Widget]] = {
-            "integrity_audit_frequency": forms.Select(attrs={"class": "form-select"}),
-            "integrity_audit_weekday": forms.Select(attrs={"class": "form-select"}),
-            "integrity_audit_time": forms.TimeInput(
-                attrs={"class": "form-control", "type": "time"}
-            ),
-        }
-
-
-class BackupDestinationForm(NetBoxModelForm):
-    protocol = forms.ChoiceField(
-        choices=(
-            (DestinationProtocolChoices.FTP, "FTP server (internal, unencrypted)"),
-            (DestinationProtocolChoices.NFS, "NFS mount"),
-            (DestinationProtocolChoices.SMB, "SMB3 / Samba mount"),
-        ),
-        label="Storage type",
-        help_text=(
-            "NFS and SMB3 shares must already be mounted into the NetBox web and worker "
-            "containers. SMB1 is not supported."
-        ),
-    )
-    enforce_retention_policy = forms.BooleanField(
-        required=False,
-        label="Always use this storage's retention profile",
-        help_text=(
-            "When enabled, a retention profile selected on a device cannot override the "
-            "profile configured on this storage."
-        ),
-    )
-    allow_insecure_ftp = forms.BooleanField(
-        required=False,
-        label="Allow unencrypted FTP",
-        help_text=(
-            "Required to save. Use only on a trusted internal network because FTP does not "
-            "encrypt credentials or backup data."
-        ),
-    )
-    credential_profile = forms.ModelChoiceField(
-        queryset=CredentialProfile.objects.filter(auth_type="password").exclude(
-            provider_id="vault_kv2"
-        ),
-        label="FTP credentials",
-        help_text="Reusable username and password used to sign in to this FTP server.",
-        required=False,
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not self.instance.pk:
-            # The singleton Local storage is provisioned by a plugin migration.
-            self.instance.protocol = DestinationProtocolChoices.FTP
-            self.fields["port"].initial = 21
-        self.is_local_storage = self.instance.protocol == DestinationProtocolChoices.LOCAL
-        if self.is_local_storage:
-            # The Local storage represents the built-in primary backend. Its
-            # endpoint, state, identity, and tags are system-managed.
-            for field_name in (
-                "name",
-                "protocol",
-                "enabled",
-                "auto_replicate",
-                "allow_insecure_ftp",
-                "host",
-                "port",
-                "base_path",
-                "mount_path",
-                "credential_profile",
-                "connect_timeout",
-                "max_retries",
-                "retry_delay_minutes",
-                "max_artifact_size",
-                "remote_retention_policy",
-                "tags",
-            ):
-                self.fields.pop(field_name, None)
-            self.fieldsets = (
-                FieldSet(
-                    "local_retention_policy",
-                    "enforce_retention_policy",
-                    name="Local retention",
-                ),
-            )
-        else:
-            self.fields.pop("local_retention_policy", None)
-            self.fieldsets = (
-                FieldSet(
-                    "name",
-                    "protocol",
-                    "enabled",
-                    "auto_replicate",
-                    name="Storage",
-                ),
-                FieldSet(
-                    "host",
-                    "port",
-                    "credential_profile",
-                    "connect_timeout",
-                    "allow_insecure_ftp",
-                    "mount_path",
-                    name="Connection",
-                ),
-                FieldSet(
-                    "base_path",
-                    "remote_retention_policy",
-                    "enforce_retention_policy",
-                    name="Layout and retention",
-                ),
-                FieldSet(
-                    "max_retries",
-                    "retry_delay_minutes",
-                    "max_artifact_size",
-                    "tags",
-                    name="Reliability limits",
-                ),
-            )
-
-    def clean(self):
-        super().clean()
-        cleaned = self.cleaned_data
-        protocol = (
-            DestinationProtocolChoices.LOCAL
-            if self.is_local_storage
-            else cleaned.get("protocol", self.instance.protocol)
-        )
-        if protocol == DestinationProtocolChoices.FTP and not cleaned.get("allow_insecure_ftp"):
-            self.add_error(
-                "allow_insecure_ftp",
-                "Confirm that this internal storage may use unencrypted FTP.",
-            )
-        if not self.is_local_storage and not cleaned.get("base_path"):
-            self.add_error("base_path", "Enter the directory used for plugin backup copies.")
-        if protocol == DestinationProtocolChoices.FTP:
-            cleaned["mount_path"] = ""
-            self.instance.mount_path = ""
-            for field_name, message in (
-                ("host", "Enter the FTP server name or address."),
-                ("port", "Enter the FTP control port."),
-                ("credential_profile", "Select FTP credentials."),
-                ("connect_timeout", "Enter a connection timeout."),
-            ):
-                if not cleaned.get(field_name):
-                    self.add_error(field_name, message)
-        elif protocol in MOUNTED_DESTINATION_PROTOCOLS and not cleaned.get("mount_path"):
-            self.add_error(
-                "mount_path",
-                "Enter the absolute directory where the share is mounted in the containers.",
-            )
-        elif protocol in MOUNTED_DESTINATION_PROTOCOLS:
-            cleaned["host"] = ""
-            cleaned["port"] = None
-            cleaned["credential_profile"] = None
-            cleaned["connect_timeout"] = None
-            cleaned["allow_insecure_ftp"] = False
-            # ModelForm skips omitted fields which have model defaults. The
-            # protocol-specific UI disables these FTP inputs, so clear the
-            # instance too before Django runs model validation.
-            self.instance.host = ""
-            self.instance.port = None
-            self.instance.credential_profile = None
-            self.instance.connect_timeout = None
-            self.instance.allow_insecure_ftp = False
-        retention_field = (
-            "local_retention_policy" if self.is_local_storage else "remote_retention_policy"
-        )
-        if cleaned.get("enforce_retention_policy") and not cleaned.get(retention_field):
-            self.add_error(
-                retention_field,
-                "Select a retention profile before enforcing storage-level retention.",
-            )
-        return cleaned
-
-    def save(self, commit=True):
-        destination = super().save(commit=False)
-        if not self.is_local_storage:
-            destination.protocol = self.cleaned_data["protocol"]
-            destination.host_key_type = ""
-            destination.host_key_public = ""
-            destination.host_key_fingerprint_sha256 = ""
-            destination.host_key_fingerprint_md5 = ""
-            destination.host_key_approved_at = None
-            destination.host_key_approved_by = None
-            if destination.protocol in MOUNTED_DESTINATION_PROTOCOLS:
-                destination.host = ""
-                destination.port = None
-                destination.credential_profile = None
-                destination.connect_timeout = None
-                destination.allow_insecure_ftp = False
-            else:
-                destination.mount_path = ""
-            if not destination.enabled or not destination.integrity_audit_enabled:
-                destination.next_integrity_audit_at = None
-            elif destination.next_integrity_audit_at is None:
-                destination.next_integrity_audit_at = calculate_destination_next_ftp_audit(
-                    destination,
-                    now=timezone.now(),
-                    timezone_name=settings.TIME_ZONE,
-                )
-        if commit:
-            destination.save()
-            self.save_m2m()
-        return destination
-
-    class Meta:
-        model = BackupDestination
-        fields = (
-            "name",
-            "protocol",
-            "enabled",
-            "auto_replicate",
-            "local_retention_policy",
-            "remote_retention_policy",
-            "enforce_retention_policy",
-            "allow_insecure_ftp",
-            "host",
-            "port",
-            "base_path",
-            "mount_path",
-            "credential_profile",
-            "connect_timeout",
-            "max_retries",
-            "retry_delay_minutes",
-            "max_artifact_size",
-            "tags",
-        )
-        labels: ClassVar[dict[str, str]] = {
-            "name": "Storage name",
-            "protocol": "Storage type",
-            "enabled": "Use this storage",
-            "auto_replicate": "Copy new revisions automatically",
-            "local_retention_policy": "Local retention profile",
-            "remote_retention_policy": "Remote retention profile",
-            "host": "FTP server",
-            "port": "FTP port",
-            "base_path": "Base directory",
-            "mount_path": "Mounted directory",
-            "connect_timeout": "Connection timeout (seconds)",
-            "max_retries": "Retry attempts",
-            "retry_delay_minutes": "Retry delay (minutes)",
-            "max_artifact_size": "Maximum artifact size (bytes)",
-        }
-        help_texts: ClassVar[dict[str, str]] = {
-            "enabled": "Disabled remote storage receives no new copies, retries, or audits.",
-            "auto_replicate": "Copy each new local revision to this storage automatically.",
-            "local_retention_policy": (
-                "Default cleanup profile for local revisions and run history."
-            ),
-            "remote_retention_policy": "Default cleanup profile for copies on this storage.",
-            "host": "FTP only: DNS name or IP address reachable from the NetBox worker.",
-            "port": "FTP only: control port. The default is 21.",
-            "base_path": "Directory below which device backup folders are created.",
-            "mount_path": (
-                "NFS/SMB3 only: absolute mounted directory below an allowed mount root. Configure "
-                "the same read/write mount in the NetBox web and backup-worker containers."
-            ),
-            "connect_timeout": "FTP only: maximum time allowed to connect to the server.",
-            "max_retries": "Number of copy retries after the first failed attempt.",
-            "retry_delay_minutes": "Wait time between failed copy attempts.",
-            "max_artifact_size": "Largest single backup artifact accepted by this storage.",
-        }
-
-
-class SftpReceiverProfileForm(NetBoxModelForm):
-    credential_profile = forms.ModelChoiceField(
-        queryset=CredentialProfile.objects.exclude(provider_id="vault_kv2"),
-        help_text="Password credentials used only by devices uploading to this receiver.",
-    )
-
-    class Meta:
-        model = SftpReceiverProfile
-        fields = (
-            "name",
-            "enabled",
-            "protocol",
-            "mode",
-            "credential_profile",
-            "listen_host",
-            "listen_port",
-            "advertised_host",
-            "advertised_port",
-            "bridge_host",
-            "bridge_port",
-            "remote_bind_host",
-            "remote_bind_port",
-            "upload_directory",
-            "export_timeout",
-            "max_upload_size",
-            "passive_port_start",
-            "passive_port_end",
-            "tags",
-        )
 
 
 class PlatformMappingForm(NetBoxModelForm):

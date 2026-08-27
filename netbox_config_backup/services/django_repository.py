@@ -92,6 +92,9 @@ class DjangoBackupRepository:
                 command_timeout=command_timeout,
                 keepalive=connection.keepalive if connection else 30,
                 verify_host_key=connection.verify_host_key if connection else True,
+                auto_trust_first_host_key=(
+                    connection.auto_trust_first_host_key if connection else False
+                ),
                 known_hosts_path=connection.known_hosts_path if connection else "",
                 trusted_host_keys=tuple(
                     f"{host if port == 22 else f'[{host}]:{port}'} {key_type} {public_key}"

@@ -1,49 +1,61 @@
 from django.db import models
+from django.utils.translation import gettext_lazy as _
+
+
+class InterfaceLanguageChoices(models.TextChoices):
+    ENGLISH = "en", _("English")
+    SLOVAK = "sk", _("Slovenčina")
 
 
 class ScheduleTypeChoices(models.TextChoices):
-    INTERVAL = "interval", "Interval"
-    DAILY = "daily", "Daily"
+    INTERVAL = "interval", _("Interval")
+    DAILY = "daily", _("Daily")
 
 
 class StoreModeChoices(models.TextChoices):
-    CHANGED_ONLY = "changed_only", "Changed configurations only"
-    EVERY_SUCCESS = "every_success", "Every successful collection"
+    CHANGED_ONLY = "changed_only", _("Changed configurations only")
+    EVERY_SUCCESS = "every_success", _("Every successful collection")
 
 
 class AddressPreferenceChoices(models.TextChoices):
-    OOB_FIRST = "oob_first", "OOB first"
-    PRIMARY4_FIRST = "primary4_first", "Primary IPv4 first"
-    PRIMARY6_FIRST = "primary6_first", "Primary IPv6 first"
+    OOB_FIRST = "oob_first", _("Dedicated management IP (OOB) first")
+    PRIMARY4_FIRST = "primary4_first", _("Primary IPv4 first")
+    PRIMARY6_FIRST = "primary6_first", _("Primary IPv6 first")
 
 
 class ConnectionProtocolChoices(models.TextChoices):
-    AUTOMATIC = "auto", "Automatic from driver and port"
+    AUTOMATIC = "auto", _("Automatic from driver and port")
     SSH = "ssh", "SSH"
     TELNET = "telnet", "Telnet"
 
 
+class SSHHostKeyPolicyChoices(models.TextChoices):
+    STRICT = "strict", _("Require manual approval")
+    TRUST_ON_FIRST_USE = "tofu", _("Trust first key automatically")
+    DISABLED = "disabled", _("Do not verify SSH identity")
+
+
 class AuthTypeChoices(models.TextChoices):
-    PASSWORD = "password", "Password"
-    SSH_KEY = "ssh_key", "SSH private key"
+    PASSWORD = "password", _("Password")
+    SSH_KEY = "ssh_key", _("SSH private key")
 
 
 class ReceiverModeChoices(models.TextChoices):
-    DIRECT = "direct", "Direct from device"
-    REVERSE_TUNNEL = "reverse_tunnel", "Reverse SSH tunnel"
+    DIRECT = "direct", _("Direct from device")
+    REVERSE_TUNNEL = "reverse_tunnel", _("Reverse SSH tunnel")
 
 
 class ReceiverProtocolChoices(models.TextChoices):
-    SFTP = "sftp", "SFTP (recommended)"
-    FTP = "ftp", "Legacy FTP (ALFOplus only)"
+    SFTP = "sftp", _("SFTP (recommended)")
+    FTP = "ftp", _("Legacy FTP (ALFOplus only)")
 
 
 class DestinationProtocolChoices(models.TextChoices):
-    LOCAL = "local", "Local (primary storage)"
-    SFTP = "sftp", "SFTP (recommended, encrypted)"
-    FTP = "ftp", "FTP (unencrypted)"
-    NFS = "nfs", "NFS mount"
-    SMB = "smb", "SMB3 / Samba mount"
+    LOCAL = "local", _("Local (primary storage)")
+    SFTP = "sftp", _("SFTP (recommended, encrypted)")
+    FTP = "ftp", _("FTP (unencrypted)")
+    NFS = "nfs", _("NFS mount")
+    SMB = "smb", _("SMB3 / Samba mount")
 
 
 # SFTP remains readable for installations upgraded from an older plugin
@@ -67,61 +79,61 @@ MOUNTED_DESTINATION_PROTOCOLS = (
 
 
 class FtpAuditFrequencyChoices(models.TextChoices):
-    DAILY = "daily", "Daily"
-    WEEKLY = "weekly", "Weekly"
+    DAILY = "daily", _("Daily")
+    WEEKLY = "weekly", _("Weekly")
 
 
 class FtpAuditStatusChoices(models.TextChoices):
-    HEALTHY = "healthy", "Healthy"
-    PROBLEMS = "problems", "Problems found"
-    FAILED = "failed", "Failed"
+    HEALTHY = "healthy", _("Healthy")
+    PROBLEMS = "problems", _("Problems found")
+    FAILED = "failed", _("Failed")
 
 
 class WeekdayChoices(models.IntegerChoices):
-    MONDAY = 0, "Monday"
-    TUESDAY = 1, "Tuesday"
-    WEDNESDAY = 2, "Wednesday"
-    THURSDAY = 3, "Thursday"
-    FRIDAY = 4, "Friday"
-    SATURDAY = 5, "Saturday"
-    SUNDAY = 6, "Sunday"
+    MONDAY = 0, _("Monday")
+    TUESDAY = 1, _("Tuesday")
+    WEDNESDAY = 2, _("Wednesday")
+    THURSDAY = 3, _("Thursday")
+    FRIDAY = 4, _("Friday")
+    SATURDAY = 5, _("Saturday")
+    SUNDAY = 6, _("Sunday")
 
 
 class SSHHostKeyStatusChoices(models.TextChoices):
-    PENDING = "pending", "Pending approval"
-    TRUSTED = "trusted", "Trusted"
-    REJECTED = "rejected", "Rejected"
+    PENDING = "pending", _("Pending approval")
+    TRUSTED = "trusted", _("Trusted")
+    REJECTED = "rejected", _("Rejected")
 
 
 class ReplicaStatusChoices(models.TextChoices):
-    PENDING = "pending", "Pending"
-    QUEUED = "queued", "Queued"
-    RUNNING = "running", "Running"
-    SUCCESS = "success", "Successful"
-    FAILED = "failed", "Failed"
+    PENDING = "pending", _("Pending")
+    QUEUED = "queued", _("Queued")
+    RUNNING = "running", _("Running")
+    SUCCESS = "success", _("Successful")
+    FAILED = "failed", _("Failed")
 
 
 class TargetStatusChoices(models.TextChoices):
-    NEVER = "never", "Never backed up"
-    HEALTHY = "healthy", "Healthy"
-    FAILED = "failed", "Failed"
-    STALE = "stale", "Stale"
-    DISABLED = "disabled", "Disabled"
+    NEVER = "never", _("Never backed up")
+    HEALTHY = "healthy", _("Healthy")
+    FAILED = "failed", _("Failed")
+    STALE = "stale", _("Stale")
+    DISABLED = "disabled", _("Disabled")
 
 
 class RunSourceChoices(models.TextChoices):
-    SCHEDULED = "scheduled", "Scheduled"
-    MANUAL = "manual", "Manual"
-    RETRY = "retry", "Retry"
-    PRE_CHANGE = "pre_change", "Pre-change"
+    SCHEDULED = "scheduled", _("Scheduled")
+    MANUAL = "manual", _("Manual")
+    RETRY = "retry", _("Retry")
+    PRE_CHANGE = "pre_change", _("Pre-change")
 
 
 class RunStatusChoices(models.TextChoices):
-    QUEUED = "queued", "Queued"
-    RUNNING = "running", "Running"
-    SUCCESS_UNCHANGED = "success_unchanged", "Success (unchanged)"
-    SUCCESS_CHANGED = "success_changed", "Success (changed)"
-    PARTIAL = "partial", "Partial"
-    FAILED = "failed", "Failed"
-    ERRORED = "errored", "Errored"
-    SKIPPED = "skipped", "Skipped"
+    QUEUED = "queued", _("Queued")
+    RUNNING = "running", _("Running")
+    SUCCESS_UNCHANGED = "success_unchanged", _("Success (unchanged)")
+    SUCCESS_CHANGED = "success_changed", _("Success (changed)")
+    PARTIAL = "partial", _("Partial")
+    FAILED = "failed", _("Failed")
+    ERRORED = "errored", _("Errored")
+    SKIPPED = "skipped", _("Skipped")

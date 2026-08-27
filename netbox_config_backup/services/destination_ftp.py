@@ -26,6 +26,33 @@ from .destination_paths import (
     ftp_revision_destination_path,
 )
 from .destination_types import DestinationError, ReplicationResult
+from .ftp_helpers import (
+    absolute_ftp_path as _absolute,
+)
+from .ftp_helpers import (
+    artifact_filename as _artifact_filename,
+)
+from .ftp_helpers import (
+    is_denied_ftp_error as _is_denied_ftp_error,
+)
+from .ftp_helpers import (
+    is_missing_ftp_error as _is_missing_ftp_error,
+)
+from .ftp_helpers import (
+    join_ftp_path as _join,
+)
+from .ftp_helpers import (
+    readable_artifact_filename as _readable_artifact_filename,
+)
+from .ftp_helpers import (
+    unique_json_object as _unique_json_object,
+)
+from .ftp_helpers import (
+    uses_readable_ftp_layout as _uses_readable_ftp_layout,
+)
+from .ftp_helpers import (
+    validate_direct_filename as _validate_direct_filename,
+)
 
 if TYPE_CHECKING:
     from netbox_config_backup.models import BackupDestination, ConfigRevision, RevisionReplica
@@ -1196,15 +1223,6 @@ def _manifest_matches_revision(
     return payload.get("artifacts") == expected_artifacts
 
 
-def _unique_json_object(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("Duplicate JSON key")
-        result[key] = value
-    return result
-
-
 def _put_immutable(ftp: ftplib.FTP, remote_path: str, content: bytes, digest: str) -> bool:
     if _remote_exists(ftp, remote_path):
         existing = _read_remote(ftp, remote_path, len(content))
@@ -1273,44 +1291,6 @@ def _remote_exists(ftp: ftplib.FTP, path: str) -> bool:
             "DESTINATION_PATH_UNREADABLE",
             "An existing FTP path could not be inspected safely.",
         ) from exc
-
-
-def _artifact_filename(storage_key: str, artifact_type: str) -> str:
-    filename = PurePosixPath(storage_key).name
-    return filename if filename and filename not in {".", ".."} else f"{artifact_type}.bin"
-
-
-def _readable_artifact_filename(
-    revision: ConfigRevision,
-    artifact,
-    *,
-    stem_override: str | None = None,
-) -> str:
-    original = _artifact_filename(artifact.storage_key, artifact.artifact_type)
-    suffix = "".join(PurePosixPath(original).suffixes)
-    if (
-        not suffix
-        or len(suffix) > 24
-        or any(
-            character not in ".abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            for character in suffix
-        )
-    ):
-        suffix = ".bin"
-    stem = stem_override or backup_filename_stem(
-        revision.target.device.name, revision.target.device_id, revision.created
-    )
-    if artifact.is_primary:
-        return f"{stem}{suffix}"
-    safe_type = device_directory_name(artifact.artifact_type, 0)[:48] or "artifact"
-    return f"{stem}_{safe_type}{suffix}"
-
-
-def _uses_readable_ftp_layout(remote_path: str) -> bool:
-    parts = PurePosixPath(remote_path).parts
-    return len(parts) >= 2 and (
-        parts[-2] == "backups" or (len(parts) >= 3 and parts[-3] == "backups")
-    )
 
 
 def _validated_replica_delete_path(replica: RevisionReplica) -> str:
@@ -1400,22 +1380,6 @@ def _readable_stem_from_revision_path(
     else:
         return None
     return backup_filename_stem(device_segment, revision.target.device_id, revision.created)
-
-
-def _validate_direct_filename(filename: str) -> None:
-    path = PurePosixPath(filename)
-    if (
-        not filename
-        or path.name != filename
-        or filename in {".", ".."}
-        or "\\" in filename
-        or "\x00" in filename
-        or any(ord(character) < 32 for character in filename)
-    ):
-        raise DestinationError(
-            "DELETE_FILESET_INVALID",
-            "An FTP revision filename is not safe to delete.",
-        )
 
 
 def _list_revision_directory(
@@ -1548,45 +1512,6 @@ def _reject_unknown_revision_entries(entries: set[str], expected: set[str]) -> N
             "DESTINATION_DELETE_CONFLICT",
             "The FTP revision directory contains an unknown file and was not deleted.",
         )
-
-
-def _is_missing_ftp_error(exc: BaseException) -> bool:
-    message = str(exc).strip().lower()
-    if not message.startswith("550"):
-        return False
-    return any(
-        marker in message
-        for marker in (
-            "not found",
-            "no such",
-            "does not exist",
-            "cannot find",
-            "no files",
-            "empty",
-        )
-    )
-
-
-def _is_denied_ftp_error(exc: BaseException) -> bool:
-    message = str(exc).strip().lower()
-    return any(
-        marker in message
-        for marker in (
-            "permission",
-            "denied",
-            "not allowed",
-            "access is denied",
-            "access denied",
-        )
-    )
-
-
-def _join(base: str, *parts: str) -> str:
-    return posixpath.join(base.rstrip("/"), *parts)
-
-
-def _absolute(path: str) -> str:
-    return "/" + path.lstrip("/")
 
 
 def _close(ftp: ftplib.FTP) -> None:

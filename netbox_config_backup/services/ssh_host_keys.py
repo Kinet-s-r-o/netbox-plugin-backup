@@ -94,6 +94,11 @@ def scan_target_host_key(target_id: int) -> ScannedHostKey:
     context = DjangoBackupRepository().get_target_execution_context(target_id)
     if not context.address:
         raise DriverError("NO_ADDRESS", "The device has no usable management address.")
+    if not context.connection.verify_host_key:
+        raise DriverError(
+            "HOST_KEY_VERIFICATION_DISABLED",
+            "SSH server identity verification is disabled for this connection profile.",
+        )
     if context.connection.protocol == ConnectionProtocolChoices.TELNET or (
         context.connection.protocol == ConnectionProtocolChoices.AUTOMATIC
         and context.connection.port == 23
@@ -162,6 +167,12 @@ def scan_target_host_key(target_id: int) -> ScannedHostKey:
             "last_seen_at": now,
         },
     )
+    if (
+        context.connection.verify_host_key
+        and context.connection.auto_trust_first_host_key
+        and candidate.status == SSHHostKeyStatusChoices.PENDING
+    ):
+        candidate = trust_first_seen_host_key(candidate.pk)
     return ScannedHostKey(
         candidate_id=candidate.pk,
         address=candidate.address,
@@ -179,6 +190,54 @@ def _snapshot(instance) -> None:
 
 
 @transaction.atomic
+def trust_first_seen_host_key(candidate_id: int) -> SSHHostKey:
+    """Trust only the first identity ever observed for one target endpoint."""
+    candidate = SSHHostKey.objects.select_for_update().get(pk=candidate_id)
+    if candidate.status != SSHHostKeyStatusChoices.PENDING:
+        return candidate
+
+    endpoint_history_exists = (
+        SSHHostKey.objects.select_for_update()
+        .filter(
+            target_id=candidate.target_id,
+            address=candidate.address,
+            port=candidate.port,
+        )
+        .exclude(pk=candidate.pk)
+        .exists()
+    )
+    if endpoint_history_exists:
+        return candidate
+
+    _snapshot(candidate)
+    candidate.status = SSHHostKeyStatusChoices.TRUSTED
+    candidate.approved_at = timezone.now()
+    candidate.approved_by = None
+    candidate.rejected_at = None
+    candidate._changelog_message = "Automatically trusted the first observed SSH host key."
+    candidate.save(
+        update_fields=(
+            "status",
+            "approved_at",
+            "approved_by",
+            "rejected_at",
+            "last_updated",
+        )
+    )
+    return candidate
+
+
+def ensure_first_host_key_trusted(target_id: int) -> ScannedHostKey | None:
+    """Materialize TOFU before authentication; later identity changes remain blocked."""
+    context = DjangoBackupRepository().get_target_execution_context(target_id)
+    if not context.connection.verify_host_key or not context.connection.auto_trust_first_host_key:
+        return None
+    if context.connection.trusted_host_keys:
+        return None
+    return scan_target_host_key(target_id)
+
+
+@transaction.atomic
 def trust_host_key(candidate_id: int, *, user) -> SSHHostKey:
     candidate = SSHHostKey.objects.select_for_update().get(pk=candidate_id)
     previous = (
@@ -187,7 +246,6 @@ def trust_host_key(candidate_id: int, *, user) -> SSHHostKey:
             target_id=candidate.target_id,
             address=candidate.address,
             port=candidate.port,
-            key_type=candidate.key_type,
             status=SSHHostKeyStatusChoices.TRUSTED,
         )
         .exclude(pk=candidate.pk)

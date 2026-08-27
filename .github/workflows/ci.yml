@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip ".[test]"
+      - name: Lint
+        run: python -m ruff check netbox_config_backup tests docker/plugins-ci.py
+      - name: Test with coverage
+        run: |
+          python -m coverage run -m unittest discover -s tests
+          python -m coverage report --fail-under=45
+
+  package:
+    name: Build and inspect release package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip ".[test]"
+      - name: Build wheel and source distribution
+        run: python -m build
+      - name: Validate package metadata
+        run: python -m twine check dist/*
+      - name: Verify wheel in a clean environment
+        shell: bash
+        run: |
+          python -m venv /tmp/ncb-package-smoke
+          /tmp/ncb-package-smoke/bin/python -m pip install --no-deps dist/*.whl
+          cd /tmp
+          /tmp/ncb-package-smoke/bin/python - <<'PY'
+          import importlib.resources
+          import netbox_config_backup
+          from netbox_config_backup import __version__
+
+          assert __version__ == "0.7.0"
+          package = importlib.resources.files("netbox_config_backup")
+          required = (
+              "migrations/0028_alter_connectionprofile_address_preference.py",
+              "forms_filters.py",
+              "forms_setup.py",
+              "forms_storage.py",
+              "services/ftp_helpers.py",
+              "templates/netbox_config_backup/help.html",
+              "templates/netbox_config_backup/advanced_settings.html",
+              "locale/sk/LC_MESSAGES/django.po",
+              "locale/sk/LC_MESSAGES/django.mo",
+          )
+          for path in required:
+              assert package.joinpath(path).is_file(), path
+          for removed in (
+              "templates/netbox_config_backup/help_sk.html",
+              "templates/netbox_config_backup/advanced_settings_sk.html",
+          ):
+              assert not package.joinpath(removed).exists(), removed
+          assert netbox_config_backup.config is None
+          PY
+
+  netbox-smoke:
+    name: NetBox 4.6 migration and system checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build immutable release image
+        run: |
+          docker build \
+            -f docker/Dockerfile.release \
+            --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
+            -t netbox-config-backup:ci .
+      - name: Start isolated dependencies
+        run: |
+          docker network create ncb-ci
+          docker run -d --name ncb-postgres --network ncb-ci \
+            -e POSTGRES_DB=netbox_upgrade \
+            -e POSTGRES_USER=netbox \
+            -e POSTGRES_PASSWORD=netbox \
+            --health-cmd="pg_isready -U netbox" \
+            --health-interval=2s --health-timeout=2s --health-retries=30 \
+            postgres:17-alpine
+          docker run -d --name ncb-redis --network ncb-ci redis:8-alpine
+          until [ "$(docker inspect -f '{{.State.Health.Status}}' ncb-postgres)" = healthy ]; do
+            sleep 2
+          done
+          docker exec ncb-postgres createdb -U netbox netbox_fresh
+      - name: Check upgrade path and migration drift
+        shell: bash
+        run: |
+          run_manage() {
+            database="$1"
+            shift
+            docker run --rm -i --network ncb-ci \
+              -e DB_HOST=ncb-postgres \
+              -e DB_NAME="$database" \
+              -e DB_USER=netbox \
+              -e DB_PASSWORD=netbox \
+              -e REDIS_HOST=ncb-redis \
+              -e REDIS_CACHE_HOST=ncb-redis \
+              -e DEVELOPER=true \
+              -e SECRET_KEY='ci-only-secret-key-with-more-than-fifty-characters-123456789' \
+              -v "$PWD/docker/plugins-ci.py:/etc/netbox/config/plugins.py:ro" \
+              --entrypoint /opt/netbox/venv/bin/python \
+              netbox-config-backup:ci \
+              /opt/netbox/netbox/manage.py "$@"
+          }
+          # Upgrade path: apply the last 0.6-era schema, then the current release.
+          run_manage netbox_upgrade migrate netbox_config_backup 0025 --noinput
+          run_manage netbox_upgrade shell < tests/integration/docker_upgrade_seed_0025.py
+          run_manage netbox_upgrade migrate --noinput
+          run_manage netbox_upgrade check
+          run_manage netbox_upgrade shell < tests/integration/docker_upgrade_assert_current.py
+
+          # Clean-install path: build the complete current schema from an empty DB.
+          run_manage netbox_fresh migrate --noinput
+          run_manage netbox_fresh collectstatic --noinput
+          run_manage netbox_fresh makemigrations netbox_config_backup --check --dry-run
+          run_manage netbox_fresh check
+          run_manage netbox_fresh showmigrations netbox_config_backup
+          run_manage netbox_fresh config_backup_create_rbac_groups
+          run_manage netbox_fresh shell < tests/integration/docker_smoke.py
+          run_manage netbox_fresh shell -c \
+            "import importlib.metadata; from netbox_config_backup import __version__; from netbox_config_backup.models import BackupDestination, OperationalSettings; from users.models import Group; settings=OperationalSettings.objects.get(singleton=True); local=BackupDestination.objects.get(is_default=True); expected={'Config Backup Readers','Config Backup Operators','Config Backup Administrators'}; groups=Group.objects.filter(name__in=expected); assert importlib.metadata.version('netbox-config-backup') == __version__ == '0.7.0'; assert settings.ui_language == 'en'; assert local.protocol == 'local' and local.enabled; assert BackupDestination.objects.filter(is_default=True).count() == 1; assert set(groups.values_list('name', flat=True)) == expected; assert all(group.object_permissions.exists() for group in groups)"
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs ncb-postgres || true
+      - name: Clean up
+        if: always()
+        run: |
+          docker rm -f ncb-postgres ncb-redis || true
+          docker network rm ncb-ci || true

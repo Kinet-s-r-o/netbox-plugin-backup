@@ -1,49 +1,50 @@
+from django.utils.translation import gettext_lazy as _
 from netbox.plugins import PluginMenu, PluginMenuItem
 
 menu = PluginMenu(
-    label="Config Backup",
+    label=_("Config Backup"),
     groups=(
         (
-            "Backups",
+            _("Backups"),
             (
                 PluginMenuItem(
                     link="plugins:netbox_config_backup:home",
-                    link_text="Overview",
+                    link_text=_("Overview"),
                     permissions=("netbox_config_backup.view_backuptarget",),
                 ),
                 PluginMenuItem(
                     link="plugins:netbox_config_backup:backuptarget_list",
-                    link_text="Devices",
+                    link_text=_("Devices"),
                     permissions=("netbox_config_backup.view_backuptarget",),
                 ),
                 PluginMenuItem(
                     link="plugins:netbox_config_backup:backupdestination_list",
-                    link_text="Storages",
+                    link_text=_("Storages"),
                     permissions=("netbox_config_backup.view_backupdestination",),
                 ),
                 PluginMenuItem(
                     link="plugins:netbox_config_backup:backuprun_list",
-                    link_text="Runs",
+                    link_text=_("Runs"),
                     permissions=("netbox_config_backup.view_backuprun",),
                 ),
                 PluginMenuItem(
                     link="plugins:netbox_config_backup:configrevision_list",
-                    link_text="Revisions",
+                    link_text=_("Revisions"),
                     permissions=("netbox_config_backup.view_configrevision",),
                 ),
             ),
         ),
         (
-            "Configuration",
+            _("Configuration"),
             (
                 PluginMenuItem(
                     link="plugins:netbox_config_backup:advanced_settings",
-                    link_text="Settings",
+                    link_text=_("Settings"),
                     permissions=("netbox_config_backup.view_operationalsettings",),
                 ),
                 PluginMenuItem(
                     link="plugins:netbox_config_backup:help",
-                    link_text="Help",
+                    link_text=_("Help"),
                     permissions=("netbox_config_backup.view_backuptarget",),
                 ),
             ),

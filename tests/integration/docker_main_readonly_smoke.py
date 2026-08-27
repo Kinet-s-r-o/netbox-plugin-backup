@@ -1,22 +1,29 @@
 """Read-only deployment check for the encrypted credential UI."""
 
+from uuid import uuid4
+
 from django.contrib.auth import get_user_model
 from django.test import Client
 from django.urls import reverse
 
-from netbox_config_backup.choices import DestinationProtocolChoices
+from netbox_config_backup.choices import DestinationProtocolChoices, SSHHostKeyPolicyChoices
 from netbox_config_backup.credentials.encrypted_database import DatabaseCredentialCipher
 from netbox_config_backup.forms import (
     BackupDestinationForm,
     BackupPolicyForm,
+    BackupTargetFilterForm,
     BackupTargetForm,
     ConnectionProfileForm,
     CredentialProfileForm,
+    InterfaceLanguageSettingsForm,
     PlatformMappingForm,
     QuickSetupForm,
     RemoteRetentionPolicyForm,
     RetentionPolicyForm,
 )
+from netbox_config_backup.forms_filters import BackupTargetFilterForm as SplitBackupTargetFilterForm
+from netbox_config_backup.forms_setup import QuickSetupForm as SplitQuickSetupForm
+from netbox_config_backup.forms_storage import BackupDestinationForm as SplitBackupDestinationForm
 from netbox_config_backup.models import (
     BackupDestination,
     BackupPolicy,
@@ -25,9 +32,13 @@ from netbox_config_backup.models import (
     RetentionPolicy,
     SftpReceiverProfile,
 )
+from netbox_config_backup.services.ui_language import SESSION_KEY
 
 key, key_version = DatabaseCredentialCipher().active_key()
 assert len(key) == 32
+assert QuickSetupForm is SplitQuickSetupForm
+assert BackupDestinationForm is SplitBackupDestinationForm
+assert BackupTargetFilterForm is SplitBackupTargetFilterForm
 
 form = CredentialProfileForm()
 assert all(name in form.fields for name in ("username", "password", "password_confirm"))
@@ -35,7 +46,7 @@ assert any(value == "encrypted_database" for value, _label in form.fields["provi
 assert all(value != "vault_kv2" for value, _label in form.fields["provider_id"].choices)
 
 destination_form = BackupDestinationForm()
-assert "protocol" not in destination_form.fields
+assert "protocol" in destination_form.fields
 assert destination_form.instance.protocol == "ftp"
 assert destination_form.fields["port"].initial == 21
 assert "remote_retention_policy" in destination_form.fields
@@ -43,7 +54,7 @@ assert "enforce_retention_policy" in destination_form.fields
 assert "local_retention_policy" not in destination_form.fields
 
 target_form = BackupTargetForm()
-assert "use each FTP storage profile" in target_form.fields["remote_retention_policy"].help_text
+assert "use each remote storage profile" in target_form.fields["remote_retention_policy"].help_text
 assert (
     "enforced Local storage profile always wins"
     in target_form.fields["retention_override"].help_text
@@ -51,19 +62,46 @@ assert (
 
 assert "Keep every local revision" in RetentionPolicyForm().fields["keep_all_days"].help_text
 assert (
-    "per device and FTP storage"
+    "per device and remote storage"
     in RemoteRetentionPolicyForm().fields["max_copies_per_target"].help_text
 )
 assert "JSON list of delays" in BackupPolicyForm().fields["retry_backoff_minutes"].help_text
 assert "NetBox device address" in ConnectionProfileForm().fields["address_preference"].help_text
-assert "driver-specific settings" in PlatformMappingForm().fields["driver_options"].help_text
-assert (
-    PlatformMappingForm().fields["receiver_profile"].label
-    == "Default device upload receiver"
+host_key_choices = {
+    str(value): str(label)
+    for value, label in ConnectionProfileForm().fields["host_key_policy"].choices
+}
+assert set(host_key_choices) == {
+    SSHHostKeyPolicyChoices.STRICT,
+    SSHHostKeyPolicyChoices.TRUST_ON_FIRST_USE,
+    SSHHostKeyPolicyChoices.DISABLED,
+}
+assert "host_key_policy" in QuickSetupForm().fields
+assert "verify_host_key" not in QuickSetupForm().fields
+assert "known_hosts_path" not in ConnectionProfileForm().fields
+disabled_host_key_form = ConnectionProfileForm(
+    data={
+        "name": f"ncb-disabled-host-key-{uuid4().hex}",
+        "protocol": "ssh",
+        "address_preference": "oob_first",
+        "port": 22,
+        "connect_timeout": 15,
+        "command_timeout": 60,
+        "keepalive": 30,
+        "host_key_policy": SSHHostKeyPolicyChoices.DISABLED,
+        "known_hosts_path": "/must/be/cleared",
+    }
 )
+assert disabled_host_key_form.is_valid(), disabled_host_key_form.errors
+disabled_host_key_profile = disabled_host_key_form.save(commit=False)
+assert disabled_host_key_profile.verify_host_key is False
+assert disabled_host_key_profile.auto_trust_first_host_key is False
+assert disabled_host_key_profile.known_hosts_path == ""
+assert "driver-specific settings" in PlatformMappingForm().fields["driver_options"].help_text
+assert PlatformMappingForm().fields["receiver_profile"].label == "Default device upload receiver"
 assert QuickSetupForm().fields["receiver_profile"].label == "Device upload receiver"
 assert RetentionPolicy._meta.verbose_name_plural == "local retention profiles"
-assert RemoteRetentionPolicy._meta.verbose_name_plural == "FTP retention profiles"
+assert RemoteRetentionPolicy._meta.verbose_name_plural == "remote retention profiles"
 assert BackupPolicy._meta.verbose_name_plural == "backup policies"
 assert SftpReceiverProfile._meta.verbose_name_plural == "device upload receivers"
 
@@ -80,6 +118,9 @@ user = get_user_model().objects.filter(is_superuser=True, is_active=True).first(
 assert user is not None
 client = Client()
 client.force_login(user)
+session = client.session
+session[SESSION_KEY] = "en"
+session.save()
 response = client.get(reverse("plugins:netbox_config_backup:credentialprofile_add"))
 assert response.status_code == 200
 for field_name in (b"username", b"password", b"password_confirm"):
@@ -100,6 +141,8 @@ assert b"Schedules and retention" in response.content
 assert b"Security and vendor-specific setup" in response.content
 assert b"Automation" in response.content
 assert b"Open help" in response.content
+assert b"Plugin language" in response.content
+assert b'name="ui_language"' in response.content
 assert b"netbox_config_backup/settings.css" in response.content
 assert b'type="hidden" name="retention_scheduler_batch_size"' in response.content
 assert b"Maximum cleanup jobs" not in response.content
@@ -116,10 +159,10 @@ for expected in (
     b"How a backup moves",
     b"revision creation",
     b"Local retention profiles",
-    b"FTP retention profiles",
+    b"Remote retention profiles",
     b"Local profile precedence",
-    b"FTP profile precedence",
-    b"FTP storage or device upload receiver?",
+    b"Remote profile precedence",
+    b"Remote storage or device upload receiver?",
     b"HOST_KEY_UNKNOWN",
 ):
     assert expected in help_response.content, expected
@@ -132,9 +175,35 @@ for obsolete in (
 assert b'name="password"' not in help_response.content
 assert b'name="secret_reference"' not in help_response.content
 
+slovak_client = Client()
+slovak_client.force_login(user)
+slovak_response = slovak_client.get(
+    reverse("plugins:netbox_config_backup:help") + "?language=sk",
+    follow=True,
+)
+assert slovak_response.status_code == 200
+assert slovak_response.headers["Content-Language"] == "sk"
+assert "Odporúčané nastavenie".encode() in slovak_response.content
+assert "Jazyk pomocníka".encode() in slovak_response.content
+
+slovak_settings_response = slovak_client.get(
+    reverse("plugins:netbox_config_backup:advanced_settings")
+)
+assert slovak_settings_response.status_code == 200
+assert slovak_settings_response.headers["Content-Language"] == "sk"
+assert "Predvolené nastavenia zariadení".encode() in slovak_settings_response.content
+assert "Automatické čistenie".encode() in slovak_settings_response.content
+
+language_choices = {
+    str(value): str(label)
+    for value, label in InterfaceLanguageSettingsForm().fields["ui_language"].choices
+}
+assert language_choices["en"] == "English"
+assert language_choices["sk"] == "Slovenčina"
+
 for list_name, expected_title in (
     ("retentionpolicy_list", b"Local Retention Profiles | NetBox"),
-    ("remoteretentionpolicy_list", b"FTP Retention Profiles | NetBox"),
+    ("remoteretentionpolicy_list", b"Remote Retention Profiles | NetBox"),
     ("backuppolicy_list", b"Backup Policies | NetBox"),
     ("sftpreceiverprofile_list", b"Device Upload Receivers | NetBox"),
 ):
@@ -144,7 +213,7 @@ for list_name, expected_title in (
 
 response = client.get(reverse("plugins:netbox_config_backup:backupdestination_add"))
 assert response.status_code == 200
-assert b'name="protocol"' not in response.content
+assert b'name="protocol"' in response.content
 assert b'name="remote_retention_policy"' in response.content
 assert b'name="enforce_retention_policy"' in response.content
 assert b'name="local_retention_policy"' not in response.content
@@ -169,7 +238,7 @@ if target is not None:
     if target.remote_retention_policy_id:
         assert b"an enforced storage profile wins" in response.content
     else:
-        assert b"Uses each FTP storage profile" in response.content
+        assert b"Uses each remote storage profile" in response.content
 
 response = client.get(
     reverse(

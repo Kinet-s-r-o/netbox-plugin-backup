@@ -52,6 +52,53 @@
   gap: 1rem;
 }
 
+.settings-language {
+  margin-bottom: 1rem;
+}
+
+.settings-language > form {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+}
+
+.settings-language-copy {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.settings-language-copy h2 {
+  margin: 0 0 0.15rem;
+  font-size: 1rem;
+}
+
+.settings-language-copy p {
+  margin: 0;
+  color: var(--tblr-secondary-color, #8a97a6);
+  font-size: 0.875rem;
+}
+
+.settings-language-control,
+.help-toolbar {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.settings-language-control select {
+  min-width: 10rem;
+}
+
+.help-toolbar {
+  justify-content: flex-end;
+  margin: 1rem 0 -0.5rem;
+  color: var(--tblr-secondary-color, #8a97a6);
+  font-size: 0.875rem;
+}
+
 .settings-panel,
 .settings-advanced,
 .settings-automation-card {
@@ -533,14 +580,23 @@ details[open] > summary .settings-chevron {
 
 @media (max-width: 767.98px) {
   .settings-intro,
+  .settings-language > form,
   .automation-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
   .settings-intro .btn,
+  .settings-language-control,
+  .settings-language-control .btn,
+  .settings-language-control select,
   .automation-actions .btn {
     width: 100%;
+  }
+
+  .settings-language-control {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .settings-advanced-links,

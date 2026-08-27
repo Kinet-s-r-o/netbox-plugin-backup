@@ -92,7 +92,7 @@ def create_or_reset_example_configuration() -> ExampleConfiguration:
             "command_timeout": 60,
             "keepalive": 30,
             "verify_host_key": True,
-            "known_hosts_path": "/etc/ssh/ssh_known_hosts",
+            "known_hosts_path": "",
         },
     )
     credential, _ = CredentialProfile.objects.update_or_create(

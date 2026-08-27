@@ -8,7 +8,7 @@ from netbox.jobs import JobRunner, system_job
 
 from .choices import DestinationProtocolChoices
 from .drivers.base import DriverError
-from .models import BackupDestination, OperationalSettings, RevisionReplica
+from .models import BackupDestination, BackupRun, OperationalSettings, RevisionReplica
 from .services.destination import DestinationError, reconcile_destination, test_destination
 from .services.destination_sftp import scan_destination_host_key
 from .services.dispatcher import dispatch_due_targets, reconcile_stale_runs
@@ -31,7 +31,7 @@ from .services.replication import (
 from .services.retention_cleanup import RetentionCleanupError, execute_retention_cleanup
 from .services.retention_dispatcher import dispatch_expired_targets
 from .services.runtime import build_backup_pipeline, build_connection_tester
-from .services.ssh_host_keys import scan_target_host_key
+from .services.ssh_host_keys import ensure_first_host_key_trusted, scan_target_host_key
 
 BACKUP_QUEUE = "netbox_config_backup.backup"
 
@@ -43,6 +43,15 @@ class BackupRunJob(JobRunner):
     def run(self, *args, **kwargs):
         run_id = kwargs["run_id"]
         self.logger.info(f"Starting configuration backup run {run_id}.")
+        try:
+            target_id = BackupRun.objects.values_list("target_id", flat=True).get(pk=run_id)
+            ensure_first_host_key_trusted(target_id)
+        except DriverError as exc:
+            self.logger.info(
+                "SSH first-use preparation for backup target failed with code %s; "
+                "the normal backup result will report the connection error.",
+                exc.error_code,
+            )
         result = build_backup_pipeline().execute(run_id)
         self.logger.info(
             f"Backup run {run_id} finished with status {result.status} (changed={result.changed})."
@@ -59,6 +68,14 @@ class ConnectionTestJob(JobRunner):
     def run(self, *args, **kwargs):
         target_id = kwargs["target_id"]
         self.logger.info(f"Starting connection test for backup target {target_id}.")
+        try:
+            ensure_first_host_key_trusted(target_id)
+        except DriverError as exc:
+            self.logger.info(
+                "SSH first-use preparation failed with code %s; the connection test will "
+                "report the final result.",
+                exc.error_code,
+            )
         result = build_connection_tester().execute(target_id)
         connection_test_data = {
             "success": result.success,
@@ -121,7 +138,7 @@ class SSHHostKeyScanJob(JobRunner):
                 else:
                     summary["pending"] += 1
             except DriverError as exc:
-                if exc.error_code == "NOT_SSH":
+                if exc.error_code in {"NOT_SSH", "HOST_KEY_VERIFICATION_DISABLED"}:
                     summary["skipped"] += 1
                     continue
                 summary["failed"] += 1

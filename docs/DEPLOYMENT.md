@@ -13,7 +13,7 @@ Install the wheel into NetBox's virtual environment. A source checkout also
 works, but a pinned wheel is recommended for production.
 
 ```shell
-/opt/netbox/venv/bin/pip install netbox_config_backup-0.6.0-py3-none-any.whl
+/opt/netbox/venv/bin/pip install netbox_config_backup-0.7.0-py3-none-any.whl
 ```
 
 The package installs its runtime dependencies, including Netmiko, Paramiko,
@@ -24,7 +24,7 @@ For netbox-docker, build a non-editable image directly from the repository:
 ```shell
 docker build -f docker/Dockerfile.release \
   --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
-  -t netbox-config-backup:0.6.0 .
+  -t netbox-config-backup:0.7.0 .
 ```
 
 Use that same image for the NetBox web, normal worker, dedicated backup worker,
@@ -212,7 +212,7 @@ Compose files. Put the two master-key variables into the existing protected
 and adjust the published receiver port when needed:
 
 ```shell
-NETBOX_IMAGE=netbox-config-backup:0.6.0 docker compose \
+NETBOX_IMAGE=netbox-config-backup:0.7.0 docker compose \
   -f docker-compose.yml \
   -f /path/to/netbox-plugin-backup/docker/docker-compose.receiver.yml \
   up -d

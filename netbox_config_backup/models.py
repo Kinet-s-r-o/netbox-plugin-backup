@@ -25,12 +25,14 @@ from .choices import (
     DestinationProtocolChoices,
     FtpAuditFrequencyChoices,
     FtpAuditStatusChoices,
+    InterfaceLanguageChoices,
     ReceiverModeChoices,
     ReceiverProtocolChoices,
     ReplicaStatusChoices,
     RunSourceChoices,
     RunStatusChoices,
     ScheduleTypeChoices,
+    SSHHostKeyPolicyChoices,
     SSHHostKeyStatusChoices,
     StoreModeChoices,
     TargetStatusChoices,
@@ -48,6 +50,12 @@ class OperationalSettings(NetBoxModel):
     )
     events_enabled = models.BooleanField(default=True)
     notify_on_every_failure = models.BooleanField(default=False)
+    ui_language = models.CharField(
+        max_length=8,
+        choices=InterfaceLanguageChoices.choices,
+        default=InterfaceLanguageChoices.ENGLISH,
+        help_text="Default language for Config Backup pages. Users can override it in Help.",
+    )
 
     class Meta:
         verbose_name = "operational settings"
@@ -198,6 +206,7 @@ class ConnectionProfile(NetBoxModel):
     command_timeout = models.PositiveIntegerField(default=60)
     keepalive = models.PositiveIntegerField(default=30)
     verify_host_key = models.BooleanField(default=True)
+    auto_trust_first_host_key = models.BooleanField(default=False)
     known_hosts_path = models.CharField(max_length=500, blank=True)
 
     class Meta:
@@ -205,6 +214,25 @@ class ConnectionProfile(NetBoxModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def clean(self) -> None:
+        super().clean()
+        if self.protocol == ConnectionProtocolChoices.TELNET or not self.verify_host_key:
+            self.verify_host_key = False
+            self.auto_trust_first_host_key = False
+            self.known_hosts_path = ""
+
+    @property
+    def host_key_policy(self) -> str:
+        if not self.verify_host_key:
+            return SSHHostKeyPolicyChoices.DISABLED
+        if self.auto_trust_first_host_key:
+            return SSHHostKeyPolicyChoices.TRUST_ON_FIRST_USE
+        return SSHHostKeyPolicyChoices.STRICT
+
+    @property
+    def host_key_policy_label(self) -> str:
+        return str(SSHHostKeyPolicyChoices(self.host_key_policy).label)
 
 
 class CredentialProfile(NetBoxModel):

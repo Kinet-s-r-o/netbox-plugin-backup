@@ -8,7 +8,6 @@ dedicated sidecar periodically creates one encrypted Restic snapshot containing:
 
 - a PostgreSQL custom-format dump;
 - configuration artifacts and receiver host keys;
-- the SSH `known_hosts` trust store;
 - the protected `config-backup.env` file, including the plugin master key;
 - NetBox configuration files;
 - a small component manifest.

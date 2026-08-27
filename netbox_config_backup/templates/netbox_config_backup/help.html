@@ -1,189 +1,200 @@
 {% extends 'generic/_base.html' %}
-{% load static %}
+{% load static i18n %}
 
 {% block head %}
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'netbox_config_backup/settings.css' %}">
 {% endblock %}
 
-{% block title %}Help{% endblock %}
+{% block title %}{% translate "Help" %}{% endblock %}
 
 {% block subtitle %}
-  Learn the backup flow, settings, retention rules, and common troubleshooting steps.
+  {% translate "Learn the backup flow, settings, retention rules, and common troubleshooting steps." %}
 {% endblock %}
 
 {% block content %}
 <div class="help-shell">
-  <nav class="help-quick-nav" aria-label="Help topics">
-    <a class="btn btn-sm btn-outline-secondary" href="#setup">Recommended setup</a>
-    <a class="btn btn-sm btn-outline-secondary" href="#flow">Backup flow</a>
-    <a class="btn btn-sm btn-outline-secondary" href="#settings-reference">Settings reference</a>
-    <a class="btn btn-sm btn-outline-secondary" href="#retention">Retention</a>
-    <a class="btn btn-sm btn-outline-secondary" href="#receivers">Storages and receivers</a>
-    <a class="btn btn-sm btn-outline-secondary" href="#errors">Common errors</a>
+  <div class="help-toolbar">
+    <span>{% translate "Help language" %}</span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="{% translate 'Help language' %}">
+      <a class="btn {% if current_ui_language == 'sk' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?language=sk" lang="sk">Slovenčina</a>
+      <a class="btn {% if current_ui_language == 'en' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?language=en" lang="en">English</a>
+    </div>
+  </div>
+  <nav class="help-quick-nav" aria-label="{% translate 'Help topics' %}">
+    <a class="btn btn-sm btn-outline-secondary" href="#setup">{% translate "Recommended setup" %}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#flow">{% translate "Backup flow" %}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#settings-reference">{% translate "Settings reference" %}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#retention">{% translate "Retention" %}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#receivers">{% translate "Storages and receivers" %}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#errors">{% translate "Common errors" %}</a>
   </nav>
 
   <section class="help-section" id="setup" aria-labelledby="setup-title">
     <div class="help-section-heading">
-      <h2 id="setup-title">Recommended setup</h2>
-      <p>Start with one representative device. Reuse profiles only after the first test succeeds.</p>
+      <h2 id="setup-title">{% translate "Recommended setup" %}</h2>
+      <p>{% translate "Start with one representative device. Reuse profiles only after the first test succeeds." %}</p>
     </div>
     <div class="card">
       <ol class="help-steps">
         <li>
-          <strong>Create connection and credential profiles</strong>
-          <span>Define reusable connection settings and credentials for devices that share them.</span>
+          <strong>{% translate "Create connection and credential profiles" %}</strong>
+          <span>{% translate "Define reusable connection settings and credentials for devices that share them." %}</span>
         </li>
         <li>
-          <strong>Create a platform mapping</strong>
-          <span>Select the driver and defaults for the device's NetBox platform.</span>
+          <strong>{% translate "Create a platform mapping" %}</strong>
+          <span>{% translate "Select the driver and defaults for the device's NetBox platform." %}</span>
         </li>
         <li>
-          <strong>Add and test a device</strong>
-          <span>Save the backup device, test connectivity, then run its first manual backup.</span>
+          <strong>{% translate "Add and test a device" %}</strong>
+          <span>{% translate "Save the backup device, test connectivity, then run its first manual backup." %}</span>
         </li>
         <li>
-          <strong>Add remote storage if needed</strong>
-          <span>Choose FTP, an NFS mount, or an SMB3 mount; test it and copy existing revisions before relying on replication.</span>
+          <strong>{% translate "Add remote storage if needed" %}</strong>
+          <span>{% translate "Choose FTP, an NFS mount, or an SMB3 mount; test it and copy existing revisions before relying on replication." %}</span>
         </li>
         <li>
-          <strong>Review retention</strong>
-          <span>Open Retention preview on the device before enabling Local or remote cleanup.</span>
+          <strong>{% translate "Review retention" %}</strong>
+          <span>{% translate "Open Retention preview on the device before enabling Local or remote cleanup." %}</span>
         </li>
       </ol>
     </div>
     <div class="d-flex flex-wrap gap-2 mt-3">
-      <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:backuptarget_list' %}">Open devices</a>
-      {% if perms.netbox_config_backup.view_operationalsettings %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:advanced_settings' %}">Open settings</a>{% endif %}
-      {% if perms.netbox_config_backup.view_backupdestination %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">Open storages</a>{% endif %}
-      {% if perms.netbox_config_backup.view_retentionpolicy and perms.netbox_config_backup.view_backuppolicy and perms.netbox_config_backup.view_connectionprofile and perms.netbox_config_backup.view_credentialprofile and perms.netbox_config_backup.view_platformmapping %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:examples' %}">Open examples</a>{% endif %}
+      <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:backuptarget_list' %}">{% translate "Open devices" %}</a>
+      {% if perms.netbox_config_backup.view_operationalsettings %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:advanced_settings' %}">{% translate "Open settings" %}</a>{% endif %}
+      {% if perms.netbox_config_backup.view_backupdestination %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">{% translate "Open storages" %}</a>{% endif %}
+      {% if perms.netbox_config_backup.view_retentionpolicy and perms.netbox_config_backup.view_backuppolicy and perms.netbox_config_backup.view_connectionprofile and perms.netbox_config_backup.view_credentialprofile and perms.netbox_config_backup.view_platformmapping %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:examples' %}">{% translate "Open examples" %}</a>{% endif %}
     </div>
   </section>
 
   <section class="help-section" id="flow" aria-labelledby="flow-title">
     <div class="help-section-heading">
-      <h2 id="flow-title">How a backup moves</h2>
-      <p>A successful device backup and a remote copy are related, but they are separate operations.</p>
+      <h2 id="flow-title">{% translate "How a backup moves" %}</h2>
+      <p>{% translate "A successful device backup and a remote copy are related, but they are separate operations." %}</p>
     </div>
     <div class="card help-flow">
       <div class="help-flow-item">
-        <strong>1. Collect from device</strong>
-        <span>The selected driver connects with the effective connection and credential profiles.</span>
+        <strong>{% translate "1. Collect from device" %}</strong>
+        <span>{% translate "The selected driver connects with the effective connection and credential profiles." %}</span>
       </div>
       <div class="help-flow-item">
-        <strong>2. Hash and store locally</strong>
-        <span>The plugin hashes the artifacts. It creates a ConfigRevision according to the backup policy, or links an unchanged run to the latest matching revision.</span>
+        <strong>{% translate "2. Hash and store locally" %}</strong>
+        <span>{% translate "The plugin hashes the artifacts. It creates a ConfigRevision according to the backup policy, or links an unchanged run to the latest matching revision." %}</span>
       </div>
       <div class="help-flow-item">
-        <strong>3. Replicate new revisions to remote storage</strong>
-        <span>Each enabled remote storage with automatic copying receives an independent immutable copy of every new revision.</span>
+        <strong>{% translate "3. Replicate new revisions to remote storage" %}</strong>
+        <span>{% translate "Each enabled remote storage with automatic copying receives an independent immutable copy of every new revision." %}</span>
       </div>
     </div>
     <div class="alert alert-info mt-3 mb-0" role="note">
-      A temporary remote-storage outage does not change a successful device backup to failed. The Local revision remains valid and the copy can be retried without reconnecting to the device.
+      {% translate "A temporary remote-storage outage does not change a successful device backup to failed. The Local revision remains valid and the copy can be retried without reconnecting to the device." %}
     </div>
   </section>
 
   <section class="help-section" id="settings-reference" aria-labelledby="settings-reference-title">
     <div class="help-section-heading">
-      <h2 id="settings-reference-title">Settings reference</h2>
-      <p>These six configuration areas define shared defaults. Configure only the ones your deployment needs.</p>
+      <h2 id="settings-reference-title">{% translate "Settings reference" %}</h2>
+      <p>{% translate "These six configuration areas define shared defaults. Configure only the ones your deployment needs." %}</p>
     </div>
     <div class="card help-reference">
       {% if perms.netbox_config_backup.view_platformmapping %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:platformmapping_list' %}">Platform mappings</a></strong><p>Select a driver and optional profile defaults from the NetBox platform.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:platformmapping_list' %}">{% translate "Platform mappings" %}</a></strong><p>{% translate "Select a driver and optional profile defaults from the NetBox platform." %}</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_connectionprofile %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:connectionprofile_list' %}">Connection profiles</a></strong><p>Define protocol, port, management-address preference, host-key verification, and timeouts.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:connectionprofile_list' %}">{% translate "Connection profiles" %}</a></strong><p>{% translate "Define protocol, port, management IP priority, host-key verification, and timeouts. Dedicated management IP (OOB) is the device's OOB IP field in NetBox." %}</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_credentialprofile %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:credentialprofile_list' %}">Credential profiles</a></strong><p>Use an encrypted write-only password or an environment-variable reference for reusable device and FTP credentials.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:credentialprofile_list' %}">{% translate "Credential profiles" %}</a></strong><p>{% translate "Use an encrypted write-only password or an environment-variable reference for reusable device and FTP credentials." %}</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_backuppolicy %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:backuppolicy_list' %}">Backup policies</a></strong><p>Control schedules, retries, connection and command timeouts, revision creation, and the default Local retention profile.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:backuppolicy_list' %}">{% translate "Backup policies" %}</a></strong><p>{% translate "Control schedules, retries, connection and command timeouts, revision creation, and the default Local retention profile." %}</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_retentionpolicy %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">Local retention profiles</a></strong><p>Define how long Local revisions and completed backup runs are kept.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:retentionpolicy_list' %}">{% translate "Local retention profiles" %}</a></strong><p>{% translate "Define how long Local revisions and completed backup runs are kept." %}</p></div>
       {% endif %}
       {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
-      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">Remote retention profiles</a></strong><p>Define how long copied revisions are kept independently on each remote storage.</p></div>
+      <div class="help-reference-item"><strong><a href="{% url 'plugins:netbox_config_backup:remoteretentionpolicy_list' %}">{% translate "Remote retention profiles" %}</a></strong><p>{% translate "Define how long copied revisions are kept independently on each remote storage." %}</p></div>
       {% endif %}
     </div>
   </section>
 
   <section class="help-section" id="retention" aria-labelledby="retention-title">
     <div class="help-section-heading">
-      <h2 id="retention-title">Local and remote retention</h2>
-      <p>Local and remote retention are resolved separately. A profile selects what may expire; a scheduler performs the deletion.</p>
+      <h2 id="retention-title">{% translate "Local and remote retention" %}</h2>
+      <p>{% translate "Local and remote retention are resolved separately. A profile selects what may expire; a scheduler performs the deletion." %}</p>
     </div>
     <div class="help-retention-grid">
       <div class="help-retention-panel">
-        <h3 class="h4">Local profile precedence</h3>
+        <h3 class="h4">{% translate "Local profile precedence" %}</h3>
         <ol>
-          <li>Local storage profile when <strong>Always use this storage's retention profile</strong> is enabled</li>
-          <li>Local retention profile selected on the device</li>
-          <li>Local retention profile from the backup policy</li>
-          <li>Local storage profile as a fallback</li>
-          <li>Keep indefinitely when no profile is available</li>
+          <li>{% translate "Local storage profile when" %} <strong>{% translate "Always use this storage's retention profile" %}</strong> {% translate "is enabled" %}</li>
+          <li>{% translate "Local retention profile selected on the device" %}</li>
+          <li>{% translate "Local retention profile from the backup policy" %}</li>
+          <li>{% translate "Local storage profile as a fallback" %}</li>
+          <li>{% translate "Keep indefinitely when no profile is available" %}</li>
         </ol>
       </div>
       <div class="help-retention-panel">
-        <h3 class="h4">Remote profile precedence</h3>
+        <h3 class="h4">{% translate "Remote profile precedence" %}</h3>
         <ol>
-          <li>Remote storage profile when <strong>Always use this storage's retention profile</strong> is enabled</li>
-          <li>Remote retention profile selected on the device</li>
-          <li>Remote storage profile as a fallback</li>
-          <li>Keep indefinitely when no profile is available</li>
+          <li>{% translate "Remote storage profile when" %} <strong>{% translate "Always use this storage's retention profile" %}</strong> {% translate "is enabled" %}</li>
+          <li>{% translate "Remote retention profile selected on the device" %}</li>
+          <li>{% translate "Remote storage profile as a fallback" %}</li>
+          <li>{% translate "Keep indefinitely when no profile is available" %}</li>
         </ol>
       </div>
     </div>
     <div class="alert alert-warning mt-3 mb-0" role="note">
-      Local and remote cleanup are disabled independently. Preview retention on a device before enabling either scheduler. Remote deletion has no recycle bin.
+      {% translate "Local and remote cleanup are disabled independently. Preview retention on a device before enabling either scheduler. Remote deletion has no recycle bin." %}
     </div>
   </section>
 
   <section class="help-section" id="receivers" aria-labelledby="receivers-title">
     <div class="help-section-heading">
-      <h2 id="receivers-title">Remote storage or device upload receiver?</h2>
-      <p>They move data in opposite directions and cannot replace one another.</p>
+      <h2 id="receivers-title">{% translate "Remote storage or device upload receiver?" %}</h2>
+      <p>{% translate "They move data in opposite directions and cannot replace one another." %}</p>
     </div>
     <div class="card help-reference">
       <div class="help-reference-item">
-        <strong>Remote storage</strong>
-        <p>The plugin copies an already successful Local revision to FTP, NFS, or SMB3 storage. Configure it under Storages.</p>
-        <p class="mb-0"><strong>NFS/SMB3:</strong> mount the share in the NetBox web and backup-worker containers first. The plugin refuses to write when that mount is not active.</p>
+        <strong>{% translate "Remote storage" %}</strong>
+        <p>{% translate "The plugin copies an already successful Local revision to FTP, NFS, or SMB3 storage. Configure it under Storages." %}</p>
+        <p class="mb-0"><strong>{% translate "NFS/SMB3:" %}</strong> {% translate "Mount the share in the NetBox web and backup-worker containers first. The plugin refuses to write when that mount is not active." %}</p>
       </div>
       <div class="help-reference-item">
-        <strong>Device upload receiver</strong>
-        <p>A vendor driver asks the device to push a native export into the plugin. Use it only for drivers which explicitly require one.</p>
+        <strong>{% translate "Device upload receiver" %}</strong>
+        <p>{% translate "A vendor driver asks the device to push a native export into the plugin. Use it only for drivers which explicitly require one." %}</p>
       </div>
     </div>
     <div class="alert alert-warning mt-3 mb-0" role="note">
-      FTP is unencrypted. Use it only on an isolated, trusted internal management network with a dedicated restricted account.
+      {% translate "FTP is unencrypted. Use it only on an isolated, trusted internal management network with a dedicated restricted account." %}
     </div>
   </section>
 
   <section class="help-section mb-4" id="errors" aria-labelledby="errors-title">
     <div class="help-section-heading">
-      <h2 id="errors-title">Common connection and storage errors</h2>
-      <p>The reason code identifies which layer failed before you change device settings.</p>
+      <h2 id="errors-title">{% translate "Common connection and storage errors" %}</h2>
+      <p>{% translate "The reason code identifies which layer failed before you change device settings." %}</p>
+    </div>
+    <div class="alert alert-info" role="note">
+      <strong>{% translate "SSH identity modes:" %}</strong>
+      {% translate "Manual approval is the safest default. Trust on first use automatically accepts only the first key ever observed for an endpoint and still blocks later changes. Disabled skips SSH server identity verification and should be limited to an explicitly trusted management network. Replaced keys remain as rejected audit records." %}
     </div>
     <details class="card help-errors">
-      <summary>Show reason codes and first checks</summary>
+      <summary>{% translate "Show reason codes and first checks" %}</summary>
       <dl class="help-error-list">
-        <dt><code>HOST_KEY_UNKNOWN</code></dt><dd>The SSH identity has not been approved. Verify its fingerprint and approve it under SSH host keys.</dd>
-        <dt><code>AUTH_FAILED</code></dt><dd>The service is reachable, but the username, password, or allowed authentication method was rejected.</dd>
-        <dt><code>CONNECTION_REFUSED</code></dt><dd>The address is reachable, but no compatible service accepts the configured port.</dd>
-        <dt><code>TIMEOUT</code></dt><dd>Check the effective NetBox management address, route or VPN, firewall, protocol, and port.</dd>
-        <dt><code>COMMAND_UNSUPPORTED</code></dt><dd>Login succeeded, but this firmware does not support the driver's read-only configuration command.</dd>
-        <dt><code>DESTINATION_TEST_FAILED</code></dt><dd>The server may be reachable while directory creation, write, read-back, or probe cleanup is denied.</dd>
-        <dt><code>MOUNT_NOT_ACTIVE</code></dt><dd>The NFS/SMB3 directory exists but is not an active mount inside the backup worker. Repair the host or container mount before retrying.</dd>
+        <dt><code>HOST_KEY_UNKNOWN</code></dt><dd>{% translate "The SSH identity has not been approved. Verify its fingerprint and approve it under SSH host keys." %}</dd>
+        <dt><code>AUTH_FAILED</code></dt><dd>{% translate "The service is reachable, but the username, password, or allowed authentication method was rejected." %}</dd>
+        <dt><code>CONNECTION_REFUSED</code></dt><dd>{% translate "The address is reachable, but no compatible service accepts the configured port." %}</dd>
+        <dt><code>TIMEOUT</code></dt><dd>{% translate "Check the effective NetBox management address, route or VPN, firewall, protocol, and port." %}</dd>
+        <dt><code>COMMAND_UNSUPPORTED</code></dt><dd>{% translate "Login succeeded, but this firmware does not support the driver's read-only configuration command." %}</dd>
+        <dt><code>DESTINATION_TEST_FAILED</code></dt><dd>{% translate "The server may be reachable while directory creation, write, read-back, or probe cleanup is denied." %}</dd>
+        <dt><code>MOUNT_NOT_ACTIVE</code></dt><dd>{% translate "The NFS/SMB3 directory exists but is not an active mount inside the backup worker. Repair the host or container mount before retrying." %}</dd>
       </dl>
     </details>
     <div class="d-flex flex-wrap gap-2 mt-3">
-      {% if perms.netbox_config_backup.view_backuprun %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backuprun_list' %}">Open runs</a>{% endif %}
-      {% if perms.netbox_config_backup.view_sshhostkey %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:ssh_host_key_list' %}">Open SSH host keys</a>{% endif %}
-      {% if perms.netbox_config_backup.view_backupdestination %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">Open storages</a>{% endif %}
+      {% if perms.netbox_config_backup.view_backuprun %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backuprun_list' %}">{% translate "Open runs" %}</a>{% endif %}
+      {% if perms.netbox_config_backup.view_sshhostkey %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:ssh_host_key_list' %}">{% translate "Open SSH host keys" %}</a>{% endif %}
+      {% if perms.netbox_config_backup.view_backupdestination %}<a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backupdestination_list' %}">{% translate "Open storages" %}</a>{% endif %}
     </div>
   </section>
 </div>

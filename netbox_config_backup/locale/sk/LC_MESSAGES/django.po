@@ -1,0 +1,608 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: netbox-config-backup 0.7.0\n"
+"Language: sk\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
+
+msgid "Config Backup"
+msgstr "Zálohy konfigurácií"
+
+msgid "Backups"
+msgstr "Zálohy"
+
+msgid "Overview"
+msgstr "Prehľad"
+
+msgid "Devices"
+msgstr "Zariadenia"
+
+msgid "Storages"
+msgstr "Úložiská"
+
+msgid "Runs"
+msgstr "Behy"
+
+msgid "Revisions"
+msgstr "Revízie"
+
+msgid "Configuration"
+msgstr "Konfigurácia"
+
+msgid "Settings"
+msgstr "Nastavenia"
+
+msgid "Help"
+msgstr "Pomocník"
+
+msgid "English"
+msgstr "English"
+
+msgid "Slovenčina"
+msgstr "Slovenčina"
+
+msgid "Require manual approval"
+msgstr "Vyžadovať manuálne schválenie"
+
+msgid "Trust first key automatically"
+msgstr "Automaticky dôverovať prvému kľúču"
+
+msgid "Do not verify SSH identity"
+msgstr "Neoverovať SSH identitu"
+
+msgid "Interval"
+msgstr "Interval"
+
+msgid "Daily"
+msgstr "Denne"
+
+msgid "Changed configurations only"
+msgstr "Iba zmenené konfigurácie"
+
+msgid "Every successful collection"
+msgstr "Každé úspešné získanie konfigurácie"
+
+msgid "Dedicated management IP (OOB) first"
+msgstr "Najprv samostatná management IP (OOB)"
+
+msgid "Primary IPv4 first"
+msgstr "Najprv primárna IPv4"
+
+msgid "Primary IPv6 first"
+msgstr "Najprv primárna IPv6"
+
+msgid "Automatic from driver and port"
+msgstr "Automaticky podľa drivera a portu"
+
+msgid "Password"
+msgstr "Heslo"
+
+msgid "SSH private key"
+msgstr "Súkromný SSH kľúč"
+
+msgid "Direct from device"
+msgstr "Priamo zo zariadenia"
+
+msgid "Reverse SSH tunnel"
+msgstr "Reverzný SSH tunel"
+
+msgid "SFTP (recommended)"
+msgstr "SFTP (odporúčané)"
+
+msgid "Legacy FTP (ALFOplus only)"
+msgstr "Staršie FTP (iba ALFOplus)"
+
+msgid "Local (primary storage)"
+msgstr "Lokálne (primárne úložisko)"
+
+msgid "SFTP (recommended, encrypted)"
+msgstr "SFTP (odporúčané, šifrované)"
+
+msgid "FTP (unencrypted)"
+msgstr "FTP (nešifrované)"
+
+msgid "NFS mount"
+msgstr "NFS mount"
+
+msgid "SMB3 / Samba mount"
+msgstr "SMB3 / Samba mount"
+
+msgid "Weekly"
+msgstr "Týždenne"
+
+msgid "Healthy"
+msgstr "V poriadku"
+
+msgid "Problems found"
+msgstr "Nájdené problémy"
+
+msgid "Failed"
+msgstr "Neúspešné"
+
+msgid "Monday"
+msgstr "Pondelok"
+
+msgid "Tuesday"
+msgstr "Utorok"
+
+msgid "Wednesday"
+msgstr "Streda"
+
+msgid "Thursday"
+msgstr "Štvrtok"
+
+msgid "Friday"
+msgstr "Piatok"
+
+msgid "Saturday"
+msgstr "Sobota"
+
+msgid "Sunday"
+msgstr "Nedeľa"
+
+msgid "Pending approval"
+msgstr "Čaká na schválenie"
+
+msgid "Trusted"
+msgstr "Dôveryhodné"
+
+msgid "Rejected"
+msgstr "Odmietnuté"
+
+msgid "Pending"
+msgstr "Čaká"
+
+msgid "Queued"
+msgstr "Vo fronte"
+
+msgid "Running"
+msgstr "Prebieha"
+
+msgid "Successful"
+msgstr "Úspešné"
+
+msgid "Never backed up"
+msgstr "Nikdy nezálohované"
+
+msgid "Stale"
+msgstr "Neaktuálne"
+
+msgid "Disabled"
+msgstr "Vypnuté"
+
+msgid "Scheduled"
+msgstr "Naplánované"
+
+msgid "Manual"
+msgstr "Manuálne"
+
+msgid "Retry"
+msgstr "Opakovanie"
+
+msgid "Pre-change"
+msgstr "Pred zmenou"
+
+msgid "Success (unchanged)"
+msgstr "Úspešné (bez zmeny)"
+
+msgid "Success (changed)"
+msgstr "Úspešné (zmenené)"
+
+msgid "Partial"
+msgstr "Čiastočné"
+
+msgid "Errored"
+msgstr "Chyba"
+
+msgid "Skipped"
+msgstr "Preskočené"
+
+msgid "Learn the backup flow, settings, retention rules, and common troubleshooting steps."
+msgstr "Spoznajte priebeh zálohovania, nastavenia, pravidlá retencie a riešenie bežných problémov."
+
+msgid "Help language"
+msgstr "Jazyk pomocníka"
+
+msgid "Help topics"
+msgstr "Témy pomocníka"
+
+msgid "Recommended setup"
+msgstr "Odporúčané nastavenie"
+
+msgid "Backup flow"
+msgstr "Priebeh zálohovania"
+
+msgid "Settings reference"
+msgstr "Prehľad nastavení"
+
+msgid "Retention"
+msgstr "Retencia"
+
+msgid "Storages and receivers"
+msgstr "Úložiská a prijímače"
+
+msgid "Common errors"
+msgstr "Bežné chyby"
+
+msgid "Start with one representative device. Reuse profiles only after the first test succeeds."
+msgstr "Začnite jedným reprezentatívnym zariadením. Profily zdieľajte až po úspešnom prvom teste."
+
+msgid "Create connection and credential profiles"
+msgstr "Vytvorte profily pripojenia a prihlasovacích údajov"
+
+msgid "Define reusable connection settings and credentials for devices that share them."
+msgstr "Definujte zdieľané nastavenia pripojenia a prihlasovacie údaje pre zariadenia, ktoré ich používajú."
+
+msgid "Create a platform mapping"
+msgstr "Vytvorte mapovanie platformy"
+
+msgid "Select the driver and defaults for the device's NetBox platform."
+msgstr "Vyberte driver a predvolené nastavenia pre platformu zariadenia v NetBoxe."
+
+msgid "Add and test a device"
+msgstr "Pridajte a otestujte zariadenie"
+
+msgid "Save the backup device, test connectivity, then run its first manual backup."
+msgstr "Uložte zálohované zariadenie, otestujte pripojenie a potom spustite prvú manuálnu zálohu."
+
+msgid "Add remote storage if needed"
+msgstr "Podľa potreby pridajte vzdialené úložisko"
+
+msgid "Choose FTP, an NFS mount, or an SMB3 mount; test it and copy existing revisions before relying on replication."
+msgstr "Vyberte FTP, NFS mount alebo SMB3 mount; pred použitím replikácie ho otestujte a skopírujte existujúce revízie."
+
+msgid "Review retention"
+msgstr "Skontrolujte retenciu"
+
+msgid "Open Retention preview on the device before enabling Local or remote cleanup."
+msgstr "Pred zapnutím lokálneho alebo vzdialeného čistenia otvorte na zariadení náhľad retencie."
+
+msgid "Open devices"
+msgstr "Otvoriť zariadenia"
+
+msgid "Open settings"
+msgstr "Otvoriť nastavenia"
+
+msgid "Open storages"
+msgstr "Otvoriť úložiská"
+
+msgid "Open examples"
+msgstr "Otvoriť príklady"
+
+msgid "How a backup moves"
+msgstr "Ako prebieha záloha"
+
+msgid "A successful device backup and a remote copy are related, but they are separate operations."
+msgstr "Úspešná záloha zariadenia a vzdialená kópia spolu súvisia, ale sú to samostatné operácie."
+
+msgid "1. Collect from device"
+msgstr "1. Získanie zo zariadenia"
+
+msgid "The selected driver connects with the effective connection and credential profiles."
+msgstr "Vybraný driver sa pripojí pomocou výsledného profilu pripojenia a prihlasovacích údajov."
+
+msgid "2. Hash and store locally"
+msgstr "2. Výpočet hashu a lokálne uloženie"
+
+msgid "The plugin hashes the artifacts. It creates a ConfigRevision according to the backup policy, or links an unchanged run to the latest matching revision."
+msgstr "Plugin vypočíta hash artefaktov. Podľa politiky zálohovania vytvorí ConfigRevision alebo nezmenený beh prepojí s poslednou zhodnou revíziou."
+
+msgid "3. Replicate new revisions to remote storage"
+msgstr "3. Replikácia nových revízií na vzdialené úložisko"
+
+msgid "Each enabled remote storage with automatic copying receives an independent immutable copy of every new revision."
+msgstr "Každé povolené vzdialené úložisko s automatickým kopírovaním dostane samostatnú nemennú kópiu každej novej revízie."
+
+msgid "A temporary remote-storage outage does not change a successful device backup to failed. The Local revision remains valid and the copy can be retried without reconnecting to the device."
+msgstr "Dočasný výpadok vzdialeného úložiska nezmení úspešnú zálohu zariadenia na neúspešnú. Lokálna revízia zostáva platná a kopírovanie možno zopakovať bez opätovného pripojenia k zariadeniu."
+
+msgid "These six configuration areas define shared defaults. Configure only the ones your deployment needs."
+msgstr "Týchto šesť oblastí určuje zdieľané predvolené nastavenia. Nastavte iba tie, ktoré vaše nasadenie potrebuje."
+
+msgid "Platform mappings"
+msgstr "Mapovania platforiem"
+
+msgid "Select a driver and optional profile defaults from the NetBox platform."
+msgstr "Vyberte driver a voliteľné predvolené profily podľa platformy v NetBoxe."
+
+msgid "Connection profiles"
+msgstr "Profily pripojenia"
+
+msgid "Define protocol, port, management IP priority, host-key verification, and timeouts. Dedicated management IP (OOB) is the device's OOB IP field in NetBox."
+msgstr "Definujte protokol, port, prioritu management IP, overenie host key a timeouty. Samostatná management IP (OOB) je pole OOB IP zariadenia v NetBoxe."
+
+msgid "Credential profiles"
+msgstr "Profily prihlasovacích údajov"
+
+msgid "Use an encrypted write-only password or an environment-variable reference for reusable device and FTP credentials."
+msgstr "Pre zdieľané prihlasovacie údaje zariadení a FTP použite šifrované heslo bez možnosti zobrazenia alebo odkaz na premennú prostredia."
+
+msgid "Backup policies"
+msgstr "Politiky zálohovania"
+
+msgid "Control schedules, retries, connection and command timeouts, revision creation, and the default Local retention profile."
+msgstr "Nastavte plány, opakovania, timeouty pripojenia a príkazov, vytváranie revízií a predvolený profil lokálnej retencie."
+
+msgid "Local retention profiles"
+msgstr "Profily lokálnej retencie"
+
+msgid "Define how long Local revisions and completed backup runs are kept."
+msgstr "Určite, ako dlho sa uchovávajú lokálne revízie a dokončené behy zálohovania."
+
+msgid "Remote retention profiles"
+msgstr "Profily vzdialenej retencie"
+
+msgid "Define how long copied revisions are kept independently on each remote storage."
+msgstr "Určite, ako dlho sa skopírované revízie uchovávajú samostatne na každom vzdialenom úložisku."
+
+msgid "Local and remote retention"
+msgstr "Lokálna a vzdialená retencia"
+
+msgid "Local and remote retention are resolved separately. A profile selects what may expire; a scheduler performs the deletion."
+msgstr "Lokálna a vzdialená retencia sa vyhodnocujú samostatne. Profil určuje, čo môže exspirovať; plánovač vykoná odstránenie."
+
+msgid "Local profile precedence"
+msgstr "Poradie lokálnych profilov"
+
+msgid "Local storage profile when"
+msgstr "Profil lokálneho úložiska, keď je"
+
+msgid "Always use this storage's retention profile"
+msgstr "Vždy použiť retenčný profil tohto úložiska"
+
+msgid "is enabled"
+msgstr "zapnuté"
+
+msgid "Local retention profile selected on the device"
+msgstr "Profil lokálnej retencie vybraný na zariadení"
+
+msgid "Local retention profile from the backup policy"
+msgstr "Profil lokálnej retencie z politiky zálohovania"
+
+msgid "Local storage profile as a fallback"
+msgstr "Profil lokálneho úložiska ako náhradná možnosť"
+
+msgid "Keep indefinitely when no profile is available"
+msgstr "Uchovávať neobmedzene, ak nie je dostupný žiadny profil"
+
+msgid "Remote profile precedence"
+msgstr "Poradie vzdialených profilov"
+
+msgid "Remote storage profile when"
+msgstr "Profil vzdialeného úložiska, keď je"
+
+msgid "Remote retention profile selected on the device"
+msgstr "Profil vzdialenej retencie vybraný na zariadení"
+
+msgid "Remote storage profile as a fallback"
+msgstr "Profil vzdialeného úložiska ako náhradná možnosť"
+
+msgid "Local and remote cleanup are disabled independently. Preview retention on a device before enabling either scheduler. Remote deletion has no recycle bin."
+msgstr "Lokálne a vzdialené čistenie sa zapínajú samostatne. Pred zapnutím plánovača skontrolujte náhľad retencie na zariadení. Vzdialené odstránenie nemá kôš."
+
+msgid "Remote storage or device upload receiver?"
+msgstr "Vzdialené úložisko alebo prijímač exportu zo zariadenia?"
+
+msgid "They move data in opposite directions and cannot replace one another."
+msgstr "Prenášajú dáta opačnými smermi a navzájom sa nenahrádzajú."
+
+msgid "Remote storage"
+msgstr "Vzdialené úložisko"
+
+msgid "The plugin copies an already successful Local revision to FTP, NFS, or SMB3 storage. Configure it under Storages."
+msgstr "Plugin kopíruje už úspešnú lokálnu revíziu na FTP, NFS alebo SMB3 úložisko. Nastavte ho v časti Úložiská."
+
+msgid "NFS/SMB3:"
+msgstr "NFS/SMB3:"
+
+msgid "Mount the share in the NetBox web and backup-worker containers first. The plugin refuses to write when that mount is not active."
+msgstr "Najprv pripojte zdieľanie do kontajnerov NetBox web a backup worker. Ak mount nie je aktívny, plugin odmietne zapisovať."
+
+msgid "Device upload receiver"
+msgstr "Prijímač exportu zo zariadenia"
+
+msgid "A vendor driver asks the device to push a native export into the plugin. Use it only for drivers which explicitly require one."
+msgstr "Driver výrobcu požiada zariadenie, aby odoslalo natívny export do pluginu. Použite ho iba pre drivery, ktoré ho výslovne vyžadujú."
+
+msgid "FTP is unencrypted. Use it only on an isolated, trusted internal management network with a dedicated restricted account."
+msgstr "FTP nie je šifrované. Používajte ho iba v izolovanej dôveryhodnej internej management sieti so samostatným obmedzeným účtom."
+
+msgid "Common connection and storage errors"
+msgstr "Bežné chyby pripojenia a úložiska"
+
+msgid "The reason code identifies which layer failed before you change device settings."
+msgstr "Kód dôvodu určuje, ktorá vrstva zlyhala, aby ste zbytočne nemenili nastavenia zariadenia."
+
+msgid "SSH identity modes:"
+msgstr "Režimy identity SSH:"
+
+msgid "Manual approval is the safest default. Trust on first use automatically accepts only the first key ever observed for an endpoint and still blocks later changes. Disabled skips SSH server identity verification and should be limited to an explicitly trusted management network. Replaced keys remain as rejected audit records."
+msgstr "Manuálne schválenie je najbezpečnejšie predvolené nastavenie. Dôvera pri prvom použití automaticky prijme iba prvý kľúč zistený pre endpoint a neskoršie zmeny naďalej zablokuje. Vypnutie preskočí overenie identity SSH servera a má sa používať iba vo výslovne dôveryhodnej management sieti. Nahradené kľúče zostávajú ako odmietnuté auditné záznamy."
+
+msgid "Show reason codes and first checks"
+msgstr "Zobraziť kódy dôvodov a prvé kontroly"
+
+msgid "The SSH identity has not been approved. Verify its fingerprint and approve it under SSH host keys."
+msgstr "Identita SSH nebola schválená. Overte jej fingerprint a schváľte ju v časti SSH host keys."
+
+msgid "The service is reachable, but the username, password, or allowed authentication method was rejected."
+msgstr "Služba je dostupná, ale používateľské meno, heslo alebo povolená metóda autentifikácie boli odmietnuté."
+
+msgid "The address is reachable, but no compatible service accepts the configured port."
+msgstr "Adresa je dostupná, ale na nastavenom porte neprijíma spojenie žiadna kompatibilná služba."
+
+msgid "Check the effective NetBox management address, route or VPN, firewall, protocol, and port."
+msgstr "Skontrolujte výslednú management adresu z NetBoxu, trasu alebo VPN, firewall, protokol a port."
+
+msgid "Login succeeded, but this firmware does not support the driver's read-only configuration command."
+msgstr "Prihlásenie bolo úspešné, ale tento firmware nepodporuje read-only príkaz konfigurácie daného drivera."
+
+msgid "The server may be reachable while directory creation, write, read-back, or probe cleanup is denied."
+msgstr "Server môže byť dostupný, aj keď je zakázané vytvorenie priečinka, zápis, spätné čítanie alebo odstránenie testovacieho súboru."
+
+msgid "The NFS/SMB3 directory exists but is not an active mount inside the backup worker. Repair the host or container mount before retrying."
+msgstr "Priečinok NFS/SMB3 existuje, ale v backup workeri nie je aktívnym mountom. Pred opakovaním opravte mount hostiteľa alebo kontajnera."
+
+msgid "Open runs"
+msgstr "Otvoriť behy"
+
+msgid "Open SSH host keys"
+msgstr "Otvoriť SSH host keys"
+
+msgid "Reusable defaults and automation for Config Backup."
+msgstr "Zdieľané predvolené hodnoty a automatizácia pre zálohovanie konfigurácií."
+
+msgid "Use Devices for day-to-day backup work."
+msgstr "Na každodennú prácu so zálohami používajte Zariadenia."
+
+msgid "Configure reusable defaults here only when several devices share the same settings."
+msgstr "Zdieľané nastavenia tu vytvárajte iba vtedy, keď ich používa viac zariadení."
+
+msgid "Open help"
+msgstr "Otvoriť pomocníka"
+
+msgid "Plugin language"
+msgstr "Jazyk pluginu"
+
+msgid "Sets the default language for Config Backup. Each user can temporarily switch the Help language."
+msgstr "Nastaví predvolený jazyk pluginu Config Backup. Každý používateľ si môže dočasne prepnúť jazyk pomocníka."
+
+msgid "Save language"
+msgstr "Uložiť jazyk"
+
+msgid "Device defaults"
+msgstr "Predvolené nastavenia zariadení"
+
+msgid "Reuse connection and credential profiles across devices. Platform mappings can select them automatically."
+msgstr "Zdieľajte profily pripojenia a prihlasovacích údajov medzi zariadeniami. Mapovania platforiem ich môžu vybrať automaticky."
+
+msgid "Schedules and retention"
+msgstr "Plány a retencia"
+
+msgid "Define when backups run and how long Local and remote data is kept."
+msgstr "Určite, kedy sa zálohy spúšťajú a ako dlho sa uchovávajú lokálne a vzdialené dáta."
+
+msgid "Security and vendor-specific setup"
+msgstr "Bezpečnosť a nastavenia výrobcov"
+
+msgid "Open this only for SSH identity approval or device-pushed native exports."
+msgstr "Otvorte iba pri schvaľovaní identity SSH alebo pri natívnom exporte zo zariadenia."
+
+msgid "Automation"
+msgstr "Automatizácia"
+
+msgid "These controls apply immediately. They do not require a Docker restart."
+msgstr "Tieto nastavenia sa použijú ihneď a nevyžadujú reštart Dockeru."
+
+msgid "Automatic cleanup"
+msgstr "Automatické čistenie"
+
+msgid "Profiles decide what expires. These switches allow the daily cleanup job to remove it."
+msgstr "Profily určujú, čo exspiruje. Tieto prepínače povoľujú dennému jobu odstrániť exspirované dáta."
+
+msgid "Local cleanup"
+msgstr "Lokálne čistenie"
+
+msgid "Enabled"
+msgstr "Zapnuté"
+
+msgid "Runs every 24 hours and applies the effective Local retention profile."
+msgstr "Spúšťa sa každých 24 hodín a používa výsledný profil lokálnej retencie."
+
+msgid "Enable Local cleanup"
+msgstr "Zapnúť lokálne čistenie"
+
+msgid "Confirm permanent deletion of expired Local data"
+msgstr "Potvrdzujem trvalé odstránenie exspirovaných lokálnych dát"
+
+msgid "Remote cleanup"
+msgstr "Vzdialené čistenie"
+
+msgid "Runs every 24 hours and evaluates every enabled remote storage separately."
+msgstr "Spúšťa sa každých 24 hodín a každé povolené vzdialené úložisko vyhodnocuje samostatne."
+
+msgid "Enable remote cleanup"
+msgstr "Zapnúť vzdialené čistenie"
+
+msgid "Confirm permanent deletion of expired remote copies"
+msgstr "Potvrdzujem trvalé odstránenie exspirovaných vzdialených kópií"
+
+msgid "Retention help"
+msgstr "Pomocník pre retenciu"
+
+msgid "Save cleanup settings"
+msgstr "Uložiť nastavenia čistenia"
+
+msgid "NetBox alerts"
+msgstr "Upozornenia NetBoxu"
+
+msgid "Publishes backup, recovery, stale, stuck, and remote-copy events to NetBox Event Rules."
+msgstr "Odosiela udalosti zálohovania, obnovenia, neaktuálnych zariadení, zaseknutých behov a vzdialených kópií do Event Rules NetBoxu."
+
+msgid "Event rules"
+msgstr "Pravidlá udalostí"
+
+msgid "Recipients"
+msgstr "Príjemcovia"
+
+msgid "Enable NetBox alerts"
+msgstr "Zapnúť upozornenia NetBoxu"
+
+msgid "Event rules decide which events create notifications and who receives them."
+msgstr "Pravidlá udalostí určujú, ktoré udalosti vytvoria upozornenie a kto ho dostane."
+
+msgid "Repeated failure behavior"
+msgstr "Správanie pri opakovaných zlyhaniach"
+
+msgid "Alert on every failed attempt"
+msgstr "Upozorniť pri každom zlyhanom pokuse"
+
+msgid "Leave off to alert only on the first failure until the device recovers."
+msgstr "Nechajte vypnuté, ak má prísť upozornenie iba pri prvom zlyhaní až do obnovenia zariadenia."
+
+msgid "Save alert settings"
+msgstr "Uložiť upozornenia"
+
+msgid "Administrators can change this setting."
+msgstr "Toto nastavenie môžu meniť administrátori."
+
+msgid "repeated failures:"
+msgstr "opakované zlyhania:"
+
+msgid "every attempt"
+msgstr "každý pokus"
+
+msgid "first failure only"
+msgstr "iba prvé zlyhanie"
+
+msgid "Select the driver and reusable profiles from a device's NetBox platform."
+msgstr "Vyberte driver a zdieľané profily podľa platformy zariadenia v NetBoxe."
+
+msgid "Reuse protocol, port, NetBox management IP priority, host-key verification, and timeouts."
+msgstr "Zdieľajte protokol, port, prioritu management IP z NetBoxu, overenie host key a timeouty."
+
+msgid "Reuse encrypted or environment-based device logins."
+msgstr "Zdieľajte šifrované prihlasovacie údaje zariadení alebo údaje z prostredia."
+
+msgid "Set schedules, retries, timeouts, and the default Local retention profile."
+msgstr "Nastavte plány, opakovania, timeouty a predvolený profil lokálnej retencie."
+
+msgid "Control Local revisions and completed backup-run history."
+msgstr "Nastavte uchovávanie lokálnych revízií a histórie dokončených behov."
+
+msgid "Control copies independently on each remote storage."
+msgstr "Nastavte uchovávanie kópií samostatne na každom vzdialenom úložisku."
+
+msgid "SSH host keys"
+msgstr "SSH host keys"
+
+msgid "Review device identities discovered during SSH connection tests."
+msgstr "Skontrolujte identity zariadení objavené počas testov SSH pripojenia."
+
+msgid "Device upload receivers"
+msgstr "Prijímače exportov zo zariadení"
+
+msgid "Configure an inbound receiver only when a driver requires a device-pushed native export. This is not remote replica storage."
+msgstr "Vstupný prijímač nastavte iba pre driver, ktorý vyžaduje natívny export odoslaný zariadením. Nie je to vzdialené úložisko replík."

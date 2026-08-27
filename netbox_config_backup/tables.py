@@ -146,7 +146,11 @@ class BackupPolicyTable(NetBoxTable):
 
 class ConnectionProfileTable(NetBoxTable):
     name = tables.Column(linkify=True)
-    verify_host_key = columns.BooleanColumn()
+    host_key_policy = tables.Column(
+        accessor="host_key_policy_label",
+        verbose_name="SSH identity verification",
+        orderable=False,
+    )
 
     class Meta(NetBoxTable.Meta):
         model = ConnectionProfile
@@ -158,7 +162,7 @@ class ConnectionProfileTable(NetBoxTable):
             "port",
             "connect_timeout",
             "command_timeout",
-            "verify_host_key",
+            "host_key_policy",
         )
         default_columns = (
             "name",
@@ -167,7 +171,7 @@ class ConnectionProfileTable(NetBoxTable):
             "port",
             "connect_timeout",
             "command_timeout",
-            "verify_host_key",
+            "host_key_policy",
         )
 
 

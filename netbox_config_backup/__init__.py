@@ -22,6 +22,9 @@ else:
         max_version = "4.6.99"
         base_url = "config-backup"
         queues: ClassVar[list[str]] = ["backup"]
+        middleware: ClassVar[list[str]] = [
+            "netbox_config_backup.middleware.ConfigBackupLanguageMiddleware"
+        ]
         required_settings: ClassVar[list[str]] = []
         default_settings: ClassVar[dict[str, object]] = {
             "storage_root": "/var/lib/netbox-config-backup",

@@ -15,10 +15,15 @@ contact is published.
 
 ## Deployment baseline
 
-- Keep **Verify host key** enabled and approve fingerprints out of band.
+- Use **Require manual approval** for production connection profiles and verify
+  fingerprints out of band. **Trust first key automatically** is suitable only
+  for a controlled first-use rollout: it never accepts a later key change.
+  **Do not verify SSH identity** removes protection against device substitution
+  and man-in-the-middle attacks; restrict it to an explicitly trusted isolated
+  management network and document every such exception.
 - Treat any legacy SSH algorithm exception as device-specific. The default
   transport disables RSA/SHA-1 signatures; compatibility exceptions retain
-  strict `known_hosts` verification.
+  support for host-key verification and do not broaden user authentication.
 - Use a least-privilege, backup-only account on each device. Drivers collect
   configuration and never restore it automatically.
 - Store `NETBOX_CONFIG_BACKUP_MASTER_KEY` outside PostgreSQL and outside the
@@ -38,7 +43,14 @@ release containing the fix for CVE-2026-44405 is Paramiko 5.0.0. The plugin
 mitigates this low-severity RSA/SHA-1 issue by disabling `ssh-rsa` signatures
 by default.
 Explicit legacy device exceptions remain restricted to the server host key and
-still require a previously approved fingerprint.
+still require a previously approved fingerprint when the secure manual policy
+is selected.
+
+Approved host keys are audit data. When an administrator approves a replacement
+for the same target, address, and port, the plugin marks all previously trusted
+keys as rejected and stops accepting them. It does not physically delete those
+rows. Disabling verification leaves existing rows unchanged but unused; it also
+means the plugin cannot detect a key change while verification remains disabled.
 
 PyJWT is supplied by NetBox rather than this plugin. Follow the supported
 NetBox image for its security update instead of overriding PyJWT independently;

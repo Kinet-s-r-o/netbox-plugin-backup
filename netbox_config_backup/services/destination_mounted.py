@@ -19,11 +19,11 @@ from .destination_ftp import (
     _expected_revision_files,
     _manifest_matches_revision,
     _readable_stem_from_revision_path,
-    _uses_readable_ftp_layout,
     _validate_recorded_revision_path,
 )
 from .destination_paths import ftp_revision_destination_path
 from .destination_types import DestinationError, ReplicationResult
+from .ftp_helpers import uses_readable_ftp_layout as _uses_readable_ftp_layout
 
 if TYPE_CHECKING:
     from netbox_config_backup.models import BackupDestination, ConfigRevision, RevisionReplica
