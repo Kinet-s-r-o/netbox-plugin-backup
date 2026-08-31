@@ -90,6 +90,12 @@ user = get_user_model().objects.create_superuser(
 )
 client = Client()
 client.force_login(user)
+plugin_root_url = reverse("plugins:netbox_config_backup:root")
+overview_url = reverse("plugins:netbox_config_backup:home")
+assert overview_url.endswith("/overview/")
+root_response = client.get(plugin_root_url)
+assert root_response.status_code == 302
+assert root_response.headers["Location"] == overview_url
 delete_url = reverse(
     "plugins:netbox_config_backup:backuptarget_delete",
     kwargs={"pk": target_id},
@@ -104,10 +110,12 @@ response = client.post(
     delete_url,
     {
         "confirm": "on",
-        "return_url": reverse("plugins:netbox_config_backup:backuptarget_list"),
     },
 )
 assert response.status_code == 302
+assert response.headers["Location"] == reverse(
+    "plugins:netbox_config_backup:backuptarget_list"
+)
 assert not BackupTarget.objects.filter(pk=target_id).exists()
 assert not BackupRun.objects.filter(target_id=target_id).exists()
 assert not ConfigRevision.objects.filter(target_id=target_id).exists()
@@ -121,10 +129,12 @@ assert not artifact_path.exists()
 print(
     {
         "target_deleted": True,
+        "redirected_to_device_list": True,
         "history_deleted": True,
         "artifact_file_deleted": True,
         "quick_profiles_deleted": True,
         "device_preserved": True,
         "storage_failure_was_atomic": True,
+        "overview_uses_distinct_url": True,
     }
 )

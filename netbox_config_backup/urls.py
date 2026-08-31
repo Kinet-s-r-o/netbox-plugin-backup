@@ -1,4 +1,5 @@
 from django.urls import include, path
+from django.views.generic import RedirectView
 from utilities.urls import get_model_urls
 
 from . import views
@@ -6,7 +7,23 @@ from . import views
 app_name = "netbox_config_backup"
 
 urlpatterns = [
-    path("", views.ConfigBackupHomeView.as_view(), name="home"),
+    path(
+        "assets/settings.css",
+        views.SettingsStylesheetView.as_view(),
+        name="settings_stylesheet",
+    ),
+    # Keep the plugin root as a compatibility redirect. NetBox determines the
+    # active side-navigation entry using a URL-prefix match; using the root as
+    # the Overview URL therefore highlighted it on every plugin page.
+    path(
+        "",
+        RedirectView.as_view(
+            pattern_name="plugins:netbox_config_backup:home",
+            permanent=False,
+        ),
+        name="root",
+    ),
+    path("overview/", views.ConfigBackupHomeView.as_view(), name="home"),
     path("settings/", views.AdvancedSettingsView.as_view(), name="advanced_settings"),
     path("help/", views.ConfigBackupHelpView.as_view(), name="help"),
     path("examples/", views.ExampleConfigurationView.as_view(), name="examples"),
@@ -51,6 +68,11 @@ urlpatterns = [
         include(get_model_urls("netbox_config_backup", "backuptarget")),
     ),
     path("runs/", include(get_model_urls("netbox_config_backup", "backuprun", detail=False))),
+    path(
+        "runs/<int:pk>/cancel/",
+        views.BackupRunCancelView.as_view(),
+        name="backuprun_cancel",
+    ),
     path("runs/<int:pk>/", include(get_model_urls("netbox_config_backup", "backuprun"))),
     path(
         "revisions/",

@@ -49,6 +49,7 @@ with transaction.atomic():
     )
     assert preview.status_code == 200, preview.status_code
     assert all(str(target.device).encode() in preview.content for target in targets)
+    assert b"Background job" not in preview.content
 
     active_run = BackupRun.objects.create(target=targets[1])
     confirmation = {
@@ -56,6 +57,9 @@ with transaction.atomic():
         "confirm": "true",
         "_confirm": "1",
         "return_url": list_url,
+        # A stale client may still submit the old field. It must not defer the
+        # deletion to a worker or prevent the synchronous removal.
+        "background_job": "on",
     }
     blocked = client.post(bulk_delete_url, confirmation)
     assert blocked.status_code == 302, blocked.status_code
@@ -73,6 +77,7 @@ with transaction.atomic():
             "active_run_blocks_all": True,
             "selected_count": len(target_ids),
             "bulk_deleted": True,
+            "synchronous_delete": True,
             "database_rollback": True,
         }
     )

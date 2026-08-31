@@ -13,7 +13,7 @@ Install the wheel into NetBox's virtual environment. A source checkout also
 works, but a pinned wheel is recommended for production.
 
 ```shell
-/opt/netbox/venv/bin/pip install netbox_config_backup-0.7.0-py3-none-any.whl
+/opt/netbox/venv/bin/pip install netbox_config_backup-0.7.1-py3-none-any.whl
 ```
 
 The package installs its runtime dependencies, including Netmiko, Paramiko,
@@ -24,12 +24,13 @@ For netbox-docker, build a non-editable image directly from the repository:
 ```shell
 docker build -f docker/Dockerfile.release \
   --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
-  -t netbox-config-backup:0.7.0 .
+  -t netbox-config-backup:0.7.1 .
 ```
 
-Use that same image for the NetBox web, normal worker, dedicated backup worker,
-and receiver services. `docker/docker-compose.receiver.yml` is an overlay for
-the standard netbox-docker Compose file which does this wiring.
+Use that exact same image for the NetBox web, normal worker, housekeeping,
+dedicated backup worker, and receiver services.
+`docker/docker-compose.receiver.yml` is an overlay for the standard
+netbox-docker Compose file which does this wiring.
 
 ## 2. Configure NetBox
 
@@ -103,7 +104,11 @@ the web and worker services and keep active-mount verification enabled. See
 [NFS_AND_SMB3_STORAGE.md](NFS_AND_SMB3_STORAGE.md) for NFSv4 and SMB 3.1.1
 examples and the required permissions.
 
-## 3. Upgrade the database and static files
+## 3. Initialize or upgrade the database and static files
+
+This step is mandatory on a clean installation as well as on an upgrade. The
+migration command creates missing plugin tables or applies only pending schema
+changes, so it can be run safely in either case.
 
 ```shell
 /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py migrate netbox_config_backup
@@ -212,7 +217,7 @@ Compose files. Put the two master-key variables into the existing protected
 and adjust the published receiver port when needed:
 
 ```shell
-NETBOX_IMAGE=netbox-config-backup:0.7.0 docker compose \
+NETBOX_IMAGE=netbox-config-backup:0.7.1 docker compose \
   -f docker-compose.yml \
   -f /path/to/netbox-plugin-backup/docker/docker-compose.receiver.yml \
   up -d

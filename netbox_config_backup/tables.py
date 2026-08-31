@@ -48,6 +48,18 @@ TEST_DESTINATION_BUTTON = """
 {% endif %}
 """
 
+CANCEL_QUEUED_RUN_BUTTON = """
+{% if record.status == 'queued' and perms.netbox_config_backup.change_backuptarget %}
+<button type="submit" class="btn btn-sm btn-outline-danger" title="Cancel queued backup"
+        aria-label="Cancel queued backup {{ record.pk }}"
+        formaction="{% url 'plugins:netbox_config_backup:backuprun_cancel' pk=record.pk %}"
+        formmethod="post" formnovalidate
+        onclick="return confirm('Cancel this queued backup?');">
+  <i class="mdi mdi-close-circle-outline" aria-hidden="true"></i>
+</button>
+{% endif %}
+"""
+
 STORAGE_ACTION_BUTTONS = (
     TEST_DESTINATION_BUTTON
     + """
@@ -422,7 +434,7 @@ class BackupRunTable(NetBoxTable):
     status = columns.ChoiceFieldColumn()
     stuck = columns.BooleanColumn(accessor="is_stuck", orderable=False)
     revision = tables.Column(linkify=True)
-    actions = columns.ActionsColumn(actions=())
+    actions = columns.ActionsColumn(actions=(), extra_buttons=CANCEL_QUEUED_RUN_BUTTON)
 
     class Meta(NetBoxTable.Meta):
         model = BackupRun

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
+import django_rq
 from core.choices import JobStatusChoices
 from core.models import Job
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
+from rq.job import JobStatus
+from utilities.rqworker import any_workers_for_queue
 
 from netbox_config_backup.choices import (
     RunSourceChoices,
@@ -28,6 +32,8 @@ from .scheduling import (
 )
 
 ACTIVE_RUN_STATUSES = (RunStatusChoices.QUEUED, RunStatusChoices.RUNNING)
+BACKUP_QUEUE = "netbox_config_backup.backup"
+logger = logging.getLogger("netbox_config_backup.dispatcher")
 
 
 @dataclass(slots=True)
@@ -37,6 +43,8 @@ class DispatchSummary:
     queued: int = 0
     skipped_active: int = 0
     conflicts: int = 0
+    worker_unavailable: bool = False
+    worker_state_unknown: bool = False
 
 
 def initialize_target_schedules(*, now: datetime) -> int:
@@ -70,6 +78,24 @@ def dispatch_due_targets(*, now: datetime | None = None, limit: int = 100) -> Di
         .values_list("pk", flat=True)[:limit]
     )
     summary.due = len(candidate_ids)
+    if not candidate_ids:
+        return summary
+
+    try:
+        if not any_workers_for_queue(BACKUP_QUEUE):
+            summary.worker_unavailable = True
+            logger.error(
+                "Scheduled backups were not queued because no live worker is servicing %s.",
+                BACKUP_QUEUE,
+            )
+            return summary
+    except Exception:
+        summary.worker_state_unknown = True
+        logger.exception(
+            "Scheduled backups were not queued because the %s worker state could not be verified.",
+            BACKUP_QUEUE,
+        )
+        return summary
 
     for target_id in candidate_ids:
         try:
@@ -126,7 +152,30 @@ def reconcile_stale_runs(*, now: datetime, stale_after_minutes: int) -> int:
     for run in candidates:
         job = Job.objects.filter(job_id=run.job_id).only("status").first() if run.job_id else None
         if job and job.status in JobStatusChoices.ENQUEUED_STATE_CHOICES:
-            continue
+            queue_name = job.queue_name or BACKUP_QUEUE
+            try:
+                rq_job = django_rq.get_queue(queue_name).fetch_job(str(job.job_id))
+                rq_status = rq_job.get_status(refresh=True) if rq_job is not None else None
+                worker_available = any_workers_for_queue(queue_name)
+            except Exception:
+                # Redis availability is unknown. Do not risk releasing the
+                # run while a real worker may still be able to execute it.
+                logger.exception("Could not inspect stale backup job %s in Redis.", job.job_id)
+                continue
+            if rq_status in {
+                JobStatus.QUEUED,
+                JobStatus.STARTED,
+                JobStatus.DEFERRED,
+                JobStatus.SCHEDULED,
+            } and worker_available:
+                continue
+            try:
+                # This removes an orphaned RQ job as well as its Core Job row,
+                # preventing it from executing after the run is reconciled.
+                job.delete()
+            except Exception:
+                logger.exception("Could not cancel stale backup job %s.", job.job_id)
+                continue
         repository.mark_failed(
             run.pk,
             status=RunStatusChoices.ERRORED,

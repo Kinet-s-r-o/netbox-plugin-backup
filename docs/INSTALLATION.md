@@ -29,7 +29,7 @@ procedure. A direct installation is also possible:
 
 ```shell
 sudo /opt/netbox/venv/bin/python -m pip install \
-  /path/to/netbox_config_backup-0.7.0-py3-none-any.whl
+  /path/to/netbox_config_backup-0.7.1-py3-none-any.whl
 ```
 
 For netbox-docker, build the non-editable release image. The supplied
@@ -39,11 +39,13 @@ into the final NetBox image; the source checkout is not present at runtime:
 ```shell
 docker build -f docker/Dockerfile.release \
   --build-arg NETBOX_IMAGE=netboxcommunity/netbox:v4.6-5.0.2 \
-  -t netbox-config-backup:0.7.0 .
+  -t netbox-config-backup:0.7.1 .
 ```
 
-Use this same image for `netbox`, the normal NetBox worker, and the dedicated
-Config Backup worker.
+Use this exact same image for `netbox`, `netbox-worker`,
+`netbox-housekeeping`, the dedicated Config Backup worker, and any enabled
+receiver service. The supplied receiver Compose overlay applies it to all of
+these services.
 
 ## 3. Create the master key
 
@@ -100,7 +102,11 @@ In Docker, mount one persistent volume at this path into the web process and
 the dedicated backup worker. Vendor-native push receivers must share the same
 volume when enabled.
 
-## 5. Upgrade the database and start workers
+## 5. Initialize or upgrade the database and start workers
+
+Run these commands for both a clean installation and an upgrade. Migrations
+create the plugin tables on a new installation and update them safely on an
+existing one; repeating the commands is safe.
 
 ```shell
 /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py migrate
@@ -118,6 +124,10 @@ worker for device backup jobs:
 
 The normal NetBox worker must remain running because dispatch, retention, FTP
 replication, audit, and recovery jobs use NetBox's background job system.
+The plugin Overview reports when the dedicated backup worker is unavailable.
+Manual and scheduled backup requests are rejected without creating a run until a live worker
+is listening on `netbox_config_backup.backup`. An already queued run can be
+cancelled from its run detail page.
 
 ## 6. Initial UI setup
 

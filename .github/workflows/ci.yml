@@ -59,10 +59,11 @@ jobs:
           cd /tmp
           /tmp/ncb-package-smoke/bin/python - <<'PY'
           import importlib.resources
+          import importlib.metadata
           import netbox_config_backup
           from netbox_config_backup import __version__
 
-          assert __version__ == "0.7.0"
+          assert importlib.metadata.version("netbox-config-backup") == __version__
           package = importlib.resources.files("netbox_config_backup")
           required = (
               "migrations/0028_alter_connectionprofile_address_preference.py",
@@ -70,8 +71,10 @@ jobs:
               "forms_setup.py",
               "forms_storage.py",
               "services/ftp_helpers.py",
+              "services/run_cancellation.py",
               "templates/netbox_config_backup/help.html",
               "templates/netbox_config_backup/advanced_settings.html",
+              "static/netbox_config_backup/settings.css",
               "locale/sk/LC_MESSAGES/django.po",
               "locale/sk/LC_MESSAGES/django.mo",
           )
@@ -146,8 +149,12 @@ jobs:
           run_manage netbox_fresh showmigrations netbox_config_backup
           run_manage netbox_fresh config_backup_create_rbac_groups
           run_manage netbox_fresh shell < tests/integration/docker_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_run_cancellation_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_health_dashboard_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_target_delete_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_target_bulk_delete_smoke.py
           run_manage netbox_fresh shell -c \
-            "import importlib.metadata; from netbox_config_backup import __version__; from netbox_config_backup.models import BackupDestination, OperationalSettings; from users.models import Group; settings=OperationalSettings.objects.get(singleton=True); local=BackupDestination.objects.get(is_default=True); expected={'Config Backup Readers','Config Backup Operators','Config Backup Administrators'}; groups=Group.objects.filter(name__in=expected); assert importlib.metadata.version('netbox-config-backup') == __version__ == '0.7.0'; assert settings.ui_language == 'en'; assert local.protocol == 'local' and local.enabled; assert BackupDestination.objects.filter(is_default=True).count() == 1; assert set(groups.values_list('name', flat=True)) == expected; assert all(group.object_permissions.exists() for group in groups)"
+            "import importlib.metadata; from netbox_config_backup import __version__; from netbox_config_backup.models import BackupDestination, OperationalSettings; from users.models import Group; settings=OperationalSettings.objects.get(singleton=True); local=BackupDestination.objects.get(is_default=True); expected={'Config Backup Readers','Config Backup Operators','Config Backup Administrators'}; groups=Group.objects.filter(name__in=expected); assert importlib.metadata.version('netbox-config-backup') == __version__; assert settings.ui_language == 'en'; assert local.protocol == 'local' and local.enabled; assert BackupDestination.objects.filter(is_default=True).count() == 1; assert set(groups.values_list('name', flat=True)) == expected; assert all(group.object_permissions.exists() for group in groups)"
       - name: Show container logs on failure
         if: failure()
         run: docker logs ncb-postgres || true

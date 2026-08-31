@@ -30,4 +30,14 @@
   </table></div></div>
 </div>
 {% if object.error_code or object.error_message %}<div class="card"><h2 class="card-header">Error</h2><div class="card-body"><strong>{{ object.error_code }}</strong><pre class="mt-2">{{ object.error_message }}</pre></div></div>{% endif %}
+{% if can_cancel %}
+<div class="d-flex justify-content-end mt-3">
+  <form method="post" action="{% url 'plugins:netbox_config_backup:backuprun_cancel' pk=object.pk %}">
+    {% csrf_token %}
+    <button class="btn btn-outline-danger" type="submit" onclick="return confirm('Cancel this queued backup?');">
+      <i class="mdi mdi-close-circle-outline" aria-hidden="true"></i> Cancel queued backup
+    </button>
+  </form>
+</div>
+{% endif %}
 {% endblock %}

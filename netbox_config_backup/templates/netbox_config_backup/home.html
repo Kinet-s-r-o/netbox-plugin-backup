@@ -18,6 +18,24 @@
   {% endif %}
 </div>
 
+{% if backup_worker_available is False %}
+<div class="alert alert-danger d-flex gap-3 align-items-start" role="alert">
+  <i class="mdi mdi-server-off fs-2" aria-hidden="true"></i>
+  <div>
+    <div class="fw-semibold">Config Backup worker is unavailable</div>
+    <div>New manual backups will not be queued. Start a worker for <code>netbox_config_backup.backup</code>.</div>
+  </div>
+</div>
+{% elif backup_worker_available is None %}
+<div class="alert alert-warning d-flex gap-3 align-items-start" role="alert">
+  <i class="mdi mdi-server-network-off fs-2" aria-hidden="true"></i>
+  <div>
+    <div class="fw-semibold">Config Backup worker state is unknown</div>
+    <div>The plugin could not verify the backup queue in Redis.</div>
+  </div>
+</div>
+{% endif %}
+
 <div class="card mb-3">
   <div class="card-body d-flex flex-wrap align-items-end justify-content-between gap-3">
     <div>

@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Platform, Site
 from django.conf import settings
+from django.test import Client
+from django.urls import reverse
 
 from netbox_config_backup.drivers import driver_registry
 from netbox_config_backup.models import (
@@ -23,6 +25,11 @@ from netbox_config_backup.services.django_repository import DjangoBackupReposito
 from netbox_config_backup.storage.local import LocalConfigStorage
 
 prefix = f"ncb-smoke-{uuid4().hex[:8]}"
+stylesheet = Client().get(reverse("plugins:netbox_config_backup:settings_stylesheet"))
+assert stylesheet.status_code == 200
+assert stylesheet["Content-Type"].startswith("text/css")
+assert b".settings-shell" in stylesheet.content
+
 site = Site.objects.create(name=f"{prefix}-site", slug=f"{prefix}-site")
 manufacturer = Manufacturer.objects.create(
     name=f"{prefix}-manufacturer", slug=f"{prefix}-manufacturer"
@@ -96,6 +103,7 @@ print(
     json.dumps(
         {
             "plugin": "netbox_config_backup",
+            "settings_stylesheet_fallback": True,
             "driver_registered": driver_registry.contains("fake"),
             "first_run": first.status,
             "second_run": second.status,

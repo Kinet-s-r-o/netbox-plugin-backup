@@ -1,6 +1,6 @@
 import io
 import logging
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from core.choices import JobStatusChoices
@@ -12,7 +12,13 @@ from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMix
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Min, Prefetch, Q
-from django.http import FileResponse, Http404, HttpResponseBadRequest, JsonResponse
+from django.http import (
+    FileResponse,
+    Http404,
+    HttpResponse,
+    HttpResponseBadRequest,
+    JsonResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -20,7 +26,8 @@ from django.views.generic import FormView, TemplateView, View
 from netbox.object_actions import AddObject, BulkExport
 from netbox.views import generic
 from utilities.forms import BulkDeleteForm, DeleteForm
-from utilities.jobs import is_background_request, process_request_as_job
+from utilities.jobs import is_background_request
+from utilities.rqworker import any_workers_for_queue
 from utilities.views import register_model_view
 
 from . import filtersets, forms, tables
@@ -105,15 +112,48 @@ from .services.revision_display import (
     load_artifact_content,
     load_revision_content,
 )
+from .services.run_cancellation import (
+    BackupRunCancellationError,
+    cancel_queued_backup_run,
+)
 from .services.runtime_controls import get_runtime_controls
 from .services.scheduling import apply_target_schedule
 from .services.ssh_host_keys import reject_host_key, trust_host_key
 from .services.target_deletion import TargetDeletionError, delete_backup_target
 from .services.ui_language import SESSION_KEY, resolve_ui_language
 
+SETTINGS_STYLESHEET_PATH = (
+    Path(__file__).resolve().parent / "static" / "netbox_config_backup" / "settings.css"
+)
+
+
+class SettingsStylesheetView(View):
+    """Serve the small plugin stylesheet when global collectstatic is incomplete."""
+
+    def get(self, request):
+        try:
+            content = SETTINGS_STYLESHEET_PATH.read_bytes()
+        except OSError as exc:
+            raise Http404("Config Backup stylesheet is unavailable.") from exc
+        response = HttpResponse(content, content_type="text/css; charset=utf-8")
+        response["Cache-Control"] = "public, max-age=300"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
 
 def _connection_test_job(target, job_id):
     return get_object_or_404(ConnectionTestJob.get_jobs(target), job_id=job_id)
+
+
+def _backup_worker_available() -> bool | None:
+    """Return the dedicated backup worker state, or None when Redis is unavailable."""
+    try:
+        return any_workers_for_queue(BACKUP_QUEUE)
+    except Exception:
+        logging.getLogger("netbox_config_backup.views").exception(
+            "Could not inspect the config backup worker."
+        )
+        return None
 
 
 def _connection_test_status(job, target):
@@ -215,6 +255,7 @@ class ConfigBackupHomeView(PermissionRequiredMixin, LoginRequiredMixin, Template
                     "destination", "revision__target__device"
                 )[:5],
                 "can_add_target": _can_assign_target_retention(self.request.user),
+                "backup_worker_available": _backup_worker_available(),
             }
         )
         return context
@@ -1662,7 +1703,11 @@ class BackupTargetDeleteView(generic.ObjectDeleteView):
 
         target_label = str(target)
         return_url = form.cleaned_data.get("return_url")
-        fallback_url = self.get_return_url(request, target)
+        # The deletion service locks and deletes a fresh database instance, so
+        # the view's original instance keeps its primary key. Deriving the
+        # fallback from that stale instance would redirect to the now-deleted
+        # detail page and make a successful deletion look like a failure.
+        fallback_url = reverse("plugins:netbox_config_backup:backuptarget_list")
         if hasattr(target, "snapshot"):
             target.snapshot()
         target._changelog_message = form.cleaned_data.pop("changelog_message", "")
@@ -1712,12 +1757,8 @@ class BackupTargetBulkDeleteView(generic.BulkDeleteView):
 
     def _render_confirmation(self, request, selected_ids, selected, form=None):
         if form is None:
-            form = BulkDeleteForm(
-                BackupTarget,
-                initial={
-                    "pk": selected_ids,
-                    "return_url": self.get_return_url(request),
-                },
+            form = self._delete_form(
+                initial={"pk": selected_ids, "return_url": self.get_return_url(request)}
             )
         return render(
             request,
@@ -1731,6 +1772,26 @@ class BackupTargetBulkDeleteView(generic.BulkDeleteView):
             },
         )
 
+    @staticmethod
+    def _delete_form(*args, **kwargs):
+        """Build a synchronous target-deletion form.
+
+        NetBox's generic bulk form offers a background-job switch. A queued
+        view job can be picked up by a worker image which does not contain the
+        plugin, leaving the selected backup devices untouched. Target deletion
+        already reports progress and failures explicitly, so keep this action
+        deterministic and execute it in the current request.
+        """
+        form = BulkDeleteForm(BackupTarget, *args, **kwargs)
+        form.fields.pop("background_job", None)
+        if hasattr(form, "meta_fields"):
+            form.meta_fields = [
+                field_name
+                for field_name in form.meta_fields
+                if field_name != "background_job"
+            ]
+        return form
+
     def post(self, request, **kwargs):
         selected_ids = self._selected_ids(request)
         selected = self.queryset.filter(pk__in=selected_ids)
@@ -1743,7 +1804,7 @@ class BackupTargetBulkDeleteView(generic.BulkDeleteView):
                 return redirect(self.get_return_url(request))
             return self._render_confirmation(request, selected_ids, selected)
 
-        form = BulkDeleteForm(BackupTarget, request.POST)
+        form = self._delete_form(request.POST)
         if not form.is_valid():
             return self._render_confirmation(request, selected_ids, selected, form)
 
@@ -1762,11 +1823,6 @@ class BackupTargetBulkDeleteView(generic.BulkDeleteView):
                 raise JobFailed
             messages.error(request, message)
             return redirect(self.get_return_url(request))
-
-        if form.cleaned_data["background_job"]:
-            job_name = f"Delete {len(selected_ids)} backup devices"
-            if process_request_as_job(self.__class__, request, name=job_name):
-                return redirect(self.get_return_url(request))
 
         totals = {"targets": 0, "runs": 0, "revisions": 0, "artifacts": 0}
         changelog_message = form.cleaned_data.get("changelog_message", "")
@@ -1831,6 +1887,19 @@ class BackupTargetRunView(PermissionRequiredMixin, LoginRequiredMixin, View):
         driver_id = target.driver_override or (mapping.driver_id if mapping else "")
         if not driver_id or not driver_registry.contains(driver_id):
             messages.error(request, "No supported backup driver is configured for this target.")
+            return redirect(target.get_absolute_url())
+
+        worker_available = _backup_worker_available()
+        if worker_available is not True:
+            messages.error(
+                request,
+                (
+                    "No live Config Backup worker is listening on the backup queue. "
+                    "The backup was not queued; start config-backup-worker and try again."
+                    if worker_available is False
+                    else "The Config Backup worker state could not be verified. The backup was not queued."
+                ),
+            )
             return redirect(target.get_absolute_url())
 
         try:
@@ -2502,6 +2571,12 @@ class BackupRunView(generic.ObjectView):
 
     def get_extra_context(self, request, instance):
         timeout_minutes = settings.PLUGINS_CONFIG["netbox_config_backup"]["stale_run_minutes"]
+        can_change_target = (
+            request.user.has_perm("netbox_config_backup.change_backuptarget")
+            and BackupTarget.objects.restrict(request.user, "change")
+            .filter(pk=instance.target_id)
+            .exists()
+        )
         return {
             "is_stuck": is_run_stuck(
                 instance,
@@ -2509,7 +2584,41 @@ class BackupRunView(generic.ObjectView):
                 timeout_minutes=timeout_minutes,
             ),
             "stuck_run_minutes": timeout_minutes,
+            "can_cancel": instance.status == RunStatusChoices.QUEUED and can_change_target,
         }
+
+
+class BackupRunCancelView(PermissionRequiredMixin, LoginRequiredMixin, View):
+    permission_required = (
+        "netbox_config_backup.view_backuprun",
+        "netbox_config_backup.change_backuptarget",
+    )
+    raise_exception = True
+
+    def post(self, request, pk):
+        run = get_object_or_404(
+            BackupRun.objects.restrict(request.user, "view").select_related("target__device"),
+            pk=pk,
+        )
+        if not (
+            BackupTarget.objects.restrict(request.user, "change")
+            .filter(pk=run.target_id)
+            .exists()
+        ):
+            raise PermissionDenied
+        try:
+            result = cancel_queued_backup_run(run.pk)
+        except BackupRunCancellationError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(
+                request,
+                (
+                    f"Queued backup for {run.target.device} was cancelled."
+                    + (" Its background job was removed." if result.job_removed else "")
+                ),
+            )
+        return redirect(run.get_absolute_url())
 
 
 @register_model_view(ConfigRevision, "list", path="", detail=False)

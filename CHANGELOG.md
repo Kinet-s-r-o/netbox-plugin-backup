@@ -4,6 +4,26 @@ All notable changes to NetBox Config Backup are documented here. The project
 uses semantic versioning; database migrations are forward-only and must never
 be deleted from an installation which may already have applied them.
 
+## [0.7.1] - 2026-08-31
+
+### Fixed
+
+- The netbox-docker receiver overlay now applies the same plugin image and
+  persistent backup volume to the web, worker, housekeeping, backup-worker,
+  and optional receiver processes.
+- Clean-install documentation now states explicitly that database migrations
+  and static-file collection are required for both new installations and
+  upgrades.
+- Overview no longer remains highlighted on every plugin page, and backup
+  device bulk deletion now completes synchronously instead of depending on a
+  compatible background worker.
+- Manual backups now fail fast when the dedicated worker is unavailable;
+  queued runs can be cancelled from the UI, and stale reconciliation verifies
+  the Redis job and a live queue worker instead of trusting a pending database
+  row indefinitely.
+- Settings and Help now load their stylesheet from a plugin-owned endpoint, so
+  an unrelated `collectstatic` failure no longer leaves these pages unstyled.
+
 ## [0.7.0] - 2026-08-27
 
 ### Added

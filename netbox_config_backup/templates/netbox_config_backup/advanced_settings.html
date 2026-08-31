@@ -1,9 +1,9 @@
 {% extends 'generic/_base.html' %}
-{% load static i18n %}
+{% load i18n %}
 
 {% block head %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'netbox_config_backup/settings.css' %}">
+  <link rel="stylesheet" href="{% url 'plugins:netbox_config_backup:settings_stylesheet' %}">
 {% endblock %}
 
 {% block title %}{% translate "Settings" %}{% endblock %}

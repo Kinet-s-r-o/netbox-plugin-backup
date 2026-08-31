@@ -193,16 +193,9 @@ try:
     assert b"not a stale target classification" in stuck_run_detail.content
     stuck_detected = stuck_run.is_stuck
 
-    assert (
-        reconcile_stale_runs(
-            now=now,
-            stale_after_minutes=settings.PLUGINS_CONFIG["netbox_config_backup"][
-                "stale_run_minutes"
-            ],
-        )
-        == 0
-    )
-    Job.objects.filter(pk=core_job.pk).update(status="failed")
+    # A pending Core Job without a corresponding Redis job is orphaned. The
+    # dispatcher must cancel it and release the target instead of trusting the
+    # database status forever.
     assert (
         reconcile_stale_runs(
             now=now,
@@ -212,6 +205,7 @@ try:
         )
         == 1
     )
+    assert not Job.objects.filter(pk=core_job.pk).exists()
     stuck_run.refresh_from_db()
     stale_target.refresh_from_db()
     assert stuck_run.status == "errored"

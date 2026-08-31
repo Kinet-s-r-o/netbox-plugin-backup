@@ -157,9 +157,15 @@ attempt remains `Failed` and takes precedence over stale classification.
 
 A stuck `BackupRun` is a separate execution condition. Queued or running jobs
 older than `stale_run_minutes` (120 minutes by default) are exposed by the
-dashboard and run filters. The dispatcher reconciles an abandoned run to
-`Errored` with error code `STALE_RUN` only when its NetBox background job is no
-longer active.
+dashboard and run filters. The dispatcher verifies both the Redis job and a
+live worker for its queue before considering an old job active. An orphaned
+run is reconciled to `Errored` with error code `STALE_RUN`, and its stale queue
+entry is removed. A queued run can also be cancelled safely from its detail
+page; this preserves the run as `Skipped` while removing its Core/Redis job.
+
+Manual and scheduled backups fail fast when no live worker is listening on
+`netbox_config_backup.backup`, so a missing worker cannot create another
+permanently queued run. The Overview page shows the current worker state.
 
 The overview links each health count to a filtered target or run list and shows
 the latest safe failure codes/messages. The same filters are available in the
