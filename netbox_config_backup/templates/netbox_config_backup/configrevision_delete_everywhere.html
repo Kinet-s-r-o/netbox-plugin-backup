@@ -1,0 +1,90 @@
+{% extends 'generic/object.html' %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8 col-xl-7">
+    <div class="card border-danger">
+      <div class="card-header bg-danger-lt">
+        <h2 class="card-title text-danger mb-0">
+          <i class="mdi mdi-delete-forever-outline" aria-hidden="true"></i>
+          Delete revision everywhere
+        </h2>
+      </div>
+      <div class="card-body">
+        <p>
+          This permanently deletes <strong>{{ object }}</strong> from the plugin database,
+          Local storage, and every recorded FTP, NFS, or SMB storage.
+        </p>
+
+        <div class="row row-cards mb-3">
+          <div class="col-sm-4">
+            <div class="card"><div class="card-body text-center">
+              <div class="text-secondary">Database artifacts</div>
+              <div class="h2 text-danger mb-0">{{ artifacts|length }}</div>
+              <div class="text-secondary">{{ artifact_bytes|filesizeformat }}</div>
+            </div></div>
+          </div>
+          <div class="col-sm-4">
+            <div class="card"><div class="card-body text-center">
+              <div class="text-secondary">Available Local files</div>
+              <div class="h2 text-danger mb-0">{{ local_copy_count }}</div>
+            </div></div>
+          </div>
+          <div class="col-sm-4">
+            <div class="card"><div class="card-body text-center">
+              <div class="text-secondary">Recorded remote copies</div>
+              <div class="h2 text-danger mb-0">{{ recorded_replicas|length }}</div>
+            </div></div>
+          </div>
+        </div>
+
+        {% if recorded_replicas %}
+        <div class="list-group mb-3">
+          {% for replica in recorded_replicas %}
+          <div class="list-group-item d-flex flex-wrap justify-content-between gap-2">
+            <span>{{ replica.destination }}</span>
+            <code>{{ replica.remote_path }}</code>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if object.protected %}
+        <div class="alert alert-warning">
+          This revision is protected. Return to the revision and unprotect it before deletion.
+        </div>
+        {% elif has_active_run or has_active_replica %}
+        <div class="alert alert-warning">
+          Deletion is currently blocked by an active backup or remote transfer. Wait for it to finish.
+        </div>
+        {% else %}
+        <div class="alert alert-danger">
+          This cannot be undone. {{ linked_run_count }} Backup Run audit record(s) will remain,
+          but their link to this revision will be cleared. No command is sent to the device.
+        </div>
+
+        {% if confirmation_error %}
+        <div class="alert alert-warning">Confirm permanent deletion before continuing.</div>
+        {% endif %}
+        <form method="post">
+          {% csrf_token %}
+          <label class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="confirm" value="yes" required>
+            <span class="form-check-label">
+              I understand that this revision and every stored copy will be permanently deleted.
+            </span>
+          </label>
+          <div class="d-flex justify-content-end gap-2">
+            <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:configrevision' pk=object.pk %}">Cancel</a>
+            <button class="btn btn-danger" type="submit">
+              <i class="mdi mdi-delete-forever-outline" aria-hidden="true"></i>
+              Delete everywhere
+            </button>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

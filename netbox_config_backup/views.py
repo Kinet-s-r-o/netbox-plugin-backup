@@ -106,6 +106,10 @@ from .services.retention import (
     settings_from_policy,
     settings_from_remote_policy,
 )
+from .services.revision_deletion import (
+    RevisionDeletionError,
+    delete_config_revision_everywhere,
+)
 from .services.revision_display import (
     RevisionDisplayError,
     build_display_diff,
@@ -2640,6 +2644,7 @@ class ConfigRevisionView(generic.ObjectView):
 
     def get_extra_context(self, request, instance):
         artifact_queryset = ConfigArtifact.objects.filter(revision=instance)
+        replica_queryset = RevisionReplica.objects.filter(revision=instance)
         local_artifact_queryset = artifact_queryset.filter(local_available=True)
         can_view_all_artifacts = bool(
             artifact_queryset.exists()
@@ -2672,6 +2677,25 @@ class ConfigRevisionView(generic.ObjectView):
             "can_change_protection": request.user.has_perm(
                 "netbox_config_backup.change_configrevision"
             ),
+            "can_delete_everywhere": (
+                not instance.protected
+                and request.user.has_perms(_REVISION_DELETE_PERMISSIONS)
+                and _queryset_fully_permitted(
+                    ConfigRevision.objects.filter(pk=instance.pk),
+                    request.user,
+                    "delete",
+                )
+                and _queryset_fully_permitted(
+                    artifact_queryset,
+                    request.user,
+                    "delete",
+                )
+                and _queryset_fully_permitted(
+                    replica_queryset,
+                    request.user,
+                    "delete",
+                )
+            ),
             "can_prepare_ftp_recovery": request.user.has_perms(
                 (
                     "netbox_config_backup.view_configartifact",
@@ -2682,6 +2706,125 @@ class ConfigRevisionView(generic.ObjectView):
             and can_view_all_artifacts,
             "ftp_replicas": ftp_replicas if can_view_all_artifacts else (),
         }
+
+
+_REVISION_DELETE_PERMISSIONS = (
+    "netbox_config_backup.view_configrevision",
+    "netbox_config_backup.delete_configrevision",
+    "netbox_config_backup.delete_configartifact",
+    "netbox_config_backup.delete_revisionreplica",
+    "netbox_config_backup.view_backupdestination",
+)
+
+
+class ConfigRevisionDeleteEverywhereView(
+    PermissionRequiredMixin,
+    LoginRequiredMixin,
+    View,
+):
+    permission_required = _REVISION_DELETE_PERMISSIONS
+    raise_exception = True
+    template_name = "netbox_config_backup/configrevision_delete_everywhere.html"
+
+    @staticmethod
+    def _revision(request, pk):
+        revision = get_object_or_404(
+            ConfigRevision.objects.restrict(request.user, "view")
+            .select_related("target__device")
+            .prefetch_related("artifacts", "replicas__destination"),
+            pk=pk,
+        )
+        checks = (
+            (ConfigRevision.objects.filter(pk=revision.pk), "delete"),
+            (ConfigArtifact.objects.filter(revision=revision), "delete"),
+            (RevisionReplica.objects.filter(revision=revision), "delete"),
+            (
+                BackupDestination.objects.filter(replicas__revision=revision).distinct(),
+                "view",
+            ),
+        )
+        if not all(
+            _queryset_fully_permitted(queryset, request.user, action)
+            for queryset, action in checks
+        ):
+            raise PermissionDenied
+        return revision
+
+    @staticmethod
+    def _context(revision):
+        artifacts = list(revision.artifacts.all())
+        replicas = list(revision.replicas.all())
+        recorded_replicas = [
+            replica
+            for replica in replicas
+            if replica.remote_deleted_at is None
+            and (replica.remote_available or replica.remote_path)
+        ]
+        return {
+            "object": revision,
+            "artifacts": artifacts,
+            "artifact_bytes": sum(artifact.size for artifact in artifacts),
+            "local_copy_count": sum(artifact.local_available for artifact in artifacts),
+            "recorded_replicas": recorded_replicas,
+            "linked_run_count": BackupRun.objects.filter(revision=revision).count(),
+            "has_active_run": BackupRun.objects.filter(
+                target=revision.target,
+                status__in=(RunStatusChoices.QUEUED, RunStatusChoices.RUNNING),
+            ).exists(),
+            "has_active_replica": any(
+                replica.status
+                in {
+                    ReplicaStatusChoices.QUEUED,
+                    ReplicaStatusChoices.RUNNING,
+                }
+                or (
+                    replica.status == ReplicaStatusChoices.FAILED
+                    and replica.next_retry_at is not None
+                )
+                for replica in replicas
+            ),
+        }
+
+    def get(self, request, pk):
+        revision = self._revision(request, pk)
+        return render(request, self.template_name, self._context(revision))
+
+    def post(self, request, pk):
+        revision = self._revision(request, pk)
+        if request.POST.get("confirm") != "yes":
+            context = self._context(revision)
+            context["confirmation_error"] = True
+            return render(request, self.template_name, context, status=400)
+
+        revision_label = str(revision)
+        target_id = revision.target_id
+        try:
+            summary = delete_config_revision_everywhere(revision.pk)
+        except RevisionDeletionError as exc:
+            logging.getLogger(
+                "netbox_config_backup.views.ConfigRevisionDeleteEverywhereView"
+            ).info("Revision deletion was safely aborted: %s", exc)
+            messages.error(request, str(exc))
+            return redirect(
+                "plugins:netbox_config_backup:configrevision_delete_everywhere",
+                pk=revision.pk,
+            )
+
+        message = (
+            f"Deleted revision {revision_label}, {summary.artifact_count} database artifact "
+            f"record(s), {summary.local_file_count} local file(s), and "
+            f"{summary.replica_count} remote copy/copies."
+        )
+        if summary.quarantine_purge_failures:
+            message += (
+                f" {summary.quarantine_purge_failures} quarantined local file(s) still "
+                "require administrator cleanup."
+            )
+        messages.success(request, message)
+        return redirect(
+            f"{reverse('plugins:netbox_config_backup:configrevision_list')}"
+            f"?target_id={target_id}"
+        )
 
 
 _FTP_RECOVERY_PERMISSIONS = (

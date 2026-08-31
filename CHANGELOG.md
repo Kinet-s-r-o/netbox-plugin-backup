@@ -6,6 +6,13 @@ be deleted from an installation which may already have applied them.
 
 ## [0.7.1] - 2026-08-31
 
+### Added
+
+- Permission-aware manual revision deletion removes the selected revision's
+  Local and FTP/NFS/SMB copies, deletes its artifact and replica metadata,
+  safely reconnects revision history, and preserves Backup Run audit rows
+  without a stale revision link.
+
 ### Fixed
 
 - The netbox-docker receiver overlay now applies the same plugin image and

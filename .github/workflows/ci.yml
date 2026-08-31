@@ -71,9 +71,12 @@ jobs:
               "forms_setup.py",
               "forms_storage.py",
               "services/ftp_helpers.py",
+              "services/revision_chain.py",
+              "services/revision_deletion.py",
               "services/run_cancellation.py",
               "templates/netbox_config_backup/help.html",
               "templates/netbox_config_backup/advanced_settings.html",
+              "templates/netbox_config_backup/configrevision_delete_everywhere.html",
               "static/netbox_config_backup/settings.css",
               "locale/sk/LC_MESSAGES/django.po",
               "locale/sk/LC_MESSAGES/django.mo",
@@ -153,6 +156,7 @@ jobs:
           run_manage netbox_fresh shell < tests/integration/docker_health_dashboard_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_target_delete_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_target_bulk_delete_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_revision_delete_smoke.py
           run_manage netbox_fresh shell -c \
             "import importlib.metadata; from netbox_config_backup import __version__; from netbox_config_backup.models import BackupDestination, OperationalSettings; from users.models import Group; settings=OperationalSettings.objects.get(singleton=True); local=BackupDestination.objects.get(is_default=True); expected={'Config Backup Readers','Config Backup Operators','Config Backup Administrators'}; groups=Group.objects.filter(name__in=expected); assert importlib.metadata.version('netbox-config-backup') == __version__; assert settings.ui_language == 'en'; assert local.protocol == 'local' and local.enabled; assert BackupDestination.objects.filter(is_default=True).count() == 1; assert set(groups.values_list('name', flat=True)) == expected; assert all(group.object_permissions.exists() for group in groups)"
       - name: Show container logs on failure

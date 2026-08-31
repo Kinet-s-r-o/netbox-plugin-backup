@@ -6,7 +6,7 @@ the plugin does not expose REST API endpoints yet.
 
 from netbox.api.serializers import NetBoxModelSerializer
 from rest_framework.exceptions import ValidationError
-from rest_framework.serializers import ModelSerializer
+from rest_framework.serializers import ModelSerializer, SerializerMethodField
 
 from netbox_config_backup.choices import DestinationProtocolChoices
 from netbox_config_backup.models import (
@@ -174,6 +174,15 @@ class BackupDestinationSerializer(NetBoxModelSerializer):
 
 
 class RevisionReplicaSerializer(NetBoxModelSerializer):
+    # A replica is managed from its storage detail and intentionally has no
+    # standalone UI view. NetBox serializes deleted objects for Event Rules,
+    # so its standard display_url field must point to that existing page
+    # instead of trying to reverse a non-existent revisionreplica view.
+    display_url = SerializerMethodField()
+
+    def get_display_url(self, obj):
+        return obj.get_absolute_url()
+
     class Meta:
         model = RevisionReplica
         fields = "__all__"

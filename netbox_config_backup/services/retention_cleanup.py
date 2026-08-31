@@ -32,6 +32,7 @@ from .retention import (
     has_recorded_remote_copy,
     settings_from_policy,
 )
+from .revision_chain import relink_kept_revisions
 
 
 class RetentionCleanupError(RuntimeError):
@@ -210,7 +211,7 @@ def execute_retention_cleanup(
                 if revision.pk in revision_ids
                 or not any(artifact.local_available for artifact in revision.artifacts.all())
             }
-            _relink_kept_revisions(target, revisions, locally_unavailable_ids)
+            relink_kept_revisions(target, revisions, locally_unavailable_ids)
             BackupRun.objects.filter(pk__in=run_ids).delete()
             ConfigRevision.objects.filter(pk__in=database_revision_ids).delete()
 
@@ -258,24 +259,6 @@ def execute_retention_cleanup(
             deferred_revision_count=summary.deferred_revision_count,
         )
     return summary
-
-
-def _relink_kept_revisions(target, revisions, deleted_ids: set[int]) -> None:
-    kept = sorted(
-        (revision for revision in revisions if revision.pk not in deleted_ids),
-        key=lambda revision: (revision.created, revision.pk),
-    )
-    previous = None
-    for revision in kept:
-        previous_id = previous.pk if previous else None
-        if revision.previous_revision_id != previous_id:
-            revision.previous_revision_id = previous_id
-            revision.save(update_fields=("previous_revision", "last_updated"))
-        previous = revision
-    latest_id = kept[-1].pk if kept else None
-    if target.last_revision_id != latest_id:
-        target.last_revision_id = latest_id
-        target.save(update_fields=("last_revision", "last_updated"))
 
 
 def _restore_staged(storage, staged: list[tuple[str, str]]) -> bool:

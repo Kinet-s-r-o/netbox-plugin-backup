@@ -2,7 +2,7 @@
 {% load helpers %}
 
 {% block content %}
-{% if can_view_content or can_change_protection %}
+{% if can_view_content or can_change_protection or can_delete_everywhere %}
 <div class="d-flex justify-content-end gap-2 mb-3">
   {% if can_change_protection %}
   <form method="post" action="{% url 'plugins:netbox_config_backup:configrevision_set_protection' pk=object.pk %}">
@@ -20,6 +20,11 @@
   </a>
   <a class="btn btn-secondary" href="{% url 'plugins:netbox_config_backup:configrevision_diff' pk=object.pk %}">
     <i class="mdi mdi-file-compare"></i> Compare revisions
+  </a>
+  {% endif %}
+  {% if can_delete_everywhere %}
+  <a class="btn btn-danger" href="{% url 'plugins:netbox_config_backup:configrevision_delete_everywhere' pk=object.pk %}">
+    <i class="mdi mdi-delete-forever-outline"></i> Delete everywhere
   </a>
   {% endif %}
 </div>

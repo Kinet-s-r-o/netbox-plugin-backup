@@ -43,6 +43,7 @@ Implemented:
 - integrity-checked, redacted revision content viewer and same-target unified diff
 - NetBox REST endpoints and event serializers for all public plugin models
 - safe target removal including runs, revisions, stored artifacts, and unshared Quick profiles
+- confirmed single-revision deletion from the database, Local storage, and every recorded FTP/NFS/SMB copy
 - unit tests for the driver, registry, storage, credentials, and pipeline
 - authenticated Docker UI/dispatcher smoke test
 - built-in password-only, chrooted SFTP receiver for vendor-native push exports
@@ -541,6 +542,14 @@ and permission-gated. Local cleanup stages files in an internal quarantine and
 restores them if its database transaction fails. Remote deletion is irreversible:
 it removes only the recorded immutable revision directory below the configured
 storage path and records failures for a safe retry.
+
+Administrators can also use **Delete everywhere** on one unprotected revision.
+The confirmation page lists its Local artifacts and recorded remote copies. The
+operation locks the backup device, refuses active backups or remote transfers,
+quarantines Local files, deletes the exact FTP/NFS/SMB revision directories,
+removes the revision, artifact, and replica rows, and reconnects the remaining
+revision chain. Existing Backup Run rows remain as audit history with their
+nullable revision link cleared. No command is sent to the device.
 
 Local cleanup and remote cleanup have separate opt-in schedulers under
 **Config Backup → Settings**. Both are disabled by default and require an

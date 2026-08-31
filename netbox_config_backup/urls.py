@@ -104,6 +104,11 @@ urlpatterns = [
         name="configrevision_ftp_recovery_download",
     ),
     path(
+        "revisions/<int:pk>/delete-everywhere/",
+        views.ConfigRevisionDeleteEverywhereView.as_view(),
+        name="configrevision_delete_everywhere",
+    ),
+    path(
         "revisions/<int:pk>/",
         include(get_model_urls("netbox_config_backup", "configrevision")),
     ),

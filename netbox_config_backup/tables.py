@@ -60,6 +60,16 @@ CANCEL_QUEUED_RUN_BUTTON = """
 {% endif %}
 """
 
+DELETE_REVISION_EVERYWHERE_BUTTON = """
+{% if not record.protected and perms.netbox_config_backup.delete_configrevision and perms.netbox_config_backup.delete_configartifact and perms.netbox_config_backup.delete_revisionreplica and perms.netbox_config_backup.view_backupdestination %}
+<a class="btn btn-sm btn-danger" title="Delete revision everywhere"
+   aria-label="Delete revision {{ record.pk }} everywhere"
+   href="{% url 'plugins:netbox_config_backup:configrevision_delete_everywhere' pk=record.pk %}">
+  <i class="mdi mdi-delete-forever-outline" aria-hidden="true"></i>
+</a>
+{% endif %}
+"""
+
 STORAGE_ACTION_BUTTONS = (
     TEST_DESTINATION_BUTTON
     + """
@@ -468,7 +478,10 @@ class ConfigRevisionTable(NetBoxTable):
     created = columns.DateTimeColumn(linkify=True)
     target = tables.Column(linkify=True)
     protected = columns.BooleanColumn()
-    actions = columns.ActionsColumn(actions=())
+    actions = columns.ActionsColumn(
+        actions=(),
+        extra_buttons=DELETE_REVISION_EVERYWHERE_BUTTON,
+    )
 
     class Meta(NetBoxTable.Meta):
         model = ConfigRevision
