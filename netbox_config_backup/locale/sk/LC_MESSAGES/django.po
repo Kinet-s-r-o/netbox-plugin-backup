@@ -214,6 +214,9 @@ msgstr "Odporúčané nastavenie"
 msgid "Backup flow"
 msgstr "Priebeh zálohovania"
 
+msgid "Viewing backups"
+msgstr "Zobrazenie záloh"
+
 msgid "Settings reference"
 msgstr "Prehľad nastavení"
 
@@ -297,6 +300,33 @@ msgstr "Každé povolené vzdialené úložisko s automatickým kopírovaním do
 
 msgid "A temporary remote-storage outage does not change a successful device backup to failed. The Local revision remains valid and the copy can be retried without reconnecting to the device."
 msgstr "Dočasný výpadok vzdialeného úložiska nezmení úspešnú zálohu zariadenia na neúspešnú. Lokálna revízia zostáva platná a kopírovanie možno zopakovať bez opätovného pripojenia k zariadeniu."
+
+msgid "Viewing and downloading backups"
+msgstr "Zobrazenie a stiahnutie záloh"
+
+msgid "Open a NetBox device and select Backup to see backup status, visible revisions, and recent runs in one place."
+msgstr "Otvorte zariadenie v NetBoxe a vyberte kartu Záloha, kde na jednom mieste uvidíte stav zálohovania, dostupné revízie a posledné behy."
+
+msgid "Browser preview"
+msgstr "Náhľad v prehliadači"
+
+msgid "View verifies the Local artifact and shows a redacted configuration. The stored backup is not changed."
+msgstr "Tlačidlo Zobraziť overí lokálny artefakt a zobrazí redigovanú konfiguráciu. Uložená záloha sa nezmení."
+
+msgid "Stored backup download"
+msgstr "Stiahnutie uloženej zálohy"
+
+msgid "Download verifies and returns the original stored artifact. It is not redacted and can contain secrets, so handle it as sensitive configuration."
+msgstr "Stiahnutie overí a vráti pôvodný uložený artefakt. Nie je redigovaný a môže obsahovať tajné údaje, preto s ním zaobchádzajte ako s citlivou konfiguráciou."
+
+msgid "Native vendor backup"
+msgstr "Natívna záloha výrobcu"
+
+msgid "When a native vendor package exists, Download prefers it. Otherwise it returns the primary text or JSON configuration."
+msgstr "Ak existuje natívny balík výrobcu, stiahne sa prednostne. Inak sa vráti primárna textová alebo JSON konfigurácia."
+
+msgid "If the Local copy has expired, the tab keeps the revision history but disables preview and download. Open the revision detail to review any available remote recovery action."
+msgstr "Ak lokálna kópia exspirovala, karta zachová históriu revízie, ale vypne náhľad a stiahnutie. Dostupné možnosti obnovy zo vzdialenej kópie skontrolujte v detaile revízie."
 
 msgid "These six configuration areas define shared defaults. Configure only the ones your deployment needs."
 msgstr "Týchto šesť oblastí určuje zdieľané predvolené nastavenia. Nastavte iba tie, ktoré vaše nasadenie potrebuje."

@@ -24,6 +24,7 @@
   <nav class="help-quick-nav" aria-label="{% translate 'Help topics' %}">
     <a class="btn btn-sm btn-outline-secondary" href="#setup">{% translate "Recommended setup" %}</a>
     <a class="btn btn-sm btn-outline-secondary" href="#flow">{% translate "Backup flow" %}</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#device-backups">{% translate "Viewing backups" %}</a>
     <a class="btn btn-sm btn-outline-secondary" href="#settings-reference">{% translate "Settings reference" %}</a>
     <a class="btn btn-sm btn-outline-secondary" href="#retention">{% translate "Retention" %}</a>
     <a class="btn btn-sm btn-outline-secondary" href="#receivers">{% translate "Storages and receivers" %}</a>
@@ -88,6 +89,30 @@
     </div>
     <div class="alert alert-info mt-3 mb-0" role="note">
       {% translate "A temporary remote-storage outage does not change a successful device backup to failed. The Local revision remains valid and the copy can be retried without reconnecting to the device." %}
+    </div>
+  </section>
+
+  <section class="help-section" id="device-backups" aria-labelledby="device-backups-title">
+    <div class="help-section-heading">
+      <h2 id="device-backups-title">{% translate "Viewing and downloading backups" %}</h2>
+      <p>{% translate "Open a NetBox device and select Backup to see backup status, visible revisions, and recent runs in one place." %}</p>
+    </div>
+    <div class="card help-reference">
+      <div class="help-reference-item">
+        <strong>{% translate "Browser preview" %}</strong>
+        <p>{% translate "View verifies the Local artifact and shows a redacted configuration. The stored backup is not changed." %}</p>
+      </div>
+      <div class="help-reference-item">
+        <strong>{% translate "Stored backup download" %}</strong>
+        <p>{% translate "Download verifies and returns the original stored artifact. It is not redacted and can contain secrets, so handle it as sensitive configuration." %}</p>
+      </div>
+      <div class="help-reference-item">
+        <strong>{% translate "Native vendor backup" %}</strong>
+        <p>{% translate "When a native vendor package exists, Download prefers it. Otherwise it returns the primary text or JSON configuration." %}</p>
+      </div>
+    </div>
+    <div class="alert alert-info mt-3 mb-0" role="note">
+      {% translate "If the Local copy has expired, the tab keeps the revision history but disables preview and download. Open the revision detail to review any available remote recovery action." %}
     </div>
   </section>
 

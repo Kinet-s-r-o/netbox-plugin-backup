@@ -9,16 +9,18 @@ python manage.py config_backup_create_rbac_groups
 ```
 
 - **Config Backup Readers** can view targets, runs, revisions, artifacts,
-  redacted content, and diffs.
+  redacted content, diffs, and the Backup tab attached to permitted NetBox
+  devices. The View action requires revision and artifact visibility; Download
+  returns the original unredacted artifact under the same permissions.
 - **Config Backup Operators** additionally manage operational configuration,
   test connections, and start backup runs.
 - **Config Backup Administrators** have full plugin model permissions.
 
 The command never assigns users. Add real people in **Admin → Authentication →
 Groups**. Do not use a superuser account to validate Reader or Operator access,
-because superusers bypass object permissions. Direct revision content, diff,
-protection, target-run, and nested list endpoints all apply NetBox object
-restrictions.
+because superusers bypass object permissions. The Device Backup tab, direct
+revision content, download, diff, protection, target-run, and nested list
+endpoints all apply NetBox object restrictions.
 
 ## In-app notifications
 

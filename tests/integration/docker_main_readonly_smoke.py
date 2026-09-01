@@ -157,6 +157,7 @@ for expected in (
     b"Recommended setup",
     b"Create connection and credential profiles",
     b"How a backup moves",
+    b"Viewing and downloading backups",
     b"revision creation",
     b"Local retention profiles",
     b"Remote retention profiles",

@@ -154,8 +154,10 @@ cancelled from its run detail page.
    - **Do not verify SSH identity** bypasses server identity checks and should
      be limited to an isolated trusted management network.
 5. Use **Save & test connection** before enabling automatic scheduling.
-6. Run one manual backup and verify the revision content and download
-   permissions with a non-superuser account.
+6. Run one manual backup. Open the NetBox device, select its **Backup** tab,
+   and verify the revision list, redacted **View** action, and original
+   **Download** action with a non-superuser account. The downloaded artifact is
+   not redacted and must be handled as sensitive configuration.
 7. Open **Config Backup → Storages** and verify the system-managed **Local
    storage**. It represents `storage_root`, is always enabled, and cannot be
    deleted or changed to FTP.

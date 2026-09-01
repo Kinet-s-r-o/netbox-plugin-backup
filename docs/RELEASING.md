@@ -34,7 +34,8 @@ python manage.py showmigrations netbox_config_backup
 
 Also verify one real changed backup, one unchanged backup, remote replication,
 an integrity audit, a retention preview, and revision access with a non-superuser
-Reader account.
+Reader account. From the native NetBox Device page, verify that the Backup tab
+opens the redacted preview and downloads the integrity-checked original artifact.
 
 ## 3. Automated gate
 

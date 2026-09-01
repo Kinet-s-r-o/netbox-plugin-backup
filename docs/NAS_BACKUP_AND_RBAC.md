@@ -109,7 +109,9 @@ python manage.py config_backup_create_rbac_groups
 The command is idempotent and never assigns users automatically:
 
 - **Config Backup Readers** can view targets, runs, revisions, redacted content,
-  and diffs.
+  diffs, and the permission-aware Backup tab on NetBox devices. Downloaded
+  artifacts are the original unredacted backups and must be handled as
+  sensitive configuration.
 - **Config Backup Operators** can additionally view plugin configuration, run
   and test backups, reschedule targets, and protect revisions.
 - **Config Backup Administrators** have full CRUD access to plugin models.
@@ -118,7 +120,7 @@ Assign people under **Admin → Authentication → Groups**. Prefer group assign
 over direct user permissions. Effective permissions are the union of all user
 and group assignments, so review other group memberships as well.
 
-Object constraints remain supported. The plugin dashboard, nested target
-history, manual actions, retention actions, revision content, and diffs all use
-NetBox restricted querysets so a guessed object ID cannot bypass a constraint.
-Superusers remain unrestricted by design.
+Object constraints remain supported. The plugin dashboard, Device Backup tab,
+nested target history, manual actions, retention actions, revision content,
+downloads, and diffs all use NetBox restricted querysets so a guessed object ID
+cannot bypass a constraint. Superusers remain unrestricted by design.
