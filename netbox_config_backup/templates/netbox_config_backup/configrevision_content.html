@@ -17,7 +17,8 @@
   <div class="d-flex gap-2">
     {% for artifact in downloadable_artifacts %}
     <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:configrevision_artifact_download' pk=object.pk artifact_pk=artifact.pk %}">
-      <i class="mdi mdi-download"></i> Download restore package
+      <i class="mdi mdi-download"></i>
+      {% if artifact.artifact_type == "native_backup" %}Download native backup{% else %}Download raw backup{% endif %}
     </a>
     {% endfor %}
     <a class="btn btn-secondary" href="{% url 'plugins:netbox_config_backup:configrevision_diff' pk=object.pk %}">

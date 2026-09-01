@@ -1,0 +1,187 @@
+{% extends 'dcim/device/base.html' %}
+{% load helpers %}
+
+{% block content %}
+{% if not target %}
+<div class="card">
+  <div class="card-body py-5 text-center">
+    <i class="mdi mdi-database-off-outline fs-1 text-secondary" aria-hidden="true"></i>
+    <h2 class="mt-2 mb-1">Backup is not configured</h2>
+    <p class="text-secondary mb-3">
+      This NetBox device has not been added to Config Backup yet.
+    </p>
+    {% if can_add_target %}
+    <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:backuptarget_add' %}?device={{ object.pk }}">
+      <i class="mdi mdi-plus-thick" aria-hidden="true"></i>
+      Configure backup
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div>
+    <h2 class="mb-1">Configuration backups</h2>
+    <div class="text-secondary">Stored revisions and recent backup activity for this device.</div>
+  </div>
+  <div class="btn-list">
+    <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:backuprun_list' %}?target_id={{ target.pk }}">
+      <i class="mdi mdi-history" aria-hidden="true"></i>
+      All runs
+    </a>
+    <a class="btn btn-outline-secondary" href="{% url 'plugins:netbox_config_backup:configrevision_list' %}?target_id={{ target.pk }}">
+      <i class="mdi mdi-file-document-multiple-outline" aria-hidden="true"></i>
+      All revisions
+    </a>
+    <a class="btn btn-primary" href="{{ target.get_absolute_url }}">
+      <i class="mdi mdi-cog-outline" aria-hidden="true"></i>
+      Backup settings
+    </a>
+  </div>
+</div>
+
+<div class="row mb-3">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <h2 class="card-header">Backup status</h2>
+      <table class="table table-hover attr-table mb-0">
+        <tr>
+          <th scope="row">Status</th>
+          <td><span class="badge text-bg-{{ target.get_status_color }}">{{ target.get_status_display }}</span></td>
+        </tr>
+        <tr><th scope="row">Enabled</th><td>{{ target.enabled|yesno:"Yes,No" }}</td></tr>
+        <tr><th scope="row">Last success</th><td>{{ target.last_success_at|placeholder }}</td></tr>
+        <tr><th scope="row">Last change</th><td>{{ target.last_change_at|placeholder }}</td></tr>
+        <tr><th scope="row">Next run</th><td>{{ target.next_run_at|placeholder }}</td></tr>
+        <tr><th scope="row">Consecutive failures</th><td>{{ target.consecutive_failures }}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <h2 class="card-header">Latest available revision</h2>
+      {% with latest=revisions.0 %}
+      {% if latest %}
+      <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+          <div>
+            <a class="fs-3 fw-semibold" href="{{ latest.get_absolute_url }}">{{ latest.created }}</a>
+            <div class="text-secondary mt-1">
+              {{ latest.driver_id }} · {% if latest.content_changed %}configuration changed{% else %}no configuration change{% endif %}
+            </div>
+          </div>
+          <div class="btn-list">
+            {% if latest.device_backup_preview_artifact %}
+            <a class="btn btn-outline-primary" href="{% url 'plugins:netbox_config_backup:configrevision_content' pk=latest.pk %}">
+              <i class="mdi mdi-eye-outline" aria-hidden="true"></i>
+              View
+            </a>
+            {% endif %}
+            {% if latest.device_backup_download_artifact %}
+            <a class="btn btn-primary" href="{% url 'plugins:netbox_config_backup:configrevision_artifact_download' pk=latest.pk artifact_pk=latest.device_backup_download_artifact.pk %}">
+              <i class="mdi mdi-download" aria-hidden="true"></i>
+              Download
+            </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <div class="card-body text-secondary">No configuration revision is available yet.</div>
+      {% endif %}
+      {% endwith %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <h2 class="card-title mb-0">Revisions</h2>
+    <span class="text-secondary">Showing {{ revisions|length }} of {{ revision_count }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Driver</th>
+          <th>Change</th>
+          <th>Local backup</th>
+          <th>Size</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for revision in revisions %}
+        <tr>
+          <td><a href="{{ revision.get_absolute_url }}">{{ revision.created }}</a></td>
+          <td><code>{{ revision.driver_id }}</code></td>
+          <td>
+            {% if revision.content_changed %}
+            <span class="badge text-bg-info">Changed</span>
+            {% else %}
+            <span class="badge text-bg-secondary">Unchanged</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if revision.device_backup_download_artifact %}
+            <span class="badge text-bg-success">Available</span>
+            {% elif perms.netbox_config_backup.view_configartifact %}
+            <span class="badge text-bg-secondary">Expired or unavailable</span>
+            {% else %}
+            <span class="text-secondary">No access</span>
+            {% endif %}
+          </td>
+          <td>{% if revision.device_backup_download_artifact %}{{ revision.device_backup_size|filesizeformat }}{% else %}—{% endif %}</td>
+          <td class="text-end">
+            <div class="btn-list justify-content-end flex-nowrap">
+              {% if revision.device_backup_preview_artifact %}
+              <a class="btn btn-sm btn-outline-primary" href="{% url 'plugins:netbox_config_backup:configrevision_content' pk=revision.pk %}" title="View redacted configuration">
+                <i class="mdi mdi-eye-outline" aria-hidden="true"></i>
+                View
+              </a>
+              {% endif %}
+              {% if revision.device_backup_download_artifact %}
+              <a class="btn btn-sm btn-primary" href="{% url 'plugins:netbox_config_backup:configrevision_artifact_download' pk=revision.pk artifact_pk=revision.device_backup_download_artifact.pk %}" title="Download the stored backup">
+                <i class="mdi mdi-download" aria-hidden="true"></i>
+                Download
+              </a>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-secondary py-4">No revisions have been created for this device.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <h2 class="card-title mb-0">Recent backup runs</h2>
+    <span class="text-secondary">Latest {{ recent_runs|length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Queued</th><th>Source</th><th>Status</th><th>Finished</th><th>Revision</th><th>Error</th></tr></thead>
+      <tbody>
+        {% for run in recent_runs %}
+        <tr>
+          <td><a href="{{ run.get_absolute_url }}">{{ run.queued_at }}</a></td>
+          <td>{{ run.get_source_display }}</td>
+          <td><span class="badge text-bg-{{ run.get_status_color }}">{{ run.get_status_display }}</span></td>
+          <td>{{ run.finished_at|placeholder }}</td>
+          <td>{{ run.revision|linkify|placeholder }}</td>
+          <td>{% if run.error_code %}<code>{{ run.error_code }}</code>{% else %}—{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-secondary py-4">No backup runs are recorded for this device.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

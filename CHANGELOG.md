@@ -15,6 +15,9 @@ be deleted from an installation which may already have applied them.
 - Storage detail pages now provide a complete, searchable, state-filtered, and
   paginated inventory of their tracked revision copies, including availability,
   remote path, transfer size, and integrity-related problem states.
+- NetBox Device pages now include a permission-aware Backup tab with target
+  status, recent runs, revision previews, and direct downloads of primary or
+  native backup artifacts.
 
 ### Fixed
 

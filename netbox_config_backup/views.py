@@ -1,6 +1,6 @@
 import io
 import logging
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from core.choices import JobStatusChoices
@@ -29,7 +29,7 @@ from netbox.views import generic
 from utilities.forms import BulkDeleteForm, DeleteForm
 from utilities.jobs import is_background_request
 from utilities.rqworker import any_workers_for_queue
-from utilities.views import register_model_view
+from utilities.views import ViewTab, register_model_view
 
 from . import filtersets, forms, tables
 from .choices import (
@@ -80,6 +80,7 @@ from .services.examples import (
     create_or_reset_example_configuration,
     get_example_configuration,
 )
+from .services.ftp_helpers import readable_artifact_filename
 from .services.ftp_recovery import (
     recovery_package_is_expired,
     validate_recovery_package,
@@ -1466,6 +1467,89 @@ class PlatformMappingDeleteView(generic.ObjectDeleteView):
     queryset = PlatformMapping.objects.all()
 
 
+@register_model_view(Device, "config_backup", path="backup")
+class DeviceConfigBackupView(generic.ObjectView):
+    """Expose permission-aware backup history on the native NetBox device page."""
+
+    queryset = Device.objects.all()
+    template_name = "netbox_config_backup/device_backup.html"
+    actions = ()
+    additional_permissions = ("netbox_config_backup.view_backuptarget",)
+    tab = ViewTab(
+        label="Backup",
+        permission="netbox_config_backup.view_backuptarget",
+        weight=1950,
+    )
+
+    def get_extra_context(self, request, instance):
+        target = (
+            BackupTarget.objects.restrict(request.user, "view")
+            .select_related(
+                "last_revision",
+                "policy_override",
+                "retention_override",
+                "remote_retention_policy",
+            )
+            .filter(device=instance)
+            .first()
+        )
+        if target is None:
+            return {
+                "target": None,
+                "revisions": (),
+                "recent_runs": (),
+                "can_add_target": request.user.has_perm(
+                    "netbox_config_backup.add_backuptarget"
+                ),
+            }
+
+        visible_artifacts = ConfigArtifact.objects.restrict(request.user, "view").filter(
+            local_available=True
+        )
+        revisions = list(
+            ConfigRevision.objects.restrict(request.user, "view")
+            .filter(target=target)
+            .prefetch_related(
+                Prefetch(
+                    "artifacts",
+                    queryset=visible_artifacts,
+                    to_attr="device_backup_artifacts",
+                )
+            )
+            .order_by("-created")[:25]
+        )
+        for revision in revisions:
+            artifacts = tuple(revision.device_backup_artifacts)
+            primary = next((artifact for artifact in artifacts if artifact.is_primary), None)
+            native = next(
+                (
+                    artifact
+                    for artifact in artifacts
+                    if artifact.artifact_type == "native_backup"
+                ),
+                None,
+            )
+            revision.device_backup_preview_artifact = primary
+            revision.device_backup_download_artifact = native or primary
+            revision.device_backup_size = sum(artifact.size for artifact in artifacts)
+
+        recent_runs = list(
+            BackupRun.objects.restrict(request.user, "view")
+            .filter(target=target)
+            .select_related("revision")
+            .order_by("-queued_at")[:10]
+        )
+        return {
+            "target": target,
+            "revisions": revisions,
+            "recent_runs": recent_runs,
+            "revision_count": ConfigRevision.objects.restrict(request.user, "view")
+            .filter(target=target)
+            .count(),
+            "can_add_target": False,
+        }
+
+
 @register_model_view(BackupTarget, "list", path="", detail=False)
 class BackupTargetListView(generic.ObjectListView):
     queryset = BackupTarget.objects.select_related(
@@ -2713,6 +2797,7 @@ class ConfigRevisionView(generic.ObjectView):
         artifact_queryset = ConfigArtifact.objects.filter(revision=instance)
         replica_queryset = RevisionReplica.objects.filter(revision=instance)
         local_artifact_queryset = artifact_queryset.filter(local_available=True)
+        local_primary_artifact_queryset = local_artifact_queryset.filter(is_primary=True)
         can_view_all_artifacts = bool(
             artifact_queryset.exists()
             and _queryset_fully_permitted(artifact_queryset, request.user, "view")
@@ -2737,7 +2822,13 @@ class ConfigRevisionView(generic.ObjectView):
         )
         return {
             "can_view_content": bool(
-                local_artifact_queryset.exists()
+                local_primary_artifact_queryset.exists()
+                and request.user.has_perm("netbox_config_backup.view_configartifact")
+            ),
+            "can_download_artifacts": bool(
+                local_artifact_queryset.filter(
+                    Q(is_primary=True) | Q(artifact_type="native_backup")
+                ).exists()
                 and request.user.has_perm("netbox_config_backup.view_configartifact")
             ),
             "local_copy_available": local_artifact_queryset.exists(),
@@ -3149,8 +3240,9 @@ class ConfigRevisionContentView(PermissionRequiredMixin, LoginRequiredMixin, Vie
             display_error = str(exc)
         downloadable_artifacts = list(
             ConfigArtifact.objects.restrict(request.user, "view")
-            .filter(revision=revision, artifact_type="native_backup")
-            .order_by("artifact_type")
+            .filter(revision=revision, local_available=True)
+            .filter(Q(is_primary=True) | Q(artifact_type="native_backup"))
+            .order_by("is_primary", "artifact_type")
         )
         return render(
             request,
@@ -3184,14 +3276,16 @@ class ConfigRevisionArtifactDownloadView(
             ConfigArtifact.objects.restrict(request.user, "view"),
             pk=artifact_pk,
             revision=revision,
-            artifact_type="native_backup",
+            local_available=True,
         )
+        if not (artifact.is_primary or artifact.artifact_type == "native_backup"):
+            raise Http404
         try:
             content = load_artifact_content(artifact)
         except RevisionDisplayError as exc:
             raise Http404(str(exc)) from exc
 
-        filename = PurePosixPath(artifact.storage_key).name
+        filename = readable_artifact_filename(revision, artifact)
         content_type = (
             "application/zip" if artifact.format.endswith("_zip") else "application/octet-stream"
         )

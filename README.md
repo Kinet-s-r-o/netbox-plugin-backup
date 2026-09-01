@@ -34,6 +34,7 @@ Implemented:
 - encrypted Restic recovery snapshots for PostgreSQL, artifacts, receiver keys, and master-key environment
 - idempotent least-privilege Reader, Operator, and Administrator NetBox groups
 - permission-aware dashboard, nested history, actions, revision content, and diffs
+- native **Backup** tab on each NetBox Device with status, recent runs, revision preview, and download
 - target/run list filters for status, failure, stuck execution, device, site, and time
 - UI-managed storage profiles with a protected default Local storage plus FTP, NFS, and SMB3 storages
 - per-storage retention defaults, optional enforcement, and conservative per-storage previews
@@ -449,6 +450,14 @@ and storage failures abort the operation.
 
 ## Revision content and diff
 
+Every NetBox **Device** detail page includes a permission-aware **Backup** tab.
+It shows the target health, the 25 latest visible revisions, recent runs, and
+direct actions for the redacted preview and the stored backup download. A device
+which has not been added to Config Backup shows a setup prompt instead. The tab
+requires target view permission; revision rows, run rows, previews, and download
+actions are independently restricted by their corresponding NetBox object
+permissions.
+
 Revision detail pages provide a redacted configuration viewer and a unified
 diff against another revision of the same target. Before content is displayed,
 the plugin verifies the stored artifact size and SHA-256 digest, decodes it as
@@ -461,8 +470,10 @@ as the primary text artifact. Change detection and diffs remove only the export
 timestamp, signature, and the CeraOS file-transfer configuration/log tables
 modified by the backup operation. The original ZIP and manifest remain stored
 as secondary artifacts. Authorized users can download the integrity-checked
-native ZIP for vendor restore workflows; responses are attachments with private,
-no-store caching and MIME sniffing disabled.
+native ZIP for vendor restore workflows. Primary text and JSON configuration
+artifacts can also be downloaded by authorized users. All download responses
+are attachments with readable device-and-time filenames, private no-store
+caching, and MIME sniffing disabled.
 
 The content preview is limited to 1 MiB by default and the rendered diff to
 20,000 lines. Oversized text is redacted before the browser preview is truncated.

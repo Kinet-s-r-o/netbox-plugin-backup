@@ -75,6 +75,7 @@ class ReleaseMetadataTests(unittest.TestCase):
             "docker_upgrade_assert_current.py",
             "collectstatic --noinput",
             "docker_smoke.py",
+            "docker_device_backup_tab_smoke.py",
             "docker_storage_revision_inventory_smoke.py",
             "docker_run_cancellation_smoke.py",
             "docker_health_dashboard_smoke.py",
