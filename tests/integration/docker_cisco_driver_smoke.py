@@ -22,7 +22,7 @@ assert user is not None
 client = Client()
 client.force_login(user)
 
-quick_setup = client.get(reverse("plugins:netbox_config_backup:backuptarget_add"))
+quick_setup = client.get(reverse("plugins:netbox_config_backup:backuptarget_quick_setup"))
 assert quick_setup.status_code == 200
 assert b"Cisco IOS (Netmiko)" in quick_setup.content
 assert b"Cisco IOS-XE (Netmiko)" in quick_setup.content

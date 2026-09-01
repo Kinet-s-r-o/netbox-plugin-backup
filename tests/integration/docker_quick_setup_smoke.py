@@ -78,7 +78,7 @@ session = client.session
 session[SESSION_KEY] = "en"
 session.save()
 
-add_url = reverse("plugins:netbox_config_backup:backuptarget_add")
+add_url = reverse("plugins:netbox_config_backup:backuptarget_quick_setup")
 available_devices_url = reverse("plugins-api:netbox_config_backup-api:available-device-list")
 response = client.get(add_url)
 assert response.status_code == 200

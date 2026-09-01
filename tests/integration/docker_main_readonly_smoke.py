@@ -128,6 +128,23 @@ for field_name in (b"username", b"password", b"password_confirm"):
 
 response = client.get(reverse("plugins:netbox_config_backup:backuptarget_add"))
 assert response.status_code == 200
+for field_name in (
+    b"device",
+    b"enabled",
+    b"policy_override",
+    b"retention_override",
+    b"remote_retention_policy",
+    b"credential_override",
+    b"connection_override",
+    b"receiver_override",
+    b"driver_override",
+    b"driver_options_override",
+):
+    assert b'name="' + field_name + b'"' in response.content
+assert b"Save &amp; test connection" not in response.content
+
+response = client.get(reverse("plugins:netbox_config_backup:backuptarget_quick_setup"))
+assert response.status_code == 200
 assert b"Add device" in response.content
 assert b"Save &amp; test connection" in response.content
 

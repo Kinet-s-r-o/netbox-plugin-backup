@@ -143,9 +143,10 @@ cancelled from its run detail page.
 3. Create a credential profile. Verify the master-key state with the read-only
    `python manage.py config_backup_rotate_master_key` command; see
    [MASTER_KEY_ROTATION.md](MASTER_KEY_ROTATION.md).
-4. As a Config Backup Administrator, create a connection profile and platform
-   mapping, or use **Add device** for one test device. Quick Setup assigns a
-   Local retention profile and therefore requires retention/runtime authority.
+4. As a Config Backup Administrator, create reusable connection and credential
+   profiles plus a platform mapping. Then use **Devices > Add** for one test
+   device. Creation uses the same target form as editing; devices which already
+   have a target are omitted.
    Select an SSH identity policy deliberately:
    - **Require manual approval** is the production default. Scan the key and
      compare its SHA256 fingerprint out of band before approving it.
@@ -153,7 +154,8 @@ cancelled from its run detail page.
      observed for the target endpoint. Any later change remains pending.
    - **Do not verify SSH identity** bypasses server identity checks and should
      be limited to an isolated trusted management network.
-5. Use **Save & test connection** before enabling automatic scheduling.
+5. Save the target and use **Test connection** from its detail page before
+   enabling automatic scheduling.
 6. Run one manual backup. Open the NetBox device, select its **Backup** tab,
    and verify the revision list, redacted **View** action, and original
    **Download** action with a non-superuser account. The downloaded artifact is

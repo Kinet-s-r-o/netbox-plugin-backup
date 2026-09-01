@@ -260,7 +260,9 @@ class ConfigBackupHomeView(PermissionRequiredMixin, LoginRequiredMixin, Template
                 "recent_ftp_failures": period_replicas.filter(status="failed").select_related(
                     "destination", "revision__target__device"
                 )[:5],
-                "can_add_target": _can_assign_target_retention(self.request.user),
+                "can_add_target": self.request.user.has_perm(
+                    "netbox_config_backup.add_backuptarget"
+                ),
                 "backup_worker_available": _backup_worker_available(),
             }
         )
@@ -1563,13 +1565,6 @@ class BackupTargetListView(generic.ObjectListView):
     filterset = filtersets.BackupTargetFilterSet
     filterset_form = forms.BackupTargetFilterForm
 
-    def get_permitted_actions(self, user, model=None):
-        actions = super().get_permitted_actions(user, model=model)
-        if not _can_assign_target_retention(user):
-            return tuple(action for action in actions if action.name != "add")
-        return actions
-
-
 @register_model_view(BackupTarget)
 class BackupTargetView(generic.ObjectView):
     queryset = BackupTarget.objects.select_related(
@@ -1642,25 +1637,32 @@ class BackupTargetView(generic.ObjectView):
         }
 
 
+@register_model_view(BackupTarget, "add", detail=False)
 @register_model_view(BackupTarget, "edit")
 class BackupTargetEditView(generic.ObjectEditView):
     queryset = BackupTarget.objects.all()
     form = forms.BackupTargetForm
 
     def form_valid(self, form):
-        original = BackupTarget.objects.select_related(
-            "policy_override__retention_policy",
-            "retention_override",
-        ).get(pk=form.instance.pk)
+        original = None
+        if form.instance.pk:
+            original = BackupTarget.objects.select_related(
+                "policy_override__retention_policy",
+                "retention_override",
+            ).get(pk=form.instance.pk)
         selected_policy = form.cleaned_data.get("policy_override")
         selected_local_retention = form.cleaned_data.get("retention_override")
         selected_remote_retention = form.cleaned_data.get("remote_retention_policy")
         _assert_target_retention_assignment_permissions(
             self.request.user,
             local_retention_changed=(
-                _effective_local_retention_policy_id(
-                    original.policy_override,
-                    original.retention_override,
+                (
+                    _effective_local_retention_policy_id(
+                        original.policy_override,
+                        original.retention_override,
+                    )
+                    if original is not None
+                    else None
                 )
                 != _effective_local_retention_policy_id(
                     selected_policy,
@@ -1668,7 +1670,7 @@ class BackupTargetEditView(generic.ObjectEditView):
                 )
             ),
             remote_retention_changed=(
-                original.remote_retention_policy_id
+                (original.remote_retention_policy_id if original is not None else None)
                 != getattr(selected_remote_retention, "pk", None)
             ),
         )
@@ -1716,19 +1718,7 @@ def _assert_target_retention_assignment_permissions(
         raise PermissionDenied
 
 
-def _can_assign_target_retention(user) -> bool:
-    try:
-        _assert_target_retention_assignment_permissions(
-            user,
-            local_retention_changed=True,
-            remote_retention_changed=False,
-        )
-    except PermissionDenied:
-        return False
-    return True
-
-
-@register_model_view(BackupTarget, "add", detail=False)
+@register_model_view(BackupTarget, "quick_setup", path="quick-setup", detail=False)
 class BackupTargetQuickSetupView(LoginRequiredMixin, PermissionRequiredMixin, FormView):
     template_name = "netbox_config_backup/quick_setup.html"
     form_class = forms.QuickSetupForm

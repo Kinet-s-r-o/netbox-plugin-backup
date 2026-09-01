@@ -37,6 +37,13 @@ be deleted from an installation which may already have applied them.
 - Settings and Help now load their stylesheet from a plugin-owned endpoint, so
   an unrelated `collectstatic` failure no longer leaves these pages unstyled.
 
+### Changed
+
+- Adding a backup device now uses the same target form and field structure as
+  editing it. The device selector omits devices which already have a backup
+  target; the former all-in-one Quick Setup remains available on its dedicated
+  compatibility route.
+
 ## [0.7.0] - 2026-08-27
 
 ### Added

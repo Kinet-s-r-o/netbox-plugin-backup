@@ -394,27 +394,29 @@ stable across restarts. Store and back it up separately from PostgreSQL; losing
 it makes the stored passwords unrecoverable. Access to encrypted material is
 additionally guarded by the `add/change/delete_storedcredential` permissions.
 
-## Quick Setup
+## Adding backup devices
 
-The normal workflow starts from **Overview** or **Devices > Add**. One form
-selects the NetBox device and backup driver, stores an encrypted
-username/password, and selects a simple schedule plus a required Local history
-profile and an optional FTP retention override. Local retention is selected in
-this order: device override, backup policy, then Local storage profile. FTP
-retention is selected independently for each FTP storage: device override, then
-that storage's profile. If no effective profile exists, that history is kept
-indefinitely. A storage whose **Always use this storage's retention profile**
-checkbox is enabled ignores the device override.
-**Save & test connection** creates the complete configuration and immediately
-queues the non-persistent connection test.
+The normal workflow starts from **Overview** or **Devices > Add**. Creation and
+editing use the same target form: select the NetBox device, enable the target,
+and optionally override its reusable policy, Local/remote retention,
+credentials, connection, receiver, or driver. Devices which already have a
+backup target are not offered again. Blank override fields inherit from the
+device's enabled platform mapping, backup policy, or storage as applicable.
 
-Quick Setup creates the target, per-device connection and credential profiles,
-and reusable `[Quick]` backup policies and Local retention profiles in a single transaction. It
-can resolve the driver automatically from an enabled platform mapping. The
-individual profile and policy pages remain available from **Settings**.
-Because it assigns a Local retention profile, Quick Setup requires the
-Administrator retention and runtime permissions; Operators can run, test, and
-reschedule existing targets but cannot indirectly authorize future deletion.
+Local retention is selected in this order: device override, backup policy, then
+Local storage profile. Remote retention is selected independently for each
+remote storage: device override, then that storage's profile. If no effective
+profile exists, that history is kept indefinitely. A storage whose **Always use
+this storage's retention profile** checkbox is enabled ignores the device
+override. Assigning a retention override requires the matching administrator
+retention permissions because it can authorize later deletion.
+
+The former all-in-one Quick Setup workflow remains available at
+`/plugins/config-backup/targets/quick-setup/` for deployments which need it. It
+creates a target, per-device connection and credential profiles, and reusable
+`[Quick]` backup policies and Local retention profiles in one transaction. New
+deployments should normally create reusable profiles and platform mappings
+first, then use **Devices > Add** so creation and later editing stay identical.
 
 The **Settings** page groups reusable defaults by task: device defaults,
 scheduling and retention, exceptional vendor/security setup, and global

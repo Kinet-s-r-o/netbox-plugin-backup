@@ -4,6 +4,8 @@ from typing import ClassVar
 from dcim.models import Device, Platform
 from django import forms
 from django.db import transaction
+from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 from netbox.forms import NetBoxModelForm
 from utilities.forms.fields import DynamicModelChoiceField
@@ -552,6 +554,15 @@ class BackupTargetForm(NetBoxModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        available_devices = Device.objects.filter(config_backup_target__isnull=True)
+        if self.instance and self.instance.pk and self.instance.device_id:
+            available_devices = Device.objects.filter(
+                Q(config_backup_target__isnull=True) | Q(pk=self.instance.device_id)
+            )
+        self.fields["device"].queryset = available_devices
+        self.fields["device"].widget.attrs["data-url"] = reverse(
+            "plugins-api:netbox_config_backup-api:available-device-list"
+        )
         current_driver = self.instance.driver_override if self.instance and self.instance.pk else ""
         self.fields["driver_override"].choices = _driver_choices(
             blank=True,

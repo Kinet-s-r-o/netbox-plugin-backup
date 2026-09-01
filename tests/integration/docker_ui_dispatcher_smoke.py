@@ -78,6 +78,7 @@ for name in list_urls:
 
 add_urls = (
     "backuptarget_add",
+    "backuptarget_quick_setup",
     "backuppolicy_add",
     "retentionpolicy_add",
     "remoteretentionpolicy_add",

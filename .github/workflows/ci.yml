@@ -152,6 +152,7 @@ jobs:
           run_manage netbox_fresh showmigrations netbox_config_backup
           run_manage netbox_fresh config_backup_create_rbac_groups
           run_manage netbox_fresh shell < tests/integration/docker_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_target_form_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_device_backup_tab_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_storage_revision_inventory_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_run_cancellation_smoke.py

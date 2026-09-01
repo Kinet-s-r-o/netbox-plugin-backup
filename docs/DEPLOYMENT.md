@@ -306,7 +306,8 @@ Before enabling schedules:
 
 1. Run Django's `check` and `showmigrations netbox_config_backup`.
 2. Open the plugin overview and verify permissions.
-3. Use **Save & test connection** on one non-critical device.
+3. Add one non-critical device, save it, and use **Test connection** from the
+   target detail page.
 4. Verify that the resulting ZIP revision is downloadable/viewable only by the
    intended NetBox roles.
 5. Enable schedules gradually and monitor Failed, Stale, and Stuck counts.

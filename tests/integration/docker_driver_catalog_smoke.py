@@ -62,7 +62,7 @@ assert user is not None
 client = Client()
 client.force_login(user)
 
-quick_setup = client.get(reverse("plugins:netbox_config_backup:backuptarget_add"))
+quick_setup = client.get(reverse("plugins:netbox_config_backup:backuptarget_quick_setup"))
 mapping_add = client.get(reverse("plugins:netbox_config_backup:platformmapping_add"))
 examples = client.get(reverse("plugins:netbox_config_backup:examples"))
 for response in (quick_setup, mapping_add, examples):
