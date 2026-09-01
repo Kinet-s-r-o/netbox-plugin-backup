@@ -10,7 +10,7 @@ from netbox_config_backup.credentials.encrypted_database import (
     DatabaseCredentialCipher,
     MasterKeyConfigurationError,
 )
-from netbox_config_backup.models import StoredCredential
+from netbox_config_backup.models import DownloadEncryptionSecret, StoredCredential
 
 
 class Command(BaseCommand):
@@ -49,6 +49,9 @@ class Command(BaseCommand):
             raise CommandError("The expected active key version does not match configuration.")
 
         version_counts = Counter(StoredCredential.objects.values_list("key_version", flat=True))
+        version_counts.update(
+            DownloadEncryptionSecret.objects.values_list("key_version", flat=True)
+        )
         missing_versions = set(version_counts) - configured_versions
         if missing_versions:
             raise CommandError(
@@ -75,7 +78,10 @@ class Command(BaseCommand):
         )
 
     @staticmethod
-    def _decrypt(cipher: DatabaseCredentialCipher, stored: StoredCredential) -> str:
+    def _decrypt(
+        cipher: DatabaseCredentialCipher,
+        stored: StoredCredential | DownloadEncryptionSecret,
+    ) -> str:
         try:
             return cipher.decrypt(
                 reference=stored.reference,
@@ -85,7 +91,7 @@ class Command(BaseCommand):
             )
         except MasterKeyConfigurationError as exc:
             raise CommandError(
-                "Credential verification failed; no secret material was displayed."
+                "Encrypted secret verification failed; no secret material was displayed."
             ) from exc
 
     def _verify(self, cipher: DatabaseCredentialCipher, *, active_version: str) -> tuple[int, int]:
@@ -98,6 +104,13 @@ class Command(BaseCommand):
             self._decrypt(cipher, stored)
             verified += 1
             pending += stored.key_version != active_version
+        download_secrets = DownloadEncryptionSecret.objects.only(
+            "reference", "ciphertext", "nonce", "key_version"
+        ).order_by("pk")
+        for stored in download_secrets.iterator(chunk_size=200):
+            self._decrypt(cipher, stored)
+            verified += 1
+            pending += stored.key_version != active_version
         return verified, pending
 
     def _rotate(self, cipher: DatabaseCredentialCipher, *, active_version: str) -> tuple[int, int]:
@@ -106,6 +119,11 @@ class Command(BaseCommand):
         with transaction.atomic():
             credentials = list(
                 StoredCredential.objects.select_for_update()
+                .only("reference", "ciphertext", "nonce", "key_version", "rotated_at")
+                .order_by("pk")
+            )
+            download_secrets = list(
+                DownloadEncryptionSecret.objects.select_for_update()
                 .only("reference", "ciphertext", "nonce", "key_version", "rotated_at")
                 .order_by("pk")
             )
@@ -126,10 +144,27 @@ class Command(BaseCommand):
                     fields=("ciphertext", "nonce", "key_version", "rotated_at"),
                     batch_size=200,
                 )
-            rotated = len(changed)
+            changed_download_secrets: list[DownloadEncryptionSecret] = []
+            for stored in download_secrets:
+                plaintext = self._decrypt(cipher, stored)
+                if stored.key_version == active_version:
+                    continue
+                payload = cipher.encrypt(reference=stored.reference, plaintext=plaintext)
+                stored.ciphertext = payload.ciphertext
+                stored.nonce = payload.nonce
+                stored.key_version = payload.key_version
+                stored.rotated_at = now
+                changed_download_secrets.append(stored)
+            if changed_download_secrets:
+                DownloadEncryptionSecret.objects.bulk_update(
+                    changed_download_secrets,
+                    fields=("ciphertext", "nonce", "key_version", "rotated_at"),
+                    batch_size=200,
+                )
+            rotated = len(changed) + len(changed_download_secrets)
             verified, pending = self._verify(cipher, active_version=active_version)
             if pending:
                 raise CommandError(
-                    "Rotation verification found credentials on a previous key version."
+                    "Rotation verification found encrypted secrets on a previous key version."
                 )
         return rotated, verified

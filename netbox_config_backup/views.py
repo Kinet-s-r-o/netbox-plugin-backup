@@ -62,6 +62,7 @@ from .models import (
     ConfigRevision,
     ConnectionProfile,
     CredentialProfile,
+    DownloadEncryptionSecret,
     OperationalSettings,
     PlatformMapping,
     RemoteRetentionPolicy,
@@ -76,6 +77,12 @@ from .services.destination_reconciliation_status import (
 )
 from .services.destination_test_status import destination_test_status_payload
 from .services.destination_types import DestinationError
+from .services.download_encryption import (
+    DownloadEncryptionError,
+    build_password_protected_zip_stream,
+    protected_zip_filename,
+    resolve_download_zip_password,
+)
 from .services.examples import (
     create_or_reset_example_configuration,
     get_example_configuration,
@@ -301,6 +308,13 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
                     "interface_language_form",
                     forms.InterfaceLanguageSettingsForm(instance=operational_settings),
                 ),
+                "download_encryption_form": kwargs.get(
+                    "download_encryption_form",
+                    forms.DownloadEncryptionSettingsForm(instance=operational_settings),
+                ),
+                "download_zip_password_configured": (
+                    DownloadEncryptionSecret.objects.filter(singleton=True).exists()
+                ),
                 "current_ui_language": resolve_ui_language(self.request),
                 "can_change_operational_settings": self.request.user.has_perm(
                     "netbox_config_backup.change_operationalsettings"
@@ -322,6 +336,8 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
         settings_action = request.POST.get("settings_action", "retention")
         if settings_action == "language":
             return self._save_language(request, operational_settings)
+        if settings_action == "download_encryption":
+            return self._save_download_encryption(request, operational_settings)
         if settings_action in {"notifications", "runtime_integrations"}:
             return self._save_notifications(request, operational_settings)
         if settings_action != "retention":
@@ -400,6 +416,31 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
         messages.success(
             request,
             "Notification settings were updated; no Docker restart is required.",
+        )
+        return redirect("plugins:netbox_config_backup:advanced_settings")
+
+    def _save_download_encryption(self, request, operational_settings):
+        form = forms.DownloadEncryptionSettingsForm(
+            request.POST,
+            instance=operational_settings,
+        )
+        if not form.is_valid():
+            if operational_settings.pk:
+                operational_settings.refresh_from_db()
+            context = self.get_context_data(
+                operational_settings=operational_settings,
+                download_encryption_form=form,
+            )
+            return render(request, self.template_name, context, status=400)
+
+        if operational_settings.pk and hasattr(operational_settings, "snapshot"):
+            operational_settings.snapshot()
+        operational_settings._changelog_message = "Updated protected download settings."
+        operational_settings = form.save()
+        state = "enabled" if operational_settings.download_zip_encryption_enabled else "disabled"
+        messages.success(
+            request,
+            f"Password-protected ZIP downloads are {state}. Stored backup files were not changed.",
         )
         return redirect("plugins:netbox_config_backup:advanced_settings")
 
@@ -3125,6 +3166,30 @@ class ConfigRevisionFtpRecoveryDownloadView(PermissionRequiredMixin, LoginRequir
             )
             raise Http404 from exc
 
+        download_filename = str(result["filename"])
+        try:
+            download_password = resolve_download_zip_password()
+            if download_password is not None:
+                try:
+                    protected_package = build_password_protected_zip_stream(
+                        source=package_handle,
+                        member_filename=download_filename,
+                        password=download_password,
+                    )
+                finally:
+                    package_handle.close()
+                package_handle = protected_package
+                download_filename = protected_zip_filename(download_filename)
+        except DownloadEncryptionError as exc:
+            package_handle.close()
+            logging.getLogger(
+                "netbox_config_backup.views.ConfigRevisionFtpRecoveryDownloadView"
+            ).warning(
+                "Protected FTP package download is unavailable for revision %s.",
+                revision.pk,
+            )
+            return HttpResponse(str(exc), status=503, content_type="text/plain; charset=utf-8")
+
         with transaction.atomic():
             locked_job = job.__class__.objects.select_for_update().get(pk=job.pk)
             job_data = dict(locked_job.data or {})
@@ -3152,7 +3217,7 @@ class ConfigRevisionFtpRecoveryDownloadView(PermissionRequiredMixin, LoginRequir
         response = FileResponse(
             package_handle,
             as_attachment=True,
-            filename=result["filename"],
+            filename=download_filename,
             content_type="application/zip",
         )
         response["Cache-Control"] = "private, no-store"
@@ -3276,11 +3341,31 @@ class ConfigRevisionArtifactDownloadView(
             raise Http404(str(exc)) from exc
 
         filename = readable_artifact_filename(revision, artifact)
-        content_type = (
+        download_stream = io.BytesIO(content)
+        try:
+            download_password = resolve_download_zip_password()
+            if download_password is not None:
+                download_stream = build_password_protected_zip_stream(
+                    source=download_stream,
+                    member_filename=filename,
+                    password=download_password,
+                )
+                filename = protected_zip_filename(filename)
+        except DownloadEncryptionError as exc:
+            logging.getLogger(
+                "netbox_config_backup.views.ConfigRevisionArtifactDownloadView"
+            ).warning(
+                "Protected artifact download is unavailable for revision %s and artifact %s.",
+                revision.pk,
+                artifact.pk,
+            )
+            return HttpResponse(str(exc), status=503, content_type="text/plain; charset=utf-8")
+
+        content_type = "application/zip" if download_password is not None else (
             "application/zip" if artifact.format.endswith("_zip") else "application/octet-stream"
         )
         response = FileResponse(
-            io.BytesIO(content),
+            download_stream,
             as_attachment=True,
             filename=filename,
             content_type=content_type,

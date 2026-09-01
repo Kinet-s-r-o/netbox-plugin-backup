@@ -50,6 +50,10 @@ class OperationalSettings(NetBoxModel):
     )
     events_enabled = models.BooleanField(default=True)
     notify_on_every_failure = models.BooleanField(default=False)
+    download_zip_encryption_enabled = models.BooleanField(
+        default=False,
+        help_text="Wrap downloaded backups in an AES-256 encrypted ZIP archive.",
+    )
     ui_language = models.CharField(
         max_length=8,
         choices=InterfaceLanguageChoices.choices,
@@ -887,6 +891,25 @@ class StoredCredential(models.Model):
 
     def __str__(self) -> str:
         return f"Stored credential for {self.profile}"
+
+
+class DownloadEncryptionSecret(models.Model):
+    """Private write-only password used to encrypt downloaded ZIP archives."""
+
+    _netbox_private = True
+
+    singleton = models.BooleanField(default=True, unique=True, editable=False)
+    reference = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    ciphertext = models.BinaryField(editable=False)
+    nonce = models.BinaryField(editable=False)
+    key_version = models.CharField(max_length=50, editable=False)
+    rotated_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        default_permissions = ()
+
+    def __str__(self) -> str:
+        return "Protected download password"
 
 
 class PlatformMapping(NetBoxModel):

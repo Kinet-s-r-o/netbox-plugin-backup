@@ -22,6 +22,7 @@ from .credentials.encrypted_database import (
 )
 from .forms_filters import BackupRunFilterForm, BackupTargetFilterForm, ConfigRevisionFilterForm
 from .forms_setup import (
+    DownloadEncryptionSettingsForm,
     InterfaceLanguageSettingsForm,
     NotificationSettingsForm,
     OperationalSettingsForm,
@@ -57,6 +58,7 @@ __all__ = [
     "ConfigRevisionFilterForm",
     "ConnectionProfileForm",
     "CredentialProfileForm",
+    "DownloadEncryptionSettingsForm",
     "FtpIntegrityAuditScheduleForm",
     "InterfaceLanguageSettingsForm",
     "NotificationSettingsForm",

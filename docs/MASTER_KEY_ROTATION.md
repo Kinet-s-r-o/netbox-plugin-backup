@@ -1,9 +1,10 @@
 # Master-key rotation
 
-The encrypted-database credential provider uses AES-256-GCM. Each credential is
-bound to its UUID and `key_version` through authenticated additional data. The
-active key encrypts all new passwords; a temporary previous-key keyring allows
-old rows to remain readable while rotation is in progress.
+The encrypted-database credential provider and the write-only protected-download
+password use AES-256-GCM. Each secret is bound to its UUID and `key_version`
+through authenticated additional data. The active key encrypts all new secret
+values; a temporary previous-key keyring allows old rows to remain readable
+while rotation is in progress.
 
 ## Environment
 
@@ -26,7 +27,7 @@ credentials is not fully recoverable.
 
 ## Safe Docker procedure
 
-1. Verify the current state. This is read-only and decrypts every credential in
+1. Verify the current state. This is read-only and decrypts every stored secret in
    memory without printing secret values:
 
    ```console
@@ -79,15 +80,16 @@ Run `protect-windows-secrets.ps1` after either operation and recreate the web
 and worker containers so they receive the updated environment.
 
 Running `python manage.py config_backup_rotate_master_key` without `--apply`
-reports the active key version and counts of current, pending, and unavailable
-credentials without changing data. The streamlined Settings page does not
+reports the active key version and counts of current and pending encrypted
+secrets without changing data. Counts include device credentials and the
+optional protected-download password. The streamlined Settings page does not
 expose deployment-level key state. Neither interface displays a key, password,
 ciphertext, nonce, username, or credential UUID.
 
 ## Failure and rollback
 
-The apply command locks credential rows, verifies every password, and updates
-all outdated rows in one transaction. A missing key, invalid authentication
+The apply command locks encrypted-secret rows, verifies every password, and
+updates all outdated rows in one transaction. A missing key, invalid authentication
 tag, corrupt ciphertext, or process failure rolls the transaction back.
 
 Before the previous key is removed, rollback is possible:

@@ -56,6 +56,80 @@
   margin-bottom: 1rem;
 }
 
+.settings-download {
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+
+.settings-download > form {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.settings-download-heading,
+.settings-download-controls,
+.settings-download-readonly {
+  padding: 1rem;
+}
+
+.settings-download-heading {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+.settings-download-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.settings-download-title {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.settings-download-heading p,
+.settings-download-readonly {
+  color: var(--tblr-secondary-color, #8a97a6);
+}
+
+.settings-download-heading p {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.settings-download-controls,
+.settings-download-readonly {
+  border-left: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
+}
+
+.settings-download-password-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.settings-remove-secret {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.settings-download-actions,
+.settings-download-readonly {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-download-actions {
+  margin-top: 1rem;
+  font-size: 0.8rem;
+}
+
 .settings-language > form {
   display: flex;
   gap: 1rem;
@@ -550,11 +624,19 @@ details[open] > summary .settings-chevron {
 }
 
 @media (max-width: 991.98px) {
+  .settings-download > form,
+  .settings-download-password-grid,
   .settings-config-grid,
   .automation-controls-grid,
   .automation-layout,
   .help-retention-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-download-controls,
+  .settings-download-readonly {
+    border-top: 1px solid var(--tblr-border-color, rgba(98, 105, 118, 0.24));
+    border-left: 0;
   }
 
   .settings-panel-header {
@@ -597,6 +679,16 @@ details[open] > summary .settings-chevron {
   .settings-language-control {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-download-actions,
+  .settings-download-readonly {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-download-actions .btn {
+    width: 100%;
   }
 
   .settings-advanced-links,

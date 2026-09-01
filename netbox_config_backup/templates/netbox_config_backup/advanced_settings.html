@@ -52,6 +52,67 @@
     {% if interface_language_form.ui_language.errors %}<div class="invalid-feedback d-block px-3 pb-3">{{ interface_language_form.ui_language.errors }}</div>{% endif %}
   </section>
 
+  <section class="card settings-download" aria-labelledby="protected-downloads-title">
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="settings_action" value="download_encryption">
+      <div class="settings-download-heading">
+        <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-folder-lock-outline"></i></span>
+        <div>
+          <div class="settings-download-title">
+            <h2 id="protected-downloads-title">{% translate "Protected ZIP downloads" %}</h2>
+            <span class="badge {% if operational_settings.download_zip_encryption_enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+              {% if operational_settings.download_zip_encryption_enabled %}{% translate "Enabled" %}{% else %}{% translate "Disabled" %}{% endif %}
+            </span>
+          </div>
+          <p>{% translate "Wrap each downloaded backup in an AES-256 encrypted ZIP. Stored Local and remote backup files remain unchanged." %}</p>
+        </div>
+      </div>
+      {% if can_change_operational_settings %}
+      <div class="settings-download-controls">
+        {% if download_encryption_form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ download_encryption_form.non_field_errors }}</div>{% endif %}
+        <div class="form-check form-switch settings-switch">
+          {{ download_encryption_form.download_zip_encryption_enabled }}
+          <label class="form-check-label fw-semibold" for="{{ download_encryption_form.download_zip_encryption_enabled.id_for_label }}">{% translate "Require a password for downloaded ZIP files" %}</label>
+        </div>
+        {% if download_encryption_form.download_zip_encryption_enabled.errors %}<div class="invalid-feedback d-block">{{ download_encryption_form.download_zip_encryption_enabled.errors }}</div>{% endif %}
+        <div class="settings-download-password-grid">
+          <div>
+            <label class="form-label" for="{{ download_encryption_form.download_zip_password.id_for_label }}">{% translate "New ZIP password" %}</label>
+            {{ download_encryption_form.download_zip_password }}
+            <div class="form-text">{% if download_zip_password_configured %}{% translate "A password is configured. Leave blank to keep it." %}{% else %}{% translate "No password is configured. Use at least 12 characters." %}{% endif %}</div>
+            {% if download_encryption_form.download_zip_password.errors %}<div class="invalid-feedback d-block">{{ download_encryption_form.download_zip_password.errors }}</div>{% endif %}
+          </div>
+          <div>
+            <label class="form-label" for="{{ download_encryption_form.download_zip_password_confirm.id_for_label }}">{% translate "Confirm new ZIP password" %}</label>
+            {{ download_encryption_form.download_zip_password_confirm }}
+            {% if download_encryption_form.download_zip_password_confirm.errors %}<div class="invalid-feedback d-block">{{ download_encryption_form.download_zip_password_confirm.errors }}</div>{% endif %}
+          </div>
+        </div>
+        {% if download_zip_password_configured and not operational_settings.download_zip_encryption_enabled %}
+        <div class="form-check settings-remove-secret">
+          {{ download_encryption_form.remove_download_zip_password }}
+          <div>
+            <label class="form-check-label" for="{{ download_encryption_form.remove_download_zip_password.id_for_label }}">{% translate "Remove the stored ZIP password" %}</label>
+            <div class="form-text">{% translate "This is available only while protected downloads are disabled." %}</div>
+          </div>
+        </div>
+        {% if download_encryption_form.remove_download_zip_password.errors %}<div class="invalid-feedback d-block">{{ download_encryption_form.remove_download_zip_password.errors }}</div>{% endif %}
+        {% endif %}
+        <div class="settings-download-actions">
+          <span class="text-secondary"><i class="mdi mdi-eye-off-outline" aria-hidden="true"></i> {% translate "The stored password is write-only and is never displayed." %}</span>
+          <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> {% translate "Save download protection" %}</button>
+        </div>
+      </div>
+      {% else %}
+      <div class="settings-download-readonly">
+        <span>{% if download_zip_password_configured %}{% translate "Password configured" %}{% else %}{% translate "Password not configured" %}{% endif %}</span>
+        <span><i class="mdi mdi-lock-outline" aria-hidden="true"></i> {% translate "Administrators can change this setting." %}</span>
+      </div>
+      {% endif %}
+    </form>
+  </section>
+
   <div class="settings-config-grid">
     <section class="card settings-panel" aria-labelledby="device-defaults-title">
       <header class="settings-panel-header">

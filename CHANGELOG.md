@@ -4,6 +4,22 @@ All notable changes to NetBox Config Backup are documented here. The project
 uses semantic versioning; database migrations are forward-only and must never
 be deleted from an installation which may already have applied them.
 
+## [Unreleased]
+
+### Added
+
+- Optional password-protected backup downloads. Administrators configure a
+  write-only password in Settings; downloaded artifacts and FTP recovery
+  packages are wrapped in WinZip AES-256 archives without modifying Local or
+  remote stored backups.
+
+### Security
+
+- The ZIP password is encrypted at rest with the plugin master key, included
+  in atomic master-key rotation, omitted from public models and APIs, and never
+  displayed after saving. When protection is enabled but the secret cannot be
+  decrypted, downloads fail closed instead of returning plaintext.
+
 ## [0.7.1] - 2026-08-31
 
 ### Added

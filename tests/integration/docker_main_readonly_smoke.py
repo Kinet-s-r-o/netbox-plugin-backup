@@ -160,6 +160,10 @@ assert b"Automation" in response.content
 assert b"Open help" in response.content
 assert b"Plugin language" in response.content
 assert b'name="ui_language"' in response.content
+assert b'name="download_zip_encryption_enabled"' in response.content
+assert b'name="download_zip_password"' in response.content
+assert b'name="download_zip_password_confirm"' in response.content
+assert b"Protected ZIP downloads" in response.content
 assert b"netbox_config_backup/settings.css" in response.content
 assert b'type="hidden" name="retention_scheduler_batch_size"' in response.content
 assert b"Maximum cleanup jobs" not in response.content

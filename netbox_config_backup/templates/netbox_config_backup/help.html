@@ -104,11 +104,15 @@
       </div>
       <div class="help-reference-item">
         <strong>{% translate "Stored backup download" %}</strong>
-        <p>{% translate "Download verifies and returns the original stored artifact. It is not redacted and can contain secrets, so handle it as sensitive configuration." %}</p>
+        <p>{% translate "Download verifies the original stored artifact. It is not redacted and can contain secrets, so handle it as sensitive configuration." %}</p>
       </div>
       <div class="help-reference-item">
         <strong>{% translate "Native vendor backup" %}</strong>
         <p>{% translate "When a native vendor package exists, Download prefers it. Otherwise it returns the primary text or JSON configuration." %}</p>
+      </div>
+      <div class="help-reference-item">
+        <strong>{% translate "Protected ZIP downloads" %}</strong>
+        <p>{% translate "An administrator can require a write-only password in Settings. Downloads are then wrapped in an AES-256 ZIP without changing the stored backup; no usable password means no plaintext fallback." %}</p>
       </div>
     </div>
     <div class="alert alert-info mt-3 mb-0" role="note">

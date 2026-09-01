@@ -477,6 +477,23 @@ artifacts can also be downloaded by authorized users. All download responses
 are attachments with readable device-and-time filenames, private no-store
 caching, and MIME sniffing disabled.
 
+Administrators can optionally enable **Protected ZIP downloads** in **Config
+Backup > Settings**. Set and confirm a password of at least 12 characters; 16
+or more randomly generated characters are recommended. The password is
+write-only and encrypted in PostgreSQL with
+`NETBOX_CONFIG_BACKUP_MASTER_KEY`. Blank password fields keep the current
+password. Disable protection before removing it.
+
+When enabled, each authorized download is generated in memory as a WinZip
+AES-256 archive. A normal artifact is the single file inside that archive. An
+FTP recovery package is preserved as the single inner ZIP so its previously
+verified bytes and hashes are not changed. Local, FTP, NFS, and SMB3 objects
+are never rewritten by this setting, and changing the password affects only
+future downloads. If the password or matching master-key version is missing,
+the plugin returns a temporary-unavailable error and never falls back to an
+unencrypted download. Opening AES ZIP files requires an archive tool with
+WinZip AES support; 7-Zip is a suitable compatibility option.
+
 The content preview is limited to 1 MiB by default and the rendered diff to
 20,000 lines. Oversized text is redacted before the browser preview is truncated.
 Diff input is limited to 25 MiB by default. These limits can be adjusted with

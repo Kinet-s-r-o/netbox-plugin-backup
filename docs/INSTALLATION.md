@@ -160,6 +160,11 @@ cancelled from its run detail page.
    and verify the revision list, redacted **View** action, and original
    **Download** action with a non-superuser account. The downloaded artifact is
    not redacted and must be handled as sensitive configuration.
+   If downloaded files must remain protected outside NetBox, open **Config
+   Backup > Settings > Protected ZIP downloads**, set a strong write-only ZIP
+   password, and enable protection. Download the revision again and verify it
+   opens only with that password. The master key from step 3 must be available
+   to every web process serving downloads.
 7. Open **Config Backup → Storages** and verify the system-managed **Local
    storage**. It represents `storage_root`, is always enabled, and cannot be
    deleted or changed to FTP.

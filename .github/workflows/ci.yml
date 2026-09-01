@@ -66,11 +66,12 @@ jobs:
           assert importlib.metadata.version("netbox-config-backup") == __version__
           package = importlib.resources.files("netbox_config_backup")
           required = (
-              "migrations/0028_alter_connectionprofile_address_preference.py",
+              "migrations/0029_download_zip_encryption.py",
               "forms_filters.py",
               "forms_setup.py",
               "forms_storage.py",
               "services/ftp_helpers.py",
+              "services/download_encryption.py",
               "services/revision_chain.py",
               "services/revision_deletion.py",
               "services/run_cancellation.py",

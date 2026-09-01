@@ -4,7 +4,9 @@ from typing import ClassVar
 
 from dcim.models import Device
 from django import forms
+from django.db import transaction
 from django.urls import reverse
+from django.utils import timezone
 from netbox.forms import NetBoxModelForm
 from utilities.forms.fields import DynamicModelChoiceField
 
@@ -15,6 +17,7 @@ from .models import (
     BackupTarget,
     ConnectionProfile,
     CredentialProfile,
+    DownloadEncryptionSecret,
     OperationalSettings,
     PlatformMapping,
     SftpReceiverProfile,
@@ -113,6 +116,101 @@ class InterfaceLanguageSettingsForm(NetBoxModelForm):
     class Meta:
         model = OperationalSettings
         fields = ("ui_language",)
+
+
+class DownloadEncryptionSettingsForm(NetBoxModelForm):
+    download_zip_password = forms.CharField(
+        required=False,
+        min_length=12,
+        max_length=128,
+        strip=False,
+        label="New ZIP password",
+        help_text="Leave blank to keep the current password. Use at least 12 characters.",
+        widget=forms.PasswordInput(
+            render_value=False,
+            attrs={"autocomplete": "new-password", "class": "form-control"},
+        ),
+    )
+    download_zip_password_confirm = forms.CharField(
+        required=False,
+        strip=False,
+        label="Confirm new ZIP password",
+        widget=forms.PasswordInput(
+            render_value=False,
+            attrs={"autocomplete": "new-password", "class": "form-control"},
+        ),
+    )
+    remove_download_zip_password = forms.BooleanField(
+        required=False,
+        label="Remove the stored ZIP password",
+        help_text="Protected ZIP downloads must be disabled before removing the password.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.password_configured = DownloadEncryptionSecret.objects.filter(singleton=True).exists()
+
+    def clean(self):
+        super().clean()
+        cleaned = self.cleaned_data
+        password = cleaned.get("download_zip_password") or ""
+        confirmation = cleaned.get("download_zip_password_confirm") or ""
+        remove_password = bool(cleaned.get("remove_download_zip_password"))
+
+        if password != confirmation:
+            self.add_error("download_zip_password_confirm", "The ZIP passwords do not match.")
+        if remove_password and password:
+            self.add_error(
+                "remove_download_zip_password",
+                "Remove the current password or set a new one, not both.",
+            )
+        will_have_password = (self.password_configured and not remove_password) or bool(password)
+        if cleaned.get("download_zip_encryption_enabled") and not will_have_password:
+            self.add_error(
+                "download_zip_password",
+                "Set a ZIP password before enabling protected downloads.",
+            )
+        if password:
+            try:
+                DatabaseCredentialCipher().active_key()
+            except MasterKeyConfigurationError:
+                self.add_error(
+                    "download_zip_password",
+                    "The plugin master key is not configured in this NetBox process.",
+                )
+        return cleaned
+
+    def save(self, commit=True):
+        if not commit:
+            return super().save(commit=False)
+        password = self.cleaned_data.get("download_zip_password") or ""
+        remove_password = bool(self.cleaned_data.get("remove_download_zip_password"))
+        with transaction.atomic():
+            operational_settings = super().save(commit=True)
+            secret = (
+                DownloadEncryptionSecret.objects.select_for_update()
+                .filter(singleton=True)
+                .first()
+            )
+            if remove_password:
+                if secret is not None:
+                    secret.delete()
+            elif password:
+                secret = secret or DownloadEncryptionSecret(singleton=True)
+                payload = DatabaseCredentialCipher().encrypt(
+                    reference=secret.reference,
+                    plaintext=password,
+                )
+                secret.ciphertext = payload.ciphertext
+                secret.nonce = payload.nonce
+                secret.key_version = payload.key_version
+                secret.rotated_at = timezone.now()
+                secret.save()
+        return operational_settings
+
+    class Meta:
+        model = OperationalSettings
+        fields = ("download_zip_encryption_enabled",)
 
 
 class QuickSetupForm(forms.Form):

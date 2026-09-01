@@ -13,6 +13,7 @@ dependencies = [
   "asyncssh>=2.21,<3",
   "cryptography>=46,<51",
   "netmiko>=4.7,<5",
+  "pyzipper>=0.3.6,<1",
   "pyftpdlib>=2.1,<3",
   "scp>=0.16,<1",
   # NetBox/Django also install sqlparse. Keep the patched security release as

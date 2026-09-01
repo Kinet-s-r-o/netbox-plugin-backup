@@ -316,9 +316,6 @@ msgstr "Tlačidlo Zobraziť overí lokálny artefakt a zobrazí redigovanú konf
 msgid "Stored backup download"
 msgstr "Stiahnutie uloženej zálohy"
 
-msgid "Download verifies and returns the original stored artifact. It is not redacted and can contain secrets, so handle it as sensitive configuration."
-msgstr "Stiahnutie overí a vráti pôvodný uložený artefakt. Nie je redigovaný a môže obsahovať tajné údaje, preto s ním zaobchádzajte ako s citlivou konfiguráciou."
-
 msgid "Native vendor backup"
 msgstr "Natívna záloha výrobcu"
 
@@ -624,6 +621,51 @@ msgstr "Nastavte uchovávanie lokálnych revízií a histórie dokončených beh
 
 msgid "Control copies independently on each remote storage."
 msgstr "Nastavte uchovávanie kópií samostatne na každom vzdialenom úložisku."
+
+msgid "Protected ZIP downloads"
+msgstr "Chránené sťahovanie ZIP"
+
+msgid "Wrap each downloaded backup in an AES-256 encrypted ZIP. Stored Local and remote backup files remain unchanged."
+msgstr "Každú sťahovanú zálohu zabalí do ZIP šifrovaného pomocou AES-256. Uložené lokálne a vzdialené zálohy zostanú nezmenené."
+
+msgid "Require a password for downloaded ZIP files"
+msgstr "Vyžadovať heslo pre sťahované súbory ZIP"
+
+msgid "New ZIP password"
+msgstr "Nové heslo pre ZIP"
+
+msgid "A password is configured. Leave blank to keep it."
+msgstr "Heslo je nastavené. Ak ho chcete ponechať, nechajte pole prázdne."
+
+msgid "No password is configured. Use at least 12 characters."
+msgstr "Heslo nie je nastavené. Použite aspoň 12 znakov."
+
+msgid "Confirm new ZIP password"
+msgstr "Potvrďte nové heslo pre ZIP"
+
+msgid "Remove the stored ZIP password"
+msgstr "Odstrániť uložené heslo pre ZIP"
+
+msgid "This is available only while protected downloads are disabled."
+msgstr "Táto možnosť je dostupná iba pri vypnutom chránenom sťahovaní."
+
+msgid "The stored password is write-only and is never displayed."
+msgstr "Uložené heslo je iba na zápis a nikdy sa nezobrazuje."
+
+msgid "Save download protection"
+msgstr "Uložiť ochranu sťahovania"
+
+msgid "Password configured"
+msgstr "Heslo je nastavené"
+
+msgid "Password not configured"
+msgstr "Heslo nie je nastavené"
+
+msgid "Download verifies the original stored artifact. It is not redacted and can contain secrets, so handle it as sensitive configuration."
+msgstr "Stiahnutie overí pôvodný uložený artefakt. Nie je redigovaný a môže obsahovať tajné údaje, preto s ním zaobchádzajte ako s citlivou konfiguráciou."
+
+msgid "An administrator can require a write-only password in Settings. Downloads are then wrapped in an AES-256 ZIP without changing the stored backup; no usable password means no plaintext fallback."
+msgstr "Administrátor môže v Nastaveniach vyžadovať heslo iba na zápis. Stiahnuté súbory sa potom zabalia do ZIP šifrovaného pomocou AES-256 bez zmeny uloženej zálohy; bez použiteľného hesla sa nezašifrovaný súbor neposkytne."
 
 msgid "SSH host keys"
 msgstr "SSH host keys"

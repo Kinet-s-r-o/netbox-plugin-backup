@@ -8,6 +8,7 @@ from netbox_config_backup.models import (
     ConfigArtifact,
     ConfigRevision,
     ConnectionProfile,
+    DownloadEncryptionSecret,
     OperationalSettings,
     RemoteRetentionPolicy,
     RetentionPolicy,
@@ -20,6 +21,8 @@ assert settings.retention_scheduler_enabled is True
 assert settings.retention_scheduler_batch_size == 37
 assert settings.events_enabled is False
 assert settings.ui_language == "en"
+assert settings.download_zip_encryption_enabled is False
+assert not DownloadEncryptionSecret.objects.exists()
 
 retention = RetentionPolicy.objects.get(name=f"{PREFIX}-local-retention")
 assert retention.keep_all_days == 11
