@@ -492,6 +492,13 @@ use this storage's retention profile** makes that policy mandatory for the
 storage and prevents a device-specific override. Effective retention is
 resolved in this exact order:
 
+Every FTP, NFS, and SMB3 storage detail page includes a **Stored revisions**
+inventory. It lists all tracked copies with their device, revision time,
+transfer state, availability flag, size, and remote path, and supports search,
+state filters, and pagination. This table is backed by plugin audit metadata;
+run **Check stored copies** to compare it with the files and SHA-256 manifests
+actually present on the storage.
+
 1. **Local storage:** enforced Local-storage policy; device Local override;
    the device's backup-policy retention; Local-storage fallback; otherwise
    keep indefinitely.

@@ -1,7 +1,7 @@
 import io
 import logging
 from pathlib import Path, PurePosixPath
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from core.choices import JobStatusChoices
 from core.exceptions import JobFailed
@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Min, Prefetch, Q
 from django.http import (
@@ -957,13 +958,72 @@ class BackupDestinationView(generic.ObjectView):
     def get_extra_context(self, request, instance):
         is_local = instance.protocol == DestinationProtocolChoices.LOCAL
         is_remote = instance.protocol in REPLICATED_DESTINATION_PROTOCOLS
-        replicas = (
-            instance.replicas.restrict(request.user, "view").select_related(
+        replicas = RevisionReplica.objects.none()
+        replica_page = None
+        replica_page_numbers = ()
+        replica_search = ""
+        replica_state = "all"
+        replica_stats = {"total": 0, "available": 0, "problems": 0, "expired": 0}
+        replica_pagination_query = ""
+        if is_remote:
+            replicas = instance.replicas.restrict(request.user, "view").select_related(
                 "revision__target__device"
-            )[:25]
-            if is_remote
-            else RevisionReplica.objects.none()
-        )
+            )
+            available_filter = Q(
+                status=ReplicaStatusChoices.SUCCESS,
+                remote_available=True,
+                remote_deleted_at__isnull=True,
+            )
+            problem_filter = Q(status=ReplicaStatusChoices.FAILED) | Q(
+                status=ReplicaStatusChoices.SUCCESS,
+                remote_available=False,
+                remote_deleted_at__isnull=True,
+            )
+            replica_stats = replicas.aggregate(
+                total=Count("pk"),
+                available=Count("pk", filter=available_filter),
+                problems=Count("pk", filter=problem_filter),
+                expired=Count("pk", filter=Q(remote_deleted_at__isnull=False)),
+            )
+
+            replica_search = request.GET.get("replica_q", "").strip()[:200]
+            requested_state = request.GET.get("replica_state", "all")
+            if requested_state in {"all", "available", "processing", "problems", "expired"}:
+                replica_state = requested_state
+            if replica_search:
+                search_filter = Q(
+                    revision__target__device__name__icontains=replica_search
+                ) | Q(remote_path__icontains=replica_search)
+                try:
+                    search_filter |= Q(revision__revision_uuid=UUID(replica_search))
+                except ValueError:
+                    pass
+                replicas = replicas.filter(search_filter)
+            if replica_state == "available":
+                replicas = replicas.filter(available_filter)
+            elif replica_state == "processing":
+                replicas = replicas.filter(
+                    status__in=(
+                        ReplicaStatusChoices.PENDING,
+                        ReplicaStatusChoices.QUEUED,
+                        ReplicaStatusChoices.RUNNING,
+                    )
+                )
+            elif replica_state == "problems":
+                replicas = replicas.filter(problem_filter)
+            elif replica_state == "expired":
+                replicas = replicas.filter(remote_deleted_at__isnull=False)
+
+            replicas = replicas.order_by("-revision__created", "-created")
+            replica_page = Paginator(replicas, 25).get_page(request.GET.get("replica_page"))
+            replica_page_numbers = replica_page.paginator.get_elided_page_range(
+                replica_page.number,
+                on_each_side=2,
+                on_ends=1,
+            )
+            pagination_query = request.GET.copy()
+            pagination_query.pop("replica_page", None)
+            replica_pagination_query = pagination_query.urlencode()
         latest_reconciliation_job = (
             DestinationReconciliationJob.get_jobs(instance).order_by("-created").first()
             if is_remote
@@ -975,7 +1035,14 @@ class BackupDestinationView(generic.ObjectView):
             "is_ftp_storage": instance.protocol == DestinationProtocolChoices.FTP,
             "is_mounted_storage": instance.protocol
             in (DestinationProtocolChoices.NFS, DestinationProtocolChoices.SMB),
-            "replicas": replicas,
+            "replicas": replica_page.object_list if replica_page else replicas,
+            "replica_page": replica_page,
+            "replica_page_numbers": replica_page_numbers,
+            "replica_page_ellipsis": Paginator.ELLIPSIS,
+            "replica_search": replica_search,
+            "replica_state": replica_state,
+            "replica_stats": replica_stats,
+            "replica_pagination_query": replica_pagination_query,
             "latest_reconciliation_job": latest_reconciliation_job,
             "latest_reconciliation": (
                 destination_reconciliation_status_payload(latest_reconciliation_job)

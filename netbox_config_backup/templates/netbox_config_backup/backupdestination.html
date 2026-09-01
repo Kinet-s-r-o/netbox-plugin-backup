@@ -3,6 +3,12 @@
 
 {% block content %}
 <div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
+  {% if is_remote_storage %}
+  <a class="btn btn-outline-secondary" href="#stored-revisions">
+    <i class="mdi mdi-database-search-outline" aria-hidden="true"></i> Stored revisions
+    <span class="badge text-bg-secondary ms-1">{{ replica_stats.total }}</span>
+  </a>
+  {% endif %}
   {% if can_test %}
   <form method="post" action="{% url 'plugins:netbox_config_backup:backupdestination_test_connection' pk=object.pk %}">
     {% csrf_token %}
@@ -175,24 +181,73 @@
   </div>
 </div>
 
-<div class="card mt-3">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <h2 class="card-title mb-0">Recent revision copies</h2>
-    <span class="text-secondary small">Remote copies are immutable and use this storage's effective retention profile.</span>
+<div class="card mt-3" id="stored-revisions">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <h2 class="card-title mb-1">Stored revisions</h2>
+      <div class="text-secondary small">Tracked revision copies for this storage. Use an integrity audit to verify their actual files.</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2" aria-label="Storage revision summary">
+      <span class="badge text-bg-secondary">{{ replica_stats.total }} tracked</span>
+      <span class="badge text-bg-success">{{ replica_stats.available }} available</span>
+      {% if replica_stats.problems %}<span class="badge text-bg-danger">{{ replica_stats.problems }} with problems</span>{% endif %}
+      {% if replica_stats.expired %}<span class="badge text-bg-secondary">{{ replica_stats.expired }} expired</span>{% endif %}
+    </div>
+  </div>
+  <div class="card-body border-bottom">
+    <form method="get" action="#stored-revisions" class="row g-2 align-items-end">
+      <div class="col-lg-6">
+        <label class="form-label" for="replica-search">Device, revision UUID, or remote path</label>
+        <div class="input-icon">
+          <span class="input-icon-addon"><i class="mdi mdi-magnify" aria-hidden="true"></i></span>
+          <input id="replica-search" class="form-control" type="search" name="replica_q" value="{{ replica_search }}" placeholder="Search stored revisions">
+        </div>
+      </div>
+      <div class="col-md-4 col-lg-3">
+        <label class="form-label" for="replica-state">Copy state</label>
+        <select id="replica-state" class="form-select" name="replica_state">
+          <option value="all"{% if replica_state == 'all' %} selected{% endif %}>All copies</option>
+          <option value="available"{% if replica_state == 'available' %} selected{% endif %}>Available</option>
+          <option value="processing"{% if replica_state == 'processing' %} selected{% endif %}>Pending or processing</option>
+          <option value="problems"{% if replica_state == 'problems' %} selected{% endif %}>With problems</option>
+          <option value="expired"{% if replica_state == 'expired' %} selected{% endif %}>Expired</option>
+        </select>
+      </div>
+      <div class="col-md-8 col-lg-3 d-flex gap-2">
+        <button class="btn btn-primary" type="submit"><i class="mdi mdi-filter-outline" aria-hidden="true"></i> Apply</button>
+        {% if replica_search or replica_state != 'all' %}
+        <a class="btn btn-outline-secondary" href="{{ object.get_absolute_url }}#stored-revisions">Clear</a>
+        {% endif %}
+      </div>
+    </form>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0">
-      <thead><tr><th>Revision</th><th>Device</th><th>Status</th><th>Attempts</th><th>Transferred</th><th>Finished</th><th>Error</th><th></th></tr></thead>
+      <thead><tr><th>Revision</th><th>Device</th><th>Created</th><th>Status</th><th>Stored copy</th><th>Size</th><th>Remote path</th><th>Copied</th><th></th></tr></thead>
       <tbody>
       {% for replica in replicas %}
         <tr>
           <td>{{ replica.revision|linkify }}</td>
           <td>{{ replica.revision.target.device|linkify }}</td>
-          <td><span class="badge text-bg-{{ replica.get_status_color }}">{{ replica.get_status_display }}</span></td>
-          <td>{{ replica.attempts }}</td>
+          <td>{{ replica.revision.created }}</td>
+          <td>
+            <span class="badge text-bg-{{ replica.get_status_color }}">{{ replica.get_status_display }}</span>
+            {% if replica.error_code %}<div class="small text-danger mt-1"><code>{{ replica.error_code }}</code></div>{% endif %}
+          </td>
+          <td>
+            {% if replica.remote_deleted_at %}
+              <span class="badge text-bg-secondary">Expired</span>
+            {% elif replica.remote_available %}
+              <span class="badge text-bg-success"><i class="mdi mdi-check" aria-hidden="true"></i> Available</span>
+            {% elif replica.status == 'success' %}
+              <span class="badge text-bg-danger"><i class="mdi mdi-alert-outline" aria-hidden="true"></i> Missing</span>
+            {% else %}
+              <span class="text-secondary">—</span>
+            {% endif %}
+          </td>
           <td>{{ replica.bytes_transferred|filesizeformat }}</td>
+          <td>{% if replica.remote_path %}<code class="text-break" title="{{ replica.remote_path }}">{{ replica.remote_path|truncatechars:64 }}</code>{% else %}<span class="text-secondary">—</span>{% endif %}</td>
           <td>{{ replica.finished_at|placeholder }}</td>
-          <td>{% if replica.error_code %}<code>{{ replica.error_code }}</code><br><span class="small text-secondary">{{ replica.error_message }}</span>{% else %}—{% endif %}</td>
           <td class="text-end">
             {% if can_retry and replica.status == 'failed' %}
             <form method="post" action="{% url 'plugins:netbox_config_backup:revisionreplica_retry' pk=object.pk replica_pk=replica.pk %}">
@@ -202,11 +257,39 @@
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="8" class="text-secondary">No revision has been queued for this destination yet.</td></tr>
+        <tr><td colspan="9" class="text-secondary py-4 text-center">No stored revision matches this filter.</td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if replica_page %}
+  <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <span class="text-secondary small">
+      Showing {{ replica_page.start_index }}–{{ replica_page.end_index }} of {{ replica_page.paginator.count }} matching copies
+    </span>
+    {% if replica_page.has_other_pages %}
+    <nav aria-label="Stored revision pages">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item{% if not replica_page.has_previous %} disabled{% endif %}">
+          {% if replica_page.has_previous %}<a class="page-link" href="?{% if replica_pagination_query %}{{ replica_pagination_query }}&amp;{% endif %}replica_page={{ replica_page.previous_page_number }}#stored-revisions" aria-label="Previous">‹</a>{% else %}<span class="page-link">‹</span>{% endif %}
+        </li>
+        {% for page_number in replica_page_numbers %}
+          {% if page_number == replica_page_ellipsis %}
+            <li class="page-item disabled"><span class="page-link">{{ page_number }}</span></li>
+          {% elif page_number == replica_page.number %}
+            <li class="page-item active" aria-current="page"><span class="page-link">{{ page_number }}</span></li>
+          {% else %}
+            <li class="page-item"><a class="page-link" href="?{% if replica_pagination_query %}{{ replica_pagination_query }}&amp;{% endif %}replica_page={{ page_number }}#stored-revisions">{{ page_number }}</a></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item{% if not replica_page.has_next %} disabled{% endif %}">
+          {% if replica_page.has_next %}<a class="page-link" href="?{% if replica_pagination_query %}{{ replica_pagination_query }}&amp;{% endif %}replica_page={{ replica_page.next_page_number }}#stored-revisions" aria-label="Next">›</a>{% else %}<span class="page-link">›</span>{% endif %}
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 <script>
 document.addEventListener('DOMContentLoaded',()=>{const enabled=document.getElementById('{{ audit_schedule_form.integrity_audit_enabled.id_for_label }}'),frequency=document.getElementById('{{ audit_schedule_form.integrity_audit_frequency.id_for_label }}'),fields=document.getElementById('audit-schedule-fields'),weekday=document.getElementById('audit-weekday-field');const sync=()=>{fields?.classList.toggle('d-none',!enabled?.checked);weekday?.classList.toggle('d-none',frequency?.value!=='weekly')};enabled?.addEventListener('change',sync);frequency?.addEventListener('change',sync);sync()});

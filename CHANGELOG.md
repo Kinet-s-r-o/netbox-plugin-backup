@@ -12,6 +12,9 @@ be deleted from an installation which may already have applied them.
   Local and FTP/NFS/SMB copies, deletes its artifact and replica metadata,
   safely reconnects revision history, and preserves Backup Run audit rows
   without a stale revision link.
+- Storage detail pages now provide a complete, searchable, state-filtered, and
+  paginated inventory of their tracked revision copies, including availability,
+  remote path, transfer size, and integrity-related problem states.
 
 ### Fixed
 
