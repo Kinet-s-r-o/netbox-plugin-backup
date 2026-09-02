@@ -80,6 +80,7 @@ from .services.destination_types import DestinationError
 from .services.download_encryption import (
     DownloadEncryptionError,
     build_password_protected_zip_stream,
+    encrypt_zip_package_stream,
     protected_zip_filename,
     resolve_download_zip_password,
 )
@@ -1551,12 +1552,16 @@ class DeviceConfigBackupView(generic.ObjectView):
                 ),
             }
 
+        visible_revisions = ConfigRevision.objects.restrict(request.user, "view").filter(
+            target=target
+        )
+        revision_count = visible_revisions.count()
+        can_view_revisions = request.user.has_perm("netbox_config_backup.view_configrevision")
         visible_artifacts = ConfigArtifact.objects.restrict(request.user, "view").filter(
             local_available=True
         )
         revisions = list(
-            ConfigRevision.objects.restrict(request.user, "view")
-            .filter(target=target)
+            visible_revisions
             .prefetch_related(
                 Prefetch(
                     "artifacts",
@@ -1564,7 +1569,7 @@ class DeviceConfigBackupView(generic.ObjectView):
                     to_attr="device_backup_artifacts",
                 )
             )
-            .order_by("-created")[:25]
+            .order_by("-created", "-pk")[:25]
         )
         for revision in revisions:
             artifacts = tuple(revision.device_backup_artifacts)
@@ -1584,16 +1589,30 @@ class DeviceConfigBackupView(generic.ObjectView):
         recent_runs = list(
             BackupRun.objects.restrict(request.user, "view")
             .filter(target=target)
-            .select_related("revision")
-            .order_by("-queued_at")[:10]
+            .order_by("-queued_at", "-pk")[:10]
         )
+        # Resolve run links through the same permission scope as the revision list,
+        # including older revisions which are outside its first 25 rows.
+        run_revisions = visible_revisions.filter(
+            pk__in={run.revision_id for run in recent_runs if run.revision_id is not None}
+        ).select_related("target__device").in_bulk()
+        for run in recent_runs:
+            run.device_backup_visible_revision = run_revisions.get(run.revision_id)
+            run.device_backup_revision_removed = run.revision_id is None and run.status in {
+                RunStatusChoices.SUCCESS_CHANGED,
+                RunStatusChoices.SUCCESS_UNCHANGED,
+            }
+
         return {
             "target": target,
             "revisions": revisions,
             "recent_runs": recent_runs,
-            "revision_count": ConfigRevision.objects.restrict(request.user, "view")
-            .filter(target=target)
-            .count(),
+            "revision_count": revision_count,
+            # An empty permission-filtered list alone does not mean data was removed.
+            # last_revision is cleared when the final revision is deleted.
+            "no_stored_revisions": (
+                can_view_revisions and revision_count == 0 and target.last_revision_id is None
+            ),
             "can_add_target": False,
         }
 
@@ -3176,10 +3195,16 @@ class ConfigRevisionFtpRecoveryDownloadView(PermissionRequiredMixin, LoginRequir
             download_password = resolve_download_zip_password()
             if download_password is not None:
                 try:
-                    protected_package = build_password_protected_zip_stream(
+                    protected_package = encrypt_zip_package_stream(
                         source=package_handle,
-                        member_filename=download_filename,
                         password=download_password,
+                        # The recovery limit includes FTP files; allow the small
+                        # plugin-generated RECOVERY_README.txt added afterwards.
+                        max_total_bytes=(
+                            settings.PLUGINS_CONFIG["netbox_config_backup"][
+                                "recovery_package_max_bytes"
+                            ] + 64 * 1024
+                        ),
                     )
                 finally:
                     package_handle.close()

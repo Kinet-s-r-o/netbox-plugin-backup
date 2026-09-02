@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import stat
+import zipfile
 from pathlib import PurePath
 from shutil import copyfileobj
 from tempfile import SpooledTemporaryFile
@@ -110,6 +112,81 @@ def protected_zip_filename(member_filename: str) -> str:
     if path.suffix.lower() == ".zip":
         return f"{path.stem}_protected.zip"
     return f"{path.stem}.zip"
+
+
+def encrypt_zip_package_stream(
+    *, source: BinaryIO, password: str, max_total_bytes: int
+) -> BinaryIO:
+    """Encrypt a verified plugin-generated ZIP without adding another ZIP layer.
+
+    Copy entry bytes and paths, not recursively unpack native device archives.
+    The caller must validate the source package's recorded hash before calling.
+    The source remains open and unchanged; the caller owns the returned stream.
+    """
+
+    if not password:
+        raise DownloadEncryptionError("A protected download password is required.")
+    output = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")  # noqa: SIM115
+    try:
+        source.seek(0)
+        with zipfile.ZipFile(source) as original:
+            members = original.infolist()
+            if (
+                not members
+                or max_total_bytes <= 0
+                or sum(member.file_size for member in members) > max_total_bytes
+            ):
+                raise DownloadEncryptionError("The recovery ZIP size is invalid.")
+            names = set()
+            for member in members:
+                _validate_package_member(member)
+                name = member.filename.rstrip("/").casefold()
+                if name in names:
+                    raise DownloadEncryptionError("The recovery ZIP contains duplicate paths.")
+                names.add(name)
+
+            with pyzipper.AESZipFile(
+                output,
+                mode="w",
+                compression=pyzipper.ZIP_DEFLATED,
+                encryption=pyzipper.WZ_AES,
+            ) as encrypted:
+                encrypted.setpassword(password.encode("utf-8"))
+                encrypted.setencryption(pyzipper.WZ_AES, nbits=256)
+                for member in members:
+                    # Rebuild ZIP metadata: do not carry old compression/encryption
+                    # extra fields into the new archive.
+                    info = encrypted.zipinfo_cls(member.filename, date_time=member.date_time)
+                    info.compress_type = pyzipper.ZIP_DEFLATED
+                    info.file_size = member.file_size
+                    info.create_system = member.create_system
+                    info.external_attr = member.external_attr
+                    with original.open(member) as plain, encrypted.open(info, "w") as protected:
+                        # Reading to EOF also validates the original entry's CRC.
+                        copyfileobj(plain, protected, length=1024 * 1024)
+        output.seek(0)
+        return output
+    except Exception as exc:
+        output.close()
+        if isinstance(exc, DownloadEncryptionError):
+            raise
+        raise DownloadEncryptionError("The protected recovery ZIP could not be created.") from exc
+
+
+def _validate_package_member(member: zipfile.ZipInfo) -> None:
+    filename = member.filename
+    parts = filename.rstrip("/").split("/")
+    if (
+        member.orig_filename != filename
+        or any(part in {"", ".", ".."} for part in parts)
+        or "\\" in filename
+        or ":" in filename
+        or any(ord(character) < 32 for character in filename)
+        or member.flag_bits & 1
+        or stat.S_IFMT(member.external_attr >> 16) not in {0, stat.S_IFREG, stat.S_IFDIR}
+        or (member.is_dir() and member.file_size)
+    ):
+        raise DownloadEncryptionError("The recovery ZIP contains an invalid entry.")
 
 
 def _safe_member_filename(filename: str) -> str:

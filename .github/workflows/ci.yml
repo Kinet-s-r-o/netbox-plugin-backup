@@ -157,6 +157,8 @@ jobs:
           run_manage netbox_fresh shell < tests/integration/docker_connection_profile_detail_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_revision_theme_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_device_backup_tab_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_device_backup_history_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_ftp_download_encryption_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_storage_revision_inventory_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_run_cancellation_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_health_dashboard_smoke.py

@@ -678,3 +678,39 @@ msgstr "Prijímače exportov zo zariadení"
 
 msgid "Configure an inbound receiver only when a driver requires a device-pushed native export. This is not remote replica storage."
 msgstr "Vstupný prijímač nastavte iba pre driver, ktorý vyžaduje natívny export odoslaný zariadením. Nie je to vzdialené úložisko replík."
+
+msgid "Stored revisions"
+msgstr "Uložené revízie"
+
+msgid "No stored backup"
+msgstr "Žiadna uložená záloha"
+
+msgid "No accessible revisions"
+msgstr "Žiadne dostupné revízie"
+
+msgid "Backup activity"
+msgstr "Stav zálohovania"
+
+msgid "Last successful run"
+msgstr "Posledný úspešný beh"
+
+msgid "Last detected change"
+msgstr "Posledná zistená zmena"
+
+msgid "Latest stored revision"
+msgstr "Posledná uložená revízia"
+
+msgid "No stored backup is available for this device."
+msgstr "Pre toto zariadenie nie je dostupná žiadna uložená záloha."
+
+msgid "No revisions are available with your permissions."
+msgstr "S vašimi oprávneniami nie sú dostupné žiadne revízie."
+
+msgid "No stored revisions are available for this device."
+msgstr "Pre toto zariadenie nie sú dostupné žiadne uložené revízie."
+
+msgid "Run results remain in history even when their revisions are removed."
+msgstr "Výsledky behov zostávajú v histórii aj po odstránení ich revízií."
+
+msgid "Revision removed"
+msgstr "Revízia odstránená"

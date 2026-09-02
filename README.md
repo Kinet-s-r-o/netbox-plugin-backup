@@ -484,15 +484,21 @@ write-only and encrypted in PostgreSQL with
 `NETBOX_CONFIG_BACKUP_MASTER_KEY`. Blank password fields keep the current
 password. Disable protection before removing it.
 
-When enabled, each authorized download is generated in memory as a WinZip
-AES-256 archive. A normal artifact is the single file inside that archive. An
-FTP recovery package is preserved as the single inner ZIP so its previously
-verified bytes and hashes are not changed. Local, FTP, NFS, and SMB3 objects
+When enabled, each authorized download is generated as a WinZip AES-256 archive,
+using bounded memory and a temporary file for larger downloads. A normal artifact
+is the single file inside that archive. An FTP recovery download contains the
+verified backup files, manifest, and recovery README directly in one encrypted
+ZIP, retaining their directory structure without an extra wrapper ZIP. Individual
+file bytes and hashes remain unchanged; the downloadable ZIP itself has different
+bytes from the temporary unencrypted package. Native device archives (such as
+`.tgz` or `.zip`) remain intact as backup files, not recursively unpacked.
+Local, FTP, NFS, and SMB3 objects
 are never rewritten by this setting, and changing the password affects only
 future downloads. If the password or matching master-key version is missing,
 the plugin returns a temporary-unavailable error and never falls back to an
 unencrypted download. Opening AES ZIP files requires an archive tool with
-WinZip AES support; 7-Zip is a suitable compatibility option.
+WinZip AES support; 7-Zip is a suitable compatibility option. Windows Explorer's
+built-in extraction cannot open these AES-encrypted downloads.
 
 The content preview is limited to 1 MiB by default and the rendered diff to
 20,000 lines. Oversized text is redacted before the browser preview is truncated.
@@ -587,6 +593,13 @@ quarantines Local files, deletes the exact FTP/NFS/SMB revision directories,
 removes the revision, artifact, and replica rows, and reconnects the remaining
 revision chain. Existing Backup Run rows remain as audit history with their
 nullable revision link cleared. No command is sent to the device.
+
+The Device **Backup** tab separates stored revisions from backup activity.
+After the final revision is removed it shows **No stored backup**, while past
+successful runs show **Revision removed**. Last-success/change timestamps and
+the next scheduled run are preserved; a successful historical run does not
+mean its configuration is still stored. Revisions hidden by object permissions
+are not labelled as deleted.
 
 Local cleanup and remote cleanup have separate opt-in schedulers under
 **Config Backup → Settings**. Both are disabled by default and require an

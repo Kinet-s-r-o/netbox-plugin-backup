@@ -8,6 +8,12 @@ be deleted from an installation which may already have applied them.
 
 ### Fixed
 
+- Password-protected FTP recovery downloads now contain the verified backup files
+  directly in one AES-256 ZIP, instead of wrapping the recovery ZIP in another ZIP.
+  Native device archives and stored backup data remain unchanged.
+- The Device Backup tab distinguishes stored revisions from historical backup
+  activity, explains successful runs whose revisions were removed, and does not
+  expose revision links hidden by object permissions.
 - Configuration previews and diffs now follow NetBox's light/dark theme, with
   readable line numbers and plain code text instead of inline-code badges.
 - Connection profile detail pages now render the computed SSH identity policy
@@ -17,7 +23,7 @@ be deleted from an installation which may already have applied them.
 
 - Optional password-protected backup downloads. Administrators configure a
   write-only password in Settings; downloaded artifacts and FTP recovery
-  packages are wrapped in WinZip AES-256 archives without modifying Local or
+  packages are delivered in WinZip AES-256 archives without modifying Local or
   remote stored backups.
 
 ### Security

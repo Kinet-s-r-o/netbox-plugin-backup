@@ -1,5 +1,5 @@
 {% extends 'dcim/device/base.html' %}
-{% load helpers %}
+{% load helpers i18n %}
 
 {% block content %}
 {% if not target %}
@@ -46,12 +46,24 @@
       <h2 class="card-header">Backup status</h2>
       <table class="table table-hover attr-table mb-0">
         <tr>
-          <th scope="row">Status</th>
+          <th scope="row">{% translate "Stored revisions" %}</th>
+          <td>
+            {% if revision_count %}
+            {{ revision_count }}
+            {% elif no_stored_revisions %}
+            <span class="badge text-bg-warning">{% translate "No stored backup" %}</span>
+            {% else %}
+            <span class="text-secondary">{% translate "No accessible revisions" %}</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">{% translate "Backup activity" %}</th>
           <td><span class="badge text-bg-{{ target.get_status_color }}">{{ target.get_status_display }}</span></td>
         </tr>
         <tr><th scope="row">Enabled</th><td>{{ target.enabled|yesno:"Yes,No" }}</td></tr>
-        <tr><th scope="row">Last success</th><td>{{ target.last_success_at|placeholder }}</td></tr>
-        <tr><th scope="row">Last change</th><td>{{ target.last_change_at|placeholder }}</td></tr>
+        <tr><th scope="row">{% translate "Last successful run" %}</th><td>{{ target.last_success_at|placeholder }}</td></tr>
+        <tr><th scope="row">{% translate "Last detected change" %}</th><td>{{ target.last_change_at|placeholder }}</td></tr>
         <tr><th scope="row">Next run</th><td>{{ target.next_run_at|placeholder }}</td></tr>
         <tr><th scope="row">Consecutive failures</th><td>{{ target.consecutive_failures }}</td></tr>
       </table>
@@ -59,7 +71,7 @@
   </div>
   <div class="col-lg-6">
     <div class="card h-100">
-      <h2 class="card-header">Latest available revision</h2>
+      <h2 class="card-header">{% translate "Latest stored revision" %}</h2>
       {% with latest=revisions.0 %}
       {% if latest %}
       <div class="card-body">
@@ -87,7 +99,13 @@
         </div>
       </div>
       {% else %}
-      <div class="card-body text-secondary">No configuration revision is available yet.</div>
+      <div class="card-body text-secondary">
+        {% if no_stored_revisions %}
+          {% translate "No stored backup is available for this device." %}
+        {% else %}
+          {% translate "No revisions are available with your permissions." %}
+        {% endif %}
+      </div>
       {% endif %}
       {% endwith %}
     </div>
@@ -151,7 +169,13 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="6" class="text-center text-secondary py-4">No revisions have been created for this device.</td></tr>
+        <tr><td colspan="6" class="text-center text-secondary py-4">
+          {% if no_stored_revisions %}
+            {% translate "No stored revisions are available for this device." %}
+          {% else %}
+            {% translate "No revisions are available with your permissions." %}
+          {% endif %}
+        </td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -160,7 +184,10 @@
 
 <div class="card">
   <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <h2 class="card-title mb-0">Recent backup runs</h2>
+    <div>
+      <h2 class="card-title mb-0">Recent backup runs</h2>
+      <div class="text-secondary small mt-1">{% translate "Run results remain in history even when their revisions are removed." %}</div>
+    </div>
     <span class="text-secondary">Latest {{ recent_runs|length }}</span>
   </div>
   <div class="table-responsive">
@@ -173,7 +200,15 @@
           <td>{{ run.get_source_display }}</td>
           <td><span class="badge text-bg-{{ run.get_status_color }}">{{ run.get_status_display }}</span></td>
           <td>{{ run.finished_at|placeholder }}</td>
-          <td>{{ run.revision|linkify|placeholder }}</td>
+          <td>
+            {% if run.device_backup_visible_revision %}
+              {{ run.device_backup_visible_revision|linkify }}
+            {% elif run.revision_id %}
+              <span class="text-secondary">{% translate "No access" %}</span>
+            {% elif run.device_backup_revision_removed %}
+              <span class="text-secondary">{% translate "Revision removed" %}</span>
+            {% else %}—{% endif %}
+          </td>
           <td>{% if run.error_code %}<code>{{ run.error_code }}</code>{% else %}—{% endif %}</td>
         </tr>
         {% empty %}
