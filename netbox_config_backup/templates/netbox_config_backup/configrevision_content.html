@@ -1,13 +1,7 @@
 {% extends 'generic/object.html' %}
 
 {% block content %}
-<style>
-  .ncb-code-shell { max-height: 72vh; overflow: auto; background: var(--tblr-bg-surface-dark, #081824); }
-  .ncb-code-table { width: 100%; border-collapse: collapse; font: .82rem/1.55 var(--tblr-font-monospace, monospace); }
-  .ncb-code-table td { border: 0; vertical-align: top; }
-  .ncb-line-number { width: 1%; min-width: 4.5rem; padding: 0 .9rem; text-align: right; user-select: none; color: var(--tblr-secondary-color); border-right: 1px solid var(--tblr-border-color) !important; }
-  .ncb-code-line { padding: 0 1rem; white-space: pre; color: var(--tblr-body-color); }
-</style>
+{% include 'netbox_config_backup/inc/revision_styles.html' %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>

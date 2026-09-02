@@ -164,7 +164,11 @@ assert b'name="download_zip_encryption_enabled"' in response.content
 assert b'name="download_zip_password"' in response.content
 assert b'name="download_zip_password_confirm"' in response.content
 assert b"Protected ZIP downloads" in response.content
-assert b"netbox_config_backup/settings.css" in response.content
+settings_stylesheet_url = reverse("plugins:netbox_config_backup:settings_stylesheet")
+assert f'href="{settings_stylesheet_url}"'.encode() in response.content
+stylesheet_response = client.get(settings_stylesheet_url)
+assert stylesheet_response.status_code == 200
+assert stylesheet_response.headers["Content-Type"].startswith("text/css")
 assert b'type="hidden" name="retention_scheduler_batch_size"' in response.content
 assert b"Maximum cleanup jobs" not in response.content
 assert b"Open examples" not in response.content

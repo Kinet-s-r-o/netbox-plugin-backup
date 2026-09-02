@@ -1,15 +1,7 @@
 {% extends 'generic/object.html' %}
 
 {% block content %}
-<style>
-  .ncb-diff-shell { max-height: 72vh; overflow: auto; background: var(--tblr-bg-surface-dark, #081824); }
-  .ncb-diff-line { margin: 0; padding: 0 .9rem; white-space: pre; font: .82rem/1.55 var(--tblr-font-monospace, monospace); }
-  .ncb-diff-added { background: rgba(47, 179, 68, .16); color: var(--tblr-success); }
-  .ncb-diff-removed { background: rgba(214, 57, 57, .16); color: var(--tblr-danger); }
-  .ncb-diff-hunk { background: rgba(66, 153, 225, .14); color: var(--tblr-info); }
-  .ncb-diff-file { color: var(--tblr-warning); font-weight: 600; }
-  .ncb-diff-context { color: var(--tblr-body-color); }
-</style>
+{% include 'netbox_config_backup/inc/revision_styles.html' %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>

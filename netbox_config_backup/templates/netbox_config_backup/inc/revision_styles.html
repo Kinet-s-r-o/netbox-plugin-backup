@@ -1,0 +1,88 @@
+{# Shared inline styles also work when collectstatic has not run successfully. #}
+<style>
+  .ncb-code-shell,
+  .ncb-diff-shell {
+    max-height: 72vh;
+    overflow: auto;
+    padding-block: .5rem;
+    background: var(--tblr-bg-surface, var(--tblr-body-bg));
+    color: var(--tblr-body-color);
+  }
+
+  .ncb-code-table {
+    width: 100%;
+    border-collapse: collapse;
+    font: .82rem/1.55 var(--tblr-font-monospace, ui-monospace), monospace;
+    color: inherit;
+  }
+
+  .ncb-code-table td {
+    border: 0;
+    vertical-align: top;
+  }
+
+  .ncb-code-table .ncb-line-number {
+    width: 1%;
+    min-width: 4.5rem;
+    padding: 0 .9rem;
+    text-align: right;
+    user-select: none;
+    color: var(--tblr-secondary-color);
+    border-right: 1px solid var(--tblr-border-color);
+  }
+
+  .ncb-code-line {
+    padding: 0 1rem;
+    white-space: pre;
+    color: inherit;
+  }
+
+  /* Neutralize NetBox's inline-code badge styling only inside the viewer. */
+  .ncb-code-line > code,
+  .ncb-diff-line > code {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: inherit;
+    font: inherit;
+    white-space: inherit;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+
+  .ncb-diff-line {
+    width: max-content;
+    min-width: 100%;
+    margin: 0;
+    padding: 0 .9rem;
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+    white-space: pre;
+    font: .82rem/1.55 var(--tblr-font-monospace, ui-monospace), monospace;
+    background: transparent;
+    color: inherit;
+  }
+
+  .ncb-diff-added {
+    background: var(--tblr-success-bg-subtle);
+    color: var(--tblr-success-text-emphasis);
+  }
+
+  .ncb-diff-removed {
+    background: var(--tblr-danger-bg-subtle);
+    color: var(--tblr-danger-text-emphasis);
+  }
+
+  .ncb-diff-hunk {
+    background: var(--tblr-info-bg-subtle);
+    color: var(--tblr-info-text-emphasis);
+  }
+
+  .ncb-diff-file {
+    color: var(--tblr-warning-text-emphasis);
+    font-weight: 600;
+  }
+</style>

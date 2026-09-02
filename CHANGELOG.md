@@ -6,6 +6,13 @@ be deleted from an installation which may already have applied them.
 
 ## [Unreleased]
 
+### Fixed
+
+- Configuration previews and diffs now follow NetBox's light/dark theme, with
+  readable line numbers and plain code text instead of inline-code badges.
+- Connection profile detail pages now render the computed SSH identity policy
+  separately from database fields, fixing `FieldDoesNotExist` when opening a profile.
+
 ### Added
 
 - Optional password-protected backup downloads. Administrators configure a

@@ -873,8 +873,13 @@ class ConnectionProfileView(ConfigObjectView):
         "connect_timeout",
         "command_timeout",
         "keepalive",
-        "host_key_policy_label",
     )
+
+    def get_extra_context(self, request, instance):
+        context = super().get_extra_context(request, instance)
+        # This label is a computed property, not a field in Django's model metadata.
+        context["detail_rows"].append(("SSH identity verification", instance.host_key_policy_label))
+        return context
 
 
 @register_model_view(ConnectionProfile, "add", detail=False)
