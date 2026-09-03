@@ -42,6 +42,10 @@ from .choices import (
 
 class OperationalSettings(NetBoxModel):
     singleton = models.BooleanField(default=True, unique=True, editable=False)
+    disabled_driver_ids = models.JSONField(
+        default=list, blank=True,
+        help_text="Drivers disabled for new assignments and backup execution; history is retained.",
+    )
     retention_scheduler_enabled = models.BooleanField(default=False)
     remote_retention_scheduler_enabled = models.BooleanField(default=False)
     retention_scheduler_batch_size = models.PositiveSmallIntegerField(
@@ -70,6 +74,22 @@ class OperationalSettings(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_config_backup:advanced_settings")
+
+    def clean(self):
+        super().clean()
+        from .services.driver_selection import validate_disabled_drivers
+
+        try:
+            validate_disabled_drivers(self.disabled_driver_ids)
+        except ValidationError as exc:
+            raise ValidationError({"disabled_driver_ids": exc.messages}) from exc
+
+    def save(self, *args, **kwargs):
+        from .services.driver_selection import locked_driver_settings, validate_disabled_drivers
+
+        with locked_driver_settings():
+            validate_disabled_drivers(self.disabled_driver_ids)
+            return super().save(*args, **kwargs)
 
 
 class RetentionPolicy(NetBoxModel):
@@ -952,11 +972,24 @@ class PlatformMapping(NetBoxModel):
 
         if not driver_registry.contains(self.driver_id):
             raise ValidationError({"driver_id": "Unknown registered backup driver."})
+        from .services.driver_selection import validate_driver_assignment
+
+        validate_driver_assignment(self.driver_id, field="driver_id")
         if not isinstance(self.driver_options, dict):
             raise ValidationError({"driver_options": "Driver options must be an object."})
 
     def __str__(self) -> str:
         return f"{self.platform}: {self.driver_id}"
+
+    def save(self, *args, **kwargs):
+        from .services.driver_selection import locked_driver_settings, validate_driver_assignment
+
+        with locked_driver_settings() as selection:
+            validate_driver_assignment(
+                self.driver_id, field="driver_id",
+                disabled=selection.disabled_driver_ids if selection else (),
+            )
+            return super().save(*args, **kwargs)
 
 
 class BackupTarget(JobsMixin, NetBoxModel):
@@ -1045,11 +1078,24 @@ class BackupTarget(JobsMixin, NetBoxModel):
 
             if not driver_registry.contains(self.driver_override):
                 raise ValidationError({"driver_override": "Unknown registered backup driver."})
+            from .services.driver_selection import validate_driver_assignment
+
+            validate_driver_assignment(self.driver_override, field="driver_override")
         if not isinstance(self.driver_options_override, dict):
             raise ValidationError({"driver_options_override": "Driver options must be an object."})
 
     def __str__(self) -> str:
         return str(self.device)
+
+    def save(self, *args, **kwargs):
+        from .services.driver_selection import locked_driver_settings, validate_driver_assignment
+
+        with locked_driver_settings() as selection:
+            validate_driver_assignment(
+                self.driver_override, field="driver_override",
+                disabled=selection.disabled_driver_ids if selection else (),
+            )
+            return super().save(*args, **kwargs)
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_config_backup:backuptarget", args=(self.pk,))

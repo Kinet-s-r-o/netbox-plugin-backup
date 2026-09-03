@@ -182,11 +182,11 @@ remove the revision and its replica/deletion metadata as well.
 This section is required only for drivers where the device pushes a native file,
 currently Ceragon IP-50/CeraOS and first-generation SIAE ALFOplus.
 
-1. In **Config Backup > Settings > Credential profiles**, create a dedicated
+1. In **Config Backup > Settings > Device defaults > Credential profiles**, create a dedicated
    encrypted database credential. Use a unique username and password. CeraOS
    CLI-safe values contain letters, numbers and `._@%+,:=-`; the password must
    be at least eight characters.
-2. In **Config Backup > Settings > Security and vendor-specific setup > Device upload receivers**, create a profile named
+2. In **Config Backup > Settings > Security and downloads > Device upload receivers**, create a profile named
    `default` and select that credential.
 3. Prefer **Direct from device** when devices can reach the receiver. Set
    `advertised_host` to the stable DNS name or IP visible from the management

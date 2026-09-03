@@ -23,6 +23,7 @@ from .credentials.encrypted_database import (
 from .forms_filters import BackupRunFilterForm, BackupTargetFilterForm, ConfigRevisionFilterForm
 from .forms_setup import (
     DownloadEncryptionSettingsForm,
+    DriverSettingsForm,
     InterfaceLanguageSettingsForm,
     NotificationSettingsForm,
     OperationalSettingsForm,
@@ -59,6 +60,7 @@ __all__ = [
     "ConnectionProfileForm",
     "CredentialProfileForm",
     "DownloadEncryptionSettingsForm",
+    "DriverSettingsForm",
     "FtpIntegrityAuditScheduleForm",
     "InterfaceLanguageSettingsForm",
     "NotificationSettingsForm",

@@ -122,8 +122,10 @@ worker for device backup jobs:
   rqworker netbox_config_backup.backup
 ```
 
-The normal NetBox worker must remain running because dispatch, retention, FTP
-replication, audit, and recovery jobs use NetBox's background job system.
+The normal NetBox worker must remain running for periodic system dispatchers and
+other NetBox background work. Device backups, connection/storage tests, remote
+replication, audits, retention cleanup, and FTP recovery packages run on the
+dedicated `netbox_config_backup.backup` queue.
 The plugin Overview reports when the dedicated backup worker is unavailable.
 Manual and scheduled backup requests are rejected without creating a run until a live worker
 is listening on `netbox_config_backup.backup`. An already queued run can be
@@ -134,8 +136,12 @@ cancelled from its run detail page.
 1. Open **Config Backup → Settings**.
    Use **Config Backup → Help** for the recommended workflow and retention
    precedence; the Help page is read-only and is suitable for Reader accounts.
-   Administrators can also choose the default Config Backup language here.
-   English and Slovak are bundled; users may temporarily override the default
+   Expand **Device drivers**, below the reusable profile cards, to choose the
+   installed drivers offered in device and platform-mapping forms. All start
+   enabled; save changes with **Save drivers**. Drivers marked **In use** must
+   be reassigned before they can be disabled. This does not remove old backups.
+   Administrators can choose **Plugin language** at the bottom and click
+   **Save language**. English is the default and Slovak is bundled; users may temporarily override it
    from the Help page without changing the language of the rest of NetBox.
 2. Create the Reader, Operator, and Administrator groups with
    `python manage.py config_backup_create_rbac_groups`, then assign
@@ -161,7 +167,7 @@ cancelled from its run detail page.
    **Download** action with a non-superuser account. The downloaded artifact is
    not redacted and must be handled as sensitive configuration.
    If downloaded files must remain protected outside NetBox, open **Config
-   Backup > Settings > Protected ZIP downloads**, set a strong write-only ZIP
+   Backup > Settings > Security and downloads > Protected ZIP downloads**, set a strong write-only ZIP
    password, and enable protection. Download the revision again and verify it
    opens only with that password. The master key from step 3 must be available
    to every web process serving downloads.
@@ -174,7 +180,7 @@ cancelled from its run detail page.
    devices must not override that storage policy.
 9. Use the Local and remote retention selections on a backup device only as
    overrides. With enforcement disabled, blank Local retention falls back to
-   the device's backup policy and then the Local storage profile. Blank FTP
+   the device's backup policy and then the Local storage profile. Blank remote
    retention falls back independently to each remote storage profile. With no
    effective profile, that history is kept indefinitely.
 10. Review the device's retention preview. Enable the local cleanup scheduler

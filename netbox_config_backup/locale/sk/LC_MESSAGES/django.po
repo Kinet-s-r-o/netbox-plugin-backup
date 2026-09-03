@@ -714,3 +714,54 @@ msgstr "Výsledky behov zostávajú v histórii aj po odstránení ich revízií
 
 msgid "Revision removed"
 msgstr "Revízia odstránená"
+
+msgid "Device drivers"
+msgstr "Ovládače zariadení"
+
+msgid "Automatic cleanup and NetBox alerts. Changes apply without a restart."
+msgstr "Automatické čistenie a upozornenia NetBoxu. Zmeny platia bez reštartu."
+
+msgid "Security and downloads"
+msgstr "Bezpečnosť a sťahovanie"
+
+msgid "ZIP password protection, SSH identities, and device upload receivers."
+msgstr "Ochrana ZIP súborov heslom, SSH identity a prijímače záloh zo zariadení."
+
+msgid "Choose the drivers available when adding devices and platform mappings."
+msgstr "Vyberte ovládače dostupné pri pridávaní zariadení a mapovaní platforiem."
+
+msgid "%(enabled)s of %(total)s enabled"
+msgstr "Povolené: %(enabled)s z %(total)s"
+
+msgid "Drivers marked In use cannot be disabled until their device and platform assignments are changed. Stored backups remain available."
+msgstr "Ovládače označené ako Používané nemožno vypnúť, kým nezmeníte ich priradenie k zariadeniam a platformám. Uložené zálohy zostanú dostupné."
+
+msgid "Requires a device upload receiver"
+msgstr "Vyžaduje prijímač záloh zo zariadenia"
+
+msgid "Legacy ALFOplus native exports need a receiver"
+msgstr "Natívne exporty starších ALFOplus vyžadujú prijímač"
+
+msgid "In use"
+msgstr "Používané"
+
+msgid "Changes apply immediately. No restart is required."
+msgstr "Zmeny platia okamžite. Reštart nie je potrebný."
+
+msgid "Save drivers"
+msgstr "Uložiť ovládače"
+
+msgid "Device drivers were updated. No restart is required."
+msgstr "Ovládače zariadení boli aktualizované. Reštart nie je potrebný."
+
+msgid "Disabled drivers must be a list of driver identifiers."
+msgstr "Vypnuté ovládače musia byť zadané ako zoznam identifikátorov."
+
+msgid "These drivers are still assigned to devices or platform mappings: %(drivers)s. Reassign them before disabling the drivers."
+msgstr "Tieto ovládače sú stále priradené zariadeniam alebo mapovaniam platforiem: %(drivers)s. Pred vypnutím ovládačov zmeňte ich priradenie."
+
+msgid "This driver is disabled in Settings > Device drivers."
+msgstr "Tento ovládač je vypnutý v Nastavenia > Ovládače zariadení."
+
+msgid "In Settings > Device drivers, enable only the drivers you need. In-use drivers stay enabled until their device and platform assignments are changed. Historical backups remain available."
+msgstr "V Nastavenia > Ovládače zariadení povoľte len potrebné ovládače. Používané ovládače zostanú povolené, kým nezmeníte ich priradenie k zariadeniam a platformám. Historické zálohy zostanú dostupné."

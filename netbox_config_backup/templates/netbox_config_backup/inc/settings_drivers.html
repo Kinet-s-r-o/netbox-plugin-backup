@@ -1,0 +1,47 @@
+{% load i18n %}
+<details class="card settings-advanced" id="device-drivers" {% if driver_settings_form.errors %}open{% endif %}>
+  <summary>
+    <span class="settings-advanced-summary">
+      <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-chip"></i></span>
+      <span>
+        <strong>{% translate "Device drivers" %}</strong>
+        <small>{% translate "Choose the drivers available when adding devices and platform mappings." %}</small>
+        <span class="settings-summary-states">{% blocktranslate with enabled=driver_settings_form.enabled_count total=driver_settings_form.catalog|length %}{{ enabled }} of {{ total }} enabled{% endblocktranslate %}</span>
+      </span>
+    </span>
+    <i class="mdi mdi-chevron-down settings-chevron" aria-hidden="true"></i>
+  </summary>
+  <form method="post" class="settings-expanded-content">
+    {% csrf_token %}
+    <input type="hidden" name="settings_action" value="drivers">
+    <fieldset class="settings-driver-fieldset" aria-describedby="driver-selection-help">
+      <legend class="visually-hidden">{% translate "Device drivers" %}</legend>
+      <p id="driver-selection-help" class="text-secondary mb-3">{% translate "Drivers marked In use cannot be disabled until their device and platform assignments are changed. Stored backups remain available." %}</p>
+      {% if driver_settings_form.errors %}<div class="alert alert-danger" role="alert">{{ driver_settings_form.enabled_drivers.errors }}{{ driver_settings_form.non_field_errors }}</div>{% endif %}
+      <div class="settings-driver-grid">
+        {% for driver in driver_settings_form.rows %}
+        <label class="settings-driver-option" for="driver-{{ forloop.counter }}">
+          <input class="form-check-input" type="checkbox" id="driver-{{ forloop.counter }}" name="enabled_drivers" value="{{ driver.value }}" {% if driver.checked %}checked{% endif %} {% if driver.in_use or not can_change_operational_settings %}disabled{% endif %}>
+          <span class="settings-driver-copy">
+            <span>{{ driver.label }}</span>
+            {% if driver.requires_receiver %}<small class="text-secondary">{% translate "Requires a device upload receiver" %}</small>{% endif %}
+            {% if driver.optional_receiver %}<small class="text-secondary">{% translate "Legacy ALFOplus native exports need a receiver" %}</small>{% endif %}
+          </span>
+          {% if driver.in_use %}
+          <span class="badge text-bg-secondary">{% translate "In use" %}</span>
+          {% if driver.checked and can_change_operational_settings %}<input type="hidden" name="enabled_drivers" value="{{ driver.value }}">{% endif %}
+          {% endif %}
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="automation-actions settings-driver-actions">
+      <span class="text-secondary">{% translate "Changes apply immediately. No restart is required." %}</span>
+      {% if can_change_operational_settings %}
+      <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> {% translate "Save drivers" %}</button>
+      {% else %}
+      <span class="text-secondary"><i class="mdi mdi-lock-outline" aria-hidden="true"></i> {% translate "Administrators can change this setting." %}</span>
+      {% endif %}
+    </div>
+  </form>
+</details>

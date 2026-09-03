@@ -1,0 +1,15 @@
+{% load i18n %}
+    <div class="settings-advanced-links">
+      {% if perms.netbox_config_backup.view_sshhostkey %}
+        {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:ssh_host_key_list' icon='mdi-fingerprint' title='SSH host keys' description='Review device identities discovered during SSH connection tests.' only %}
+      {% endif %}
+      {% if perms.netbox_config_backup.view_sftpreceiverprofile %}
+        {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:sftpreceiverprofile_list' icon='mdi-inbox-arrow-down-outline' title='Device upload receivers' description='Configure an inbound receiver only when a driver requires a device-pushed native export. This is not remote replica storage.' only %}
+      {% endif %}
+    </div>
+    <div class="settings-advanced-help">
+      <a href="{% url 'plugins:netbox_config_backup:help' %}#receivers">
+        <i class="mdi mdi-help-circle-outline" aria-hidden="true"></i>
+        {% translate "Remote storage or device upload receiver?" %}
+      </a>
+    </div>

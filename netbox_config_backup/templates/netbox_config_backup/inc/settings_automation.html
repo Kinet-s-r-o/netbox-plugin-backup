@@ -1,0 +1,129 @@
+{% load i18n %}
+      {% if can_change_operational_settings %}
+      <form class="automation-block" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="settings_action" value="retention">
+        {{ operational_settings_form.retention_scheduler_batch_size }}
+        {% if operational_settings_form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ operational_settings_form.non_field_errors }}</div>{% endif %}
+
+        <div class="automation-heading">
+          <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-delete-clock-outline"></i></span>
+          <div>
+            <h3>{% translate "Automatic cleanup" %}</h3>
+            <p>{% translate "Profiles decide what expires. These switches allow the daily cleanup job to remove it." %}</p>
+          </div>
+        </div>
+
+        <div class="automation-controls-grid">
+          <div class="automation-control">
+            <div class="automation-control-title">
+              <strong>{% translate "Local cleanup" %}</strong>
+              <span class="badge {% if retention_scheduler_enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if retention_scheduler_enabled %}{% translate "Enabled" %}{% else %}{% translate "Disabled" %}{% endif %}</span>
+            </div>
+            <p>{% translate "Runs every 24 hours and applies the effective Local retention profile." %}</p>
+            <div class="form-check form-switch settings-switch">
+              {{ operational_settings_form.retention_scheduler_enabled }}
+              <label class="form-check-label fw-semibold" for="{{ operational_settings_form.retention_scheduler_enabled.id_for_label }}">{% translate "Enable Local cleanup" %}</label>
+            </div>
+            {% if operational_settings_form.retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.retention_scheduler_enabled.errors }}</div>{% endif %}
+            {% if not retention_scheduler_enabled %}
+            <div class="settings-confirmation">
+              {{ operational_settings_form.confirm_enable }}
+              <div>
+                <label class="form-check-label fw-semibold" for="{{ operational_settings_form.confirm_enable.id_for_label }}">{% translate "Confirm permanent deletion of expired Local data" %}</label>
+                {% if operational_settings_form.confirm_enable.errors %}<div class="invalid-feedback d-block">{{ operational_settings_form.confirm_enable.errors }}</div>{% endif %}
+              </div>
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="automation-control">
+            <div class="automation-control-title">
+              <strong>{% translate "Remote cleanup" %}</strong>
+              <span class="badge {% if remote_retention_scheduler_enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if remote_retention_scheduler_enabled %}{% translate "Enabled" %}{% else %}{% translate "Disabled" %}{% endif %}</span>
+            </div>
+            <p>{% translate "Runs every 24 hours and evaluates every enabled remote storage separately." %}</p>
+            <div class="form-check form-switch settings-switch">
+              {{ operational_settings_form.remote_retention_scheduler_enabled }}
+              <label class="form-check-label fw-semibold" for="{{ operational_settings_form.remote_retention_scheduler_enabled.id_for_label }}">{% translate "Enable remote cleanup" %}</label>
+            </div>
+            {% if operational_settings_form.remote_retention_scheduler_enabled.errors %}<div class="invalid-feedback d-block mt-2">{{ operational_settings_form.remote_retention_scheduler_enabled.errors }}</div>{% endif %}
+            {% if not remote_retention_scheduler_enabled %}
+            <div class="settings-confirmation">
+              {{ operational_settings_form.confirm_remote_enable }}
+              <div>
+                <label class="form-check-label fw-semibold" for="{{ operational_settings_form.confirm_remote_enable.id_for_label }}">{% translate "Confirm permanent deletion of expired remote copies" %}</label>
+                {% if operational_settings_form.confirm_remote_enable.errors %}<div class="invalid-feedback d-block">{{ operational_settings_form.confirm_remote_enable.errors }}</div>{% endif %}
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="automation-actions">
+          <a class="btn btn-link" href="{% url 'plugins:netbox_config_backup:help' %}#retention">{% translate "Retention help" %}</a>
+          <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> {% translate "Save cleanup settings" %}</button>
+        </div>
+      </form>
+
+      <form class="automation-block" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="settings_action" value="notifications">
+        {% if notification_settings_form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ notification_settings_form.non_field_errors }}</div>{% endif %}
+        <div class="automation-layout">
+          <div class="automation-heading">
+            <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-bell-outline"></i></span>
+            <div>
+              <h3>{% translate "NetBox alerts" %}</h3>
+              <p>{% translate "Publishes backup, recovery, stale, stuck, and remote-copy events to NetBox Event Rules." %}</p>
+              <div class="runtime-links">
+                {% if perms.extras.view_eventrule %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'extras:eventrule_list' %}">{% translate "Event rules" %}</a>{% endif %}
+                {% if perms.extras.view_notificationgroup %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'extras:notificationgroup_list' %}">{% translate "Recipients" %}</a>{% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="automation-alert-controls">
+            <div class="form-check form-switch settings-switch">
+              {{ notification_settings_form.events_enabled }}
+              <div>
+                <label class="form-check-label fw-semibold" for="{{ notification_settings_form.events_enabled.id_for_label }}">{% translate "Enable NetBox alerts" %}</label>
+                <div class="form-text mt-1">{% translate "Event rules decide which events create notifications and who receives them." %}</div>
+              </div>
+            </div>
+            {% if notification_settings_form.events_enabled.errors %}<div class="invalid-feedback d-block">{{ notification_settings_form.events_enabled.errors }}</div>{% endif %}
+            <details class="runtime-advanced" {% if notification_settings_form.notify_on_every_failure.errors %}open{% endif %}>
+              <summary>{% translate "Repeated failure behavior" %}</summary>
+              <div class="form-check form-switch settings-switch mt-3">
+                {{ notification_settings_form.notify_on_every_failure }}
+                <div>
+                  <label class="form-check-label fw-semibold" for="{{ notification_settings_form.notify_on_every_failure.id_for_label }}">{% translate "Alert on every failed attempt" %}</label>
+                  <div class="form-text mt-1">{% translate "Leave off to alert only on the first failure until the device recovers." %}</div>
+                </div>
+              </div>
+              {% if notification_settings_form.notify_on_every_failure.errors %}<div class="invalid-feedback d-block">{{ notification_settings_form.notify_on_every_failure.errors }}</div>{% endif %}
+            </details>
+          </div>
+        </div>
+        <div class="automation-actions">
+          <span></span>
+          <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> {% translate "Save alert settings" %}</button>
+        </div>
+      </form>
+      {% else %}
+      <div class="read-only-automation">
+        <div class="read-only-row">
+          <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-harddisk-remove"></i></span>
+          <div><strong>{% translate "Local cleanup" %}</strong><span>{% if retention_scheduler_enabled %}{% translate "Enabled" %}{% else %}{% translate "Disabled" %}{% endif %}</span></div>
+          <span class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i> {% translate "Administrators can change this setting." %}</span>
+        </div>
+        <div class="read-only-row">
+          <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-server-minus-outline"></i></span>
+          <div><strong>{% translate "Remote cleanup" %}</strong><span>{% if remote_retention_scheduler_enabled %}{% translate "Enabled" %}{% else %}{% translate "Disabled" %}{% endif %}</span></div>
+          <span class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i> {% translate "Administrators can change this setting." %}</span>
+        </div>
+        <div class="read-only-row">
+          <span class="runtime-icon" aria-hidden="true"><i class="mdi mdi-bell-outline"></i></span>
+          <div><strong>{% translate "NetBox alerts" %}</strong><span>{% if backup_events_enabled %}{% translate "Enabled" %}{% else %}{% translate "Disabled" %}{% endif %}; {% translate "repeated failures:" %} {% if backup_notify_every_failure %}{% translate "every attempt" %}{% else %}{% translate "first failure only" %}{% endif %}</span></div>
+          <span class="read-only-state"><i class="mdi mdi-lock-outline" aria-hidden="true"></i> {% translate "Administrators can change this setting." %}</span>
+        </div>
+      </div>
+      {% endif %}

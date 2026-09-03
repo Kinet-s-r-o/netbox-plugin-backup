@@ -1,0 +1,24 @@
+{% load i18n %}
+  <section class="card settings-language" aria-labelledby="interface-language-title">
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="settings_action" value="language">
+      <div class="settings-language-copy">
+        <span class="settings-link-icon" aria-hidden="true"><i class="mdi mdi-translate"></i></span>
+        <div>
+          <h2 id="interface-language-title">{% translate "Plugin language" %}</h2>
+          <p>{% translate "Sets the default language for Config Backup. Each user can temporarily switch the Help language." %}</p>
+        </div>
+      </div>
+      {% if can_change_operational_settings %}
+      <div class="settings-language-control">
+        <label class="visually-hidden" for="{{ interface_language_form.ui_language.id_for_label }}">{% translate "Plugin language" %}</label>
+        {{ interface_language_form.ui_language }}
+        <button class="btn btn-primary" type="submit"><i class="mdi mdi-content-save-outline" aria-hidden="true"></i> {% translate "Save language" %}</button>
+      </div>
+      {% else %}
+      <span class="badge text-bg-secondary">{{ operational_settings.get_ui_language_display }}</span>
+      {% endif %}
+    </form>
+    {% if interface_language_form.ui_language.errors %}<div class="invalid-feedback d-block px-3 pb-3">{{ interface_language_form.ui_language.errors }}</div>{% endif %}
+  </section>

@@ -7,6 +7,7 @@ from django import forms
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from netbox.forms import NetBoxModelForm
 from utilities.forms.fields import DynamicModelChoiceField
 
@@ -22,6 +23,13 @@ from .models import (
     PlatformMapping,
     SftpReceiverProfile,
 )
+from .services.driver_selection import (
+    disabled_driver_ids,
+    driver_is_enabled,
+    driver_usage_counts,
+    selectable_drivers,
+    validate_disabled_drivers,
+)
 
 
 def driver_choices(
@@ -29,12 +37,71 @@ def driver_choices(
     blank: bool = False,
     include_ids: tuple[str, ...] = (),
 ) -> list[tuple[str, str]]:
+    disabled = disabled_driver_ids()
     choices = [
         (driver.driver_id, driver.display_name)
         for driver in driver_registry.classes()
-        if driver.user_selectable or driver.driver_id in include_ids
+        if (driver.user_selectable and driver_is_enabled(driver.driver_id, disabled))
+        or driver.driver_id in include_ids
     ]
     return [("", "---------"), *choices] if blank else choices
+
+
+class DriverSettingsForm(forms.Form):
+    enabled_drivers = forms.MultipleChoiceField(
+        choices=(), required=False, label=_("Device drivers"),
+        widget=forms.CheckboxSelectMultiple,
+    )
+
+    def __init__(self, *args, instance, **kwargs):
+        self.instance = instance
+        self.catalog = selectable_drivers()
+        self.usage = driver_usage_counts()
+        super().__init__(*args, **kwargs)
+        self.fields["enabled_drivers"].choices = [
+            (driver.driver_id, driver.display_name) for driver in self.catalog
+        ]
+        self.initial["enabled_drivers"] = [
+            driver.driver_id for driver in self.catalog
+            if driver_is_enabled(driver.driver_id, instance.disabled_driver_ids)
+        ]
+
+    @property
+    def rows(self):
+        selected = set(self["enabled_drivers"].value() or ())
+        return [
+            {
+                "value": driver.driver_id,
+                "label": driver.display_name,
+                "checked": driver.driver_id in selected or self.usage[driver.driver_id] > 0,
+                "in_use": self.usage[driver.driver_id] > 0,
+                "requires_receiver": driver.driver_id == "ceragon_ip50",
+                "optional_receiver": driver.driver_id == "siae_smos_auto",
+            }
+            for driver in self.catalog
+        ]
+
+    @property
+    def enabled_count(self):
+        return sum(row["checked"] for row in self.rows)
+
+    def clean_enabled_drivers(self):
+        selected = set(self.cleaned_data["enabled_drivers"])
+        current_ids = {driver.driver_id for driver in self.catalog}
+        # Remember temporarily uninstalled external drivers' disabled state.
+        self.disabled_ids = sorted(
+            (set(self.instance.disabled_driver_ids) - current_ids) | (current_ids - selected)
+        )
+        validate_disabled_drivers(self.disabled_ids)
+        return sorted(selected)
+
+    def save(self):
+        self.instance.disabled_driver_ids = self.disabled_ids
+        if self.instance.pk:
+            self.instance.save(update_fields=("disabled_driver_ids", "last_updated"))
+        else:
+            self.instance.save()
+        return self.instance
 
 
 class OperationalSettingsForm(NetBoxModelForm):
@@ -395,7 +462,10 @@ class QuickSetupForm(forms.Form):
             ).first()
 
         if device and not driver_id:
-            if mapping and driver_registry.contains(mapping.driver_id):
+            if (
+                mapping and driver_registry.contains(mapping.driver_id)
+                and driver_is_enabled(mapping.driver_id)
+            ):
                 cleaned["driver_id"] = mapping.driver_id
                 cleaned["restore_point"] = mapping.driver_options.get(
                     "restore_point", cleaned.get("restore_point") or "restore-point-1"

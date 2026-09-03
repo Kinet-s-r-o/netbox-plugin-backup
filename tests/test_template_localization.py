@@ -43,8 +43,10 @@ class TemplateLocalizationTests(unittest.TestCase):
 
     def test_slovak_catalog_covers_all_help_and_settings_literals(self):
         messages: set[str] = set()
-        for name in ("help.html", "advanced_settings.html"):
-            template = (self.template_root / name).read_text(encoding="utf-8")
+        paths = [self.template_root / name for name in ("help.html", "advanced_settings.html")]
+        paths.extend((self.template_root / "inc").glob("settings_*.html"))
+        for path in paths:
+            template = path.read_text(encoding="utf-8")
             messages.update(self._literal_messages(template))
 
         missing = sorted(message for message in messages if message not in self.slovak_catalog)

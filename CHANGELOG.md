@@ -8,6 +8,8 @@ be deleted from an installation which may already have applied them.
 
 ### Fixed
 
+- The Settings language selector keeps the save button wide enough for its label,
+  including Slovak text, instead of letting the label overflow a shrinking button.
 - Password-protected FTP recovery downloads now contain the verified backup files
   directly in one AES-256 ZIP, instead of wrapping the recovery ZIP in another ZIP.
   Native device archives and stored backup data remain unchanged.
@@ -21,6 +23,11 @@ be deleted from an installation which may already have applied them.
 
 ### Added
 
+- Settings now includes driver-selection checkboxes with immediate effect on
+  device/platform forms and backup execution. In-use drivers cannot be disabled;
+  historical backups remain readable. Migration 0030 preserves existing behavior.
+- Settings groups advanced controls into expandable sections with visible state
+  summaries, while retaining reusable profiles, English/Slovak help, and permissions.
 - Optional password-protected backup downloads. Administrators configure a
   write-only password in Settings; downloaded artifacts and FTP recovery
   packages are delivered in WinZip AES-256 archives without modifying Local or

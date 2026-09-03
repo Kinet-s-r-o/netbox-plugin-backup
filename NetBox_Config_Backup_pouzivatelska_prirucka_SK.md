@@ -1,13 +1,18 @@
 # NetBox Config Backup – používateľská príručka
 
-Táto príručka opisuje bežnú prevádzku pluginu **NetBox Config Backup 0.6.x**
+Táto príručka opisuje bežnú prevádzku pluginu **NetBox Config Backup 0.7.x**
 v NetBoxe 4.6. Je určená operátorom aj správcom, ktorí potrebujú bezpečne
 zálohovať konfigurácie sieťových zariadení, kontrolovať výsledky a udržiavať
-históriu.
+históriu. Aktualizované **3. septembra 2026** podľa aktuálneho zdrojového kódu.
+Pri inštalácii konkrétneho vydania používaj dokumentáciu z rovnakého Git tagu;
+zmeny v aktuálnej vývojovej vetve nemusia byť v staršom vydaní dostupné.
 
 Štandardné nasadenie používa lokálne úložisko pluginu ako primárnu kópiu a
-voliteľný interný FTP server ako druhú kópiu. Inštaláciu a serverové nastavenia
+voliteľné FTP, NFS alebo SMB3 úložisko ako druhú kópiu. Inštaláciu a serverové nastavenia
 opisuje samostatný dokument [docs/INSTALLATION.md](docs/INSTALLATION.md).
+
+Názvy tlačidiel a sekcií uvádzame prevažne v angličtine, ktorá je predvoleným
+jazykom pluginu. Jazyk možno zmeniť v **Settings → Plugin language**.
 
 ## 1. Čo plugin robí
 
@@ -20,7 +25,8 @@ Pri každom pokuse o zálohu plugin:
 5. skontroluje, že získané dáta zodpovedajú očakávanému formátu,
 6. vypočíta SHA-256 hash,
 7. pri potrebe vytvorí **ConfigRevision** a uloží jej artifacty,
-8. samostatne vytvorí kópiu revision na povolenom FTP storage.
+8. zaradí kopírovanie revision na povolené vzdialené storages so zapnutým
+   automatickým kopírovaním.
 
 Bežné CLI drivery spúšťajú iba zobrazovací alebo exportný príkaz. Natívne
 drivery pre niektoré zariadenia musia po výslovnom potvrdení vytvoriť
@@ -44,43 +50,58 @@ zmeny, nereštartuje zariadenie a nevykonáva automatický restore.
 | Vzdialené storage | Samostatné sekundárne úložisko dokončených revisions: interné FTP alebo vopred pripojené NFS/SMB3. |
 | NFS/SMB3 storage | Sieťový disk pripojený operačným systémom alebo Dockerom; plugin dostane iba cestu k mountu. SMB1 sa nepodporuje. |
 | Lokálny retenčný profil | Pravidlá uchovávania lokálnych revisions, artifactov a BackupRun záznamov; môže byť na zariadení, backup policy alebo Local storage. |
-| FTP retenčný profil | Pravidlá uchovávania kópií revisions, ktoré sa vyhodnocujú samostatne pre každé zariadenie a každé FTP storage. |
+| Remote retention profile | Pravidlá uchovávania vzdialených kópií revisions; vyhodnocujú sa samostatne pre každé zariadenie a každé FTP, NFS alebo SMB3 storage. |
 
 ## 2. Rýchly štart
 
 Predpokladom je nainštalovaný plugin, spustený bežný NetBox worker aj dedikovaný
 backup worker a nastavený master key.
 
-1. V **Config Backup → Settings → Credential profiles** vytvor credential profile.
-2. V **Settings → Connection profiles** vytvor connection profile.
-3. V **Settings → Platform mappings** priraď platformu k driveru a profilom.
-4. Otvor **Config Backup → Devices → Add device**.
-5. Vyber zariadenie, plán, lokálnu históriu a podľa potreby FTP retenčnú výnimku.
-6. Klikni na **Save & test connection**.
+1. Otvor **Config Backup → Settings**. Pod kartami profilov rozbaľ **Device
+   drivers**, ponechaj potrebné drivery zaškrtnuté a klikni na **Save drivers**.
+   Predvolene sú povolené všetky dostupné drivery.
+2. V **Device defaults → Credential profiles** vytvor credential profile a v
+   **Connection profiles** priprav profil spojenia.
+3. V **Device defaults → Platform mappings** priraď platformu k driveru a profilom.
+4. V **Schedules and retention** priprav lokálny a podľa potreby vzdialený
+   retenčný profil. V **Backup policies** nastav požadovaný plán záloh.
+5. Otvor **Config Backup → Devices → Add**. Vyber zariadenie; profily môže
+   prevziať z mappingu. Prípadné výnimky nastav rovnakými poľami ako pri editácii.
+   Na prvý manuálny test môže zostať **Policy override** prázdne; automatický
+   harmonogram sa aktivuje až priradením povolenej backup policy.
+6. Klikni na **Save** a na detaile backup zariadenia spusti **Test connection**.
 7. Pri SSH profile skontroluj výsledok podľa zvoleného režimu identity. V
    manuálnom režime porovnaj fingerprint a schváľ host key; TOFU prijme iba
    úplne prvý kľúč automaticky.
 8. Po úspešnom teste otvor detail zariadenia a klikni na **Run backup**.
 9. Skontroluj výsledok v **Runs** a uložený obsah v **Revisions**.
-10. Ak používaš FTP, najprv otestuj FTP storage a potom over reálnu kópiu revision.
+10. Ak používaš vzdialené úložisko, spusti **Test storage**, následne **Copy
+    existing revisions** a **Check stored copies**. Úspešný testovací súbor
+    sám nepotvrdzuje prenos skutočnej revision.
+11. Po overení priraď zariadeniu povolenú backup policy cez **Policy override**
+    a skontroluj **Next run**. Automatickú retenciu zapni až po kontrole preview.
 
-Formulár **Add device** priraďuje aj lokálnu retenčnú politiku, preto je určený
-pre skupinu **Config Backup Administrators**. Operátor môže existujúce ciele
+Priradenie alebo zmena retenčného profilu, aj cez backup policy, vyžaduje
+oprávnenia na správu retencie a príslušné mazanie. Úvodné nastavenie preto rob
+účtom zo skupiny **Config Backup Administrators**. Operátor môže existujúce ciele
 testovať, spúšťať a preplánovať, ale nesmie nepriamo povoliť budúce mazanie.
 
 Prázdna retenčná voľba na zariadení neznamená automaticky „navždy“. Lokálna
-retencia najprv použije backup policy a potom profil Local storage. FTP
-retencia sa vyhodnocuje samostatne pre každé FTP storage a použije jeho profil.
+retencia najprv použije backup policy a potom profil Local storage. Vzdialená
+retencia sa vyhodnocuje samostatne pre každé vzdialené storage a použije jeho profil.
+Povinne vynútená politika storage má vždy prednosť pred výnimkou zariadenia.
 Bez efektívnej politiky sa príslušná história uchováva bez časového limitu.
 
-Zariadenie, ktoré už má backup target, sa v zozname **Add device** znova
+Zariadenie, ktoré už má backup target, sa vo formulári **Devices → Add** znova
 nezobrazí.
 
 ### Jazyk pluginu
 
-Správca nastaví predvolený jazyk v **Config Backup → Settings → Jazyk pluginu**.
+Správca nastaví predvolený jazyk v **Config Backup → Settings → Plugin language**
+na spodku stránky. Vyber **English** alebo **Slovenčina** a klikni na **Save
+language**. Predvolená je angličtina; reštart nie je potrebný.
 Voľba platí iba pre stránky Config Backup a nemení jazyk ostatných častí
-NetBoxu. Aktuálne sú dostupné **Slovenčina** a **English**.
+NetBoxu. Uloženie jazyka neuloží rozpracované zmeny ostatných formulárov Settings.
 
 Každý používateľ si môže jazyk dočasne prepnúť aj priamo v **Config Backup →
 Help**. Táto osobná voľba sa uloží iba do jeho prihlásenej relácie a má prednosť
@@ -129,11 +150,15 @@ Zoznam zariadení zaradených do zálohovania. Obsahuje stav, driver, posledný
 úspech, poslednú zmenu, počet po sebe idúcich zlyhaní a poslednú revision.
 Odtiaľ možno spustiť test, manuálnu zálohu, editáciu alebo hromadné odstránenie.
 
+Na bežnom detaile **NetBox Device → Backup** je aj záložka so zálohami tohto
+zariadenia: posledné revisions, náhľad, sťahovanie a história behov. Nie je
+potrebné zakaždým hľadať zariadenie v samostatnom zozname pluginu.
+
 ### Storages
 
-Zobrazuje systémové **Local storage** a administrátorom vytvorené FTP storages.
+Zobrazuje systémové **Local storage** a administrátorom vytvorené FTP, NFS a SMB3 storages.
 Local storage reprezentuje primárny adresár pluginu, je vždy povolené a nedá sa
-zmazať, vypnúť ani zmeniť na FTP. Pri každom storage možno nastaviť retenčný
+zmazať, vypnúť ani zmeniť na vzdialený typ. Pri každom storage možno nastaviť retenčný
 fallback alebo politikou storage povinne prekryť retenčné nastavenie zariadenia.
 
 ### Runs
@@ -149,20 +174,50 @@ porovnať verzie, stiahnuť artifact a pripraviť overený balík z FTP kópie.
 
 ### Settings
 
-Stránka je rozdelená na tieto časti:
+Profily zostávajú viditeľné hore. Menej často používané nastavenia sú pod nimi
+v rozbaľovacích sekciách:
 
-- **Device defaults**: platform mappings, connection profiles a credential profiles,
-- **Schedules and retention**: backup policies, Local retention profiles a FTP retention profiles,
-- **Security and vendor-specific setup**: SSH host keys a device upload receivers; táto časť je predvolene zbalená,
-- **Automation**: samostatné Local a FTP čistenie a NetBox alerts.
+| Sekcia | Obsah |
+| --- | --- |
+| **Device defaults** | Platform mappings, Connection profiles a Credential profiles. |
+| **Schedules and retention** | Backup policies, Local retention profiles a Remote retention profiles. |
+| **Device drivers** | Zaškrtávanie dostupných driverov; aj pri zbalení vidíš počet povolených. |
+| **Automation** | Local cleanup, remote cleanup a NetBox alerts; pri zbalení vidíš ich stav. |
+| **Security and downloads** | Protected ZIP downloads, SSH host keys a Device upload receivers. |
+| **Plugin language** | Predvolený jazyk a tlačidlo Save language, na spodku stránky. |
 
-Bežné zariadenie sa má dať pridať cez **Add device** bez ručnej tvorby nového
-profilu pre každý kus.
+**Device drivers**, **Automation** a **Security and downloads** otvor kliknutím
+na ich nadpis. Každý formulár má vlastné uloženie: **Save drivers**, **Save
+cleanup settings**, **Save alert settings**, **Save download protection** alebo
+**Save language**. Ulož vždy konkrétnu upravenú časť. Pri chybe sa príslušná
+sekcia otvorí a zobrazí dôvod, prečo sa zmena neuložila.
+
+Tieto UI voľby platia bez reštartu. Inštalácia nového kódu pluginu je odlišná:
+vyžaduje aktualizáciu procesov a prípadné migrácie podľa kapitoly 25. Používateľ
+bez príslušných oprávnení na zmenu vidí iba stav, nie aktívne ovládacie prvky.
+
+### Výber používaných driverov
+
+1. V **Settings** rozbaľ **Device drivers** pod kartami profilov.
+2. Zaškrtni drivery, ktoré chceš používať, a klikni na **Save drivers**.
+3. Pri pridávaní zariadenia alebo platform mappingu sa ponúknu iba povolené
+   drivery. Nastavenie balíky neodinštaluje.
+
+Voľbu mení správca s oprávnením `change_operationalsettings`. Po novej
+inštalácii aj po migrácii sú všetky dostupné drivery povolené. Driver označený
+**In use** (**Používané**) sa nedá vypnúť, kým ho používa výnimka zariadenia
+alebo platform mapping. Počítajú sa aj vypnuté zariadenia a mappingy; najprv ich
+preraď. Staršie skryté SIAE drivery sa spravujú spoločne voľbou **SIAE SM-OS**.
+
+Vypnutie drivera nevymaže revisions ani nezablokuje náhľad a sťahovanie starej
+histórie. Nový zber cez vypnutý driver sa odmietne s `DRIVER_DISABLED`. Novo
+nainštalované externé drivery sú predvolene povolené; ak sa vypnutý externý
+balík dočasne odinštaluje a neskôr vráti, jeho uložené vypnutie zostáva zachované.
 
 ### Help
 
 Read-only stránka **Config Backup → Help** vysvetľuje odporúčané poradie
-nastavenia, tok zálohy, rozdiel medzi Local a FTP úložiskom, poradie retenčných
+nastavenia, tok zálohy, rozdiel medzi lokálnym a vzdialeným úložiskom, poradie retenčných
 pravidiel a prvé kontroly pri bežných error kódoch. Help nezobrazuje heslá ani
 aktuálne nasadené secret hodnoty a je dostupný aj skupine Readers.
 
@@ -249,8 +304,9 @@ Platform mapping automaticky priraďuje NetBox platforme:
 - obmedzené driver options.
 
 Vďaka mappingu sa pri každom zariadení znova nevyberá výrobca, port ani login.
-Ak zariadenie nemá vhodný mapping, v rozšírených nastaveniach **Add device**
-možno driver a profily vybrať ručne.
+Ak zariadenie nemá vhodný mapping, vo formulári **Devices → Add** možno driver
+a profily vybrať ručne cez príslušné polia **override**. V ponuke sú iba drivery
+povolené v **Settings → Device drivers**.
 
 Nový výrobca sa dá doplniť aj externým driver balíkom cez Python entry point.
 Samotné pridanie výrobcu alebo platformy do NetBoxu však nevytvorí bezpečný
@@ -258,39 +314,53 @@ driver automaticky; driver musí poznať príkaz, formát a validáciu výstupu.
 
 ## 8. Pridanie zariadenia
 
-Otvor **Config Backup → Devices → Add device**.
+Otvor **Config Backup → Devices → Add**. Vytvorenie a editácia používajú
+rovnaký formulár; po uložení sa rozloženie ani názvy polí nemenia.
 
 ### Základné polia
 
 - **Device** – zariadenie z NetBoxu, ktoré ešte nemá backup target.
-- **Credential profile** – zdieľaný login; automatic použije platform mapping.
-- **Schedule** – každých 6 hodín, 12 hodín alebo denne o 02:00.
-- **Local history** – v rýchlom pridaní vytvorí výnimku zariadenia pre lokálne
-  revisions, artifacty a runs. Ak sa výnimka neskôr odstráni, použije sa backup
-  policy alebo Local-storage fallback.
-- **Remote FTP history** – voliteľná výnimka zariadenia pre FTP kópie. Voľba bez
-  počtu dní nepriradí zariadeniu FTP profil: každé FTP storage potom použije
-  vlastný fallback a iba storage bez fallbacku uchováva kópie bez časového
-  limitu.
+- **Enabled** – zaradenie zariadenia do zálohovania.
+- **Policy override** – backup policy určujúca plán, retry a spôsob ukladania.
+  Bez priradenej povolenej policy nevznikne automatický harmonogram; manuálny
+  test a backup možno spustiť aj bez nej.
+- **Local retention profile** – lokálna retenčná výnimka. Prázdne pole použije
+  profil backup policy a potom Local-storage fallback.
+- **Remote retention profile** – retenčná výnimka pre vzdialené kópie. Prázdne
+  pole použije profil každého vzdialeného storage samostatne.
+- **Credential override** – login namiesto profilu z platform mappingu.
+- **Connection override** – connection profile namiesto profilu z mappingu.
+- **Receiver override** – device upload receiver iba pre driver, ktorý ho potrebuje.
+- **Driver override** – driver namiesto drivera priradeného platforme.
+- **Driver options override** – modelovo špecifické voľby vo formáte JSON;
+  používaj iba zdokumentované voľby konkrétneho drivera.
+- **Tags** a **Changelog message** – značky a vysvetlenie zmeny pre audit.
 
 Ak má storage zapnuté **Always use this storage's retention profile**, jeho
 politika je povinná a tieto voľby zariadenia ju neprepíšu.
 
-### Advanced settings
-
-Rozbaľ ich iba vtedy, keď automatic mapping nestačí. Obsahujú driver, native
-receiver, restore point/workspace, connection profile, protokol, port,
-režim overovania SSH identity a dedicated login.
-
-Ak vyberieš credential profile, polia dedicated login sa nepoužijú. Ak vyberieš
-connection profile, adresa, port, timeouty a host-key správanie sa prevezmú z
-neho.
+Prázdne polia pre driver, credentials, connection a receiver používajú
+príslušný profil z povoleného platform mappingu. Port, protokol a SSH overovanie
+sa nastavujú v connection profile, nie znova pri každom zariadení. Klikni na
+**Save** a potom na detaile na **Test connection**.
 
 ### Device-side backup export
 
-Pri natívnych driveroch sa zobrazí samostatné potvrdenie. Znamená iba súhlas s
-vytvorením alebo nahradením zálohovacieho workspace/súboru a jeho exportom.
+Ceragon IP-50 a natívny fallback prvej generácie ALFOplus vyžadujú explicitné
+`allow_device_export: true` v driver options. Správca ho nastaví v mappingu
+alebo v **Driver options override** až po schválení vytvorenia/exportu
+zálohovacieho súboru a príprave receivera. Pri iných natívnych driveroch sa riaď
+ich konkrétnymi voľbami; tento súhlas nie je univerzálny príkaz pre všetky modely.
 Neznamená súhlas s obnovou konfigurácie ani rebootom.
+
+### Pôvodný Quick Setup
+
+Starší formulár je zachovaný na `/plugins/config-backup/targets/quick-setup/`.
+Ponúka **Schedule**, **Local history**, **Remote backup history**, **Advanced
+settings**, potvrdenie **Device-side backup export** a **Save & test connection**.
+V jednej transakcii pripraví aj potrebné `[Quick]` profily. Nie je to formulár
+bežného tlačidla **Devices → Add**. Pre nové nasadenie uprednostni zdieľané
+profily a štandardný formulár zhodný s editáciou.
 
 ## 9. SSH host keys
 
@@ -320,7 +390,7 @@ identít sa nepoužijú, no automaticky sa nevymažú. Tento režim odstráni oc
 pred zámennou zariadenia a man-in-the-middle útokom. Použi ho iba ako vedomú
 výnimku v izolovanej dôveryhodnej manažmentovej sieti.
 
-Hromadný read-only scan je v **Settings → Security and vendor-specific setup → SSH host keys**.
+Hromadný read-only scan je v **Settings → Security and downloads → SSH host keys**.
 Scan nepoužíva heslo a nespúšťa konfiguračný príkaz. Profily s vypnutým
 overovaním sa pri skene preskočia.
 
@@ -334,7 +404,7 @@ Fyzické automatické mazanie starých SSH identít sa nevykonáva.
 
 ## 10. Test connection
 
-Tlačidlo **Save & test connection** alebo **Test connection** otvorí priamo v
+Tlačidlo **Test connection** na detaile backup zariadenia otvorí priamo v
 plugine stránku s animovaným priebehom. Po dokončení zostáva používateľ v
 plugine a vidí:
 
@@ -348,7 +418,8 @@ plugine a vidí:
 Odkaz **Background task** je iba doplnkový technický detail.
 
 Úspešný test neznamená iba otvorený TCP port. Driver sa prihlási, vykoná
-zálohovací zber a overí prijaté dáta. Test však nevytvorí ConfigRevision.
+zálohovací zber a overí prijaté dáta. Test však nevytvorí ConfigRevision ani
+nepotvrdzuje uloženie do Local storage alebo reálny prenos na vzdialené úložisko.
 
 ## 11. Manuálna a automatická záloha
 
@@ -382,9 +453,10 @@ Backup policy určuje **Store mode**:
 - **Changed configurations only** – pri nezmenenej konfigurácii nevytvorí ďalšiu revision,
 - **Every successful collection** – uloží revision po každom úspešnom zbere.
 
-Aj pri `Success (unchanged)` plugin overí, či posledná revision má potrebnú FTP
-kópiu. Ak bol FTP server vyprázdnený alebo je kópia poškodená, zaradí jej opravu
-bez opätovného pripájania k zariadeniu.
+Aj pri `Success (unchanged)` plugin overí kópiu poslednej revision na každom
+povolenom vzdialenom storage so zapnutým automatickým kopírovaním. Chýbajúcu
+alebo poškodenú kópiu zaradí na opravu z uložených dát, bez ďalšieho pripájania
+k zariadeniu. Kópie zámerne odstránené retenciou sa takto znova nevytvárajú.
 
 ## 12. Zdravie zariadení
 
@@ -416,10 +488,42 @@ Náhľad je určený na čítanie a porovnanie. Plugin maskuje rozpoznané citli
 priradenia iba v prehliadači; uložený artifact nemení. Prístup k náhľadu a
 downloadu preto povoľ iba vybraným skupinám.
 
+Pred zobrazením sa kontroluje veľkosť, SHA-256 a podporovaný textový formát.
+Ak súbor chýba, web proces ho nevie čítať alebo kontrola integrity zlyhá, plugin
+náhľad odmietne. Binárny natívny backup nemusí mať textový náhľad.
+
 ### Download artifacts
 
 Oprávnený používateľ môže stiahnuť každý artifact revision, nielen natívny
 backup. Sťahovanie pred odovzdaním overuje uloženú veľkosť a SHA-256.
+
+Stiahnutý artifact je pôvodný súbor, nie redigovaný náhľad, a môže obsahovať
+citlivé údaje. Ak je zapnutá ochrana sťahovania, dostaneš ho v ZIPe chránenom
+heslom podľa nasledujúceho postupu.
+
+### ZIP chránený heslom
+
+1. Ako správca otvor **Settings → Security and downloads → Protected ZIP downloads**.
+2. Zapni **Require a password for downloaded ZIP files**.
+3. Vyplň **New ZIP password** a **Confirm new ZIP password**. Minimum je 12
+   znakov; použi silné náhodné heslo a odovzdaj ho oprávneným osobám oddelene.
+4. Klikni na **Save download protection** a over jedno stiahnutie aj rozbalenie.
+
+Heslo sa ukladá šifrované pomocou master key a po uložení sa nezobrazuje.
+Prázdne heslové polia zachovajú existujúce heslo. Zmena platí iba pre nové
+sťahovania; súbory v Local, FTP, NFS a SMB3 storage sa neprepisujú. Pred
+odstránením uloženého hesla najprv vypni ochranu a ulož zmenu.
+
+Download používa **WinZip AES-256**. Otváraj ho kompatibilným archivačným
+nástrojom, napríklad 7-Zip; vstavané rozbaľovanie vo Windows Prieskumníkovi
+tento AES formát nepodporuje. Chyba rozbalenia v Prieskumníkovi preto sama
+neznamená poškodenú zálohu. Pri chýbajúcom hesle alebo master key plugin
+sťahovanie odmietne, namiesto toho, aby vydal nechránený súbor.
+
+Jednotlivý artifact je jediným súborom v chránenom ZIPe. Recovery balík z FTP
+obsahuje overené súbory, manifest a README priamo v jednom šifrovanom ZIPe,
+bez ďalšieho obalového ZIPu. Natívny ZIP/TGZ od výrobcu sa však nerozbaľuje:
+jeho pôvodné bajty musia zostať zachované pre manuálnu obnovu.
 
 ### Compare
 
@@ -431,6 +535,33 @@ vytvoril.
 
 Chránenú revision retention neodstráni. Použi ochranu pre dôležitý stav pred
 zmenou, incidentom alebo upgradeom. Po skončení potreby ju možno odomknúť.
+
+### Delete everywhere
+
+Na detaile nechráneného záznamu môže oprávnený správca použiť **Delete
+everywhere**. Pred potvrdením uvidí lokálne artifacty a všetky evidované
+vzdialené kópie. Ak beží backup/prenos, storage je vypnuté alebo nemožno jeho
+súbory bezpečne odstrániť, operácia sa zablokuje alebo skončí chybou; neobchádzaj
+ju ručným mazaním riadkov v databáze.
+
+Po úspešnom potvrdení sa odstránia súbory a súvisiace revision/artifact/replica
+záznamy z pluginu. Na rozdiel od automatickej retencie možno takto výslovne
+odstrániť aj poslednú revision. Existujúce **BackupRun** záznamy zostávajú ako
+história pokusov, len ich odkaz na revision sa vyprázdni. Na zariadenie sa nič
+neposiela a vzdialené vymazanie nie je vratné.
+
+### Záložka Backup na NetBox zariadení
+
+Otvor bežné NetBox zariadenie a jeho záložku **Backup**. Obsahuje najnovšiu
+dostupnú revision, posledných 25 viditeľných revisions s akciami **View** a
+**Download**, aj nedávne backup runs. Cez **All revisions**, **All runs** a
+**Backup settings** sa dostaneš k celej histórii alebo nastaveniu targetu.
+
+Po vymazaní poslednej revision uvidíš **No stored backup**. Úspešný historický
+run zostáva úspešný, ale jeho odstránená revision je označená **Revision
+removed**. Čas posledného úspechu a nasledujúceho plánu sa nemaže: opisuje
+históriu zberu, nie existenciu súboru. Revisions, ku ktorým používateľ nemá
+oprávnenie, sa neoznačujú ako vymazané.
 
 ## 14. Storages a vzdialené kópie
 
@@ -456,15 +587,15 @@ sa nepodporuje.
 
 ### Vytvorenie FTP storage
 
-1. V **Settings → Credential profiles** vytvor password credential pre FTP účet.
-2. Otvor **Config Backup → Storages → Add**. Formulár automaticky vytvorí FTP storage.
+1. V **Settings → Device defaults → Credential profiles** vytvor password credential pre FTP účet.
+2. Otvor **Config Backup → Storages → Add** a vyber typ **FTP (unencrypted)**.
 3. Vyplň názov, host, port, base path a credential profile.
 4. Potvrď, že ide o nešifrované FTP v internej sieti.
-5. Podľa potreby vyber FTP retenčný fallback. Prepínač **Always use this
+5. Podľa potreby vyber vzdialený retenčný fallback. Prepínač **Always use this
    storage's retention profile** zapni iba vtedy, keď zariadenia nesmú túto
    politiku prepísať.
 6. Nastav **Copy new revisions automatically** podľa potreby.
-7. Ulož storage a klikni na **Test FTP storage**.
+7. Ulož storage a klikni na **Test storage**.
 
 Test vytvorí malý súbor, prečíta ho späť, porovná obsah a odstráni ho. Úspešný
 test preto overuje spojenie, login, zápis, čítanie aj mazanie.
@@ -472,7 +603,7 @@ test preto overuje spojenie, login, zápis, čítanie aj mazanie.
 ### Vytvorenie NFS alebo SMB3 storage
 
 1. Správca pripojí NFS export alebo SMB3 share podľa
-   `docs/NFS_AND_SMB3_STORAGE.md`.
+   [návodu pre NFS a SMB3](docs/NFS_AND_SMB3_STORAGE.md).
 2. Rovnaký mount sprístupní NetBox webu a obom workerom, napríklad ako
    `/mnt/netbox-config-backup/nfs`.
 3. Otvor **Config Backup → Storages → Add** a vyber **NFS mount** alebo
@@ -510,19 +641,34 @@ uloženú pri replica zázname. Plugin naďalej podporuje aj staršie rozloženi
 
 - **Copy existing revisions** zaradí doterajšie revisions, ktoré ešte pre tento cieľ nemajú replica záznam.
 - Neúspešnú kópiu možno spustiť cez **Retry**.
-- Pri úspešnom nezmenenom backupe plugin read-only overí poslednú FTP kópiu a chýbajúcu alebo poškodenú kópiu znova vytvorí.
+- Pri úspešnom nezmenenom backupe plugin overí poslednú kópiu na každom povolenom storage s automatickým kopírovaním a chýbajúcu alebo poškodenú kópiu zaradí na opravu.
 - Súbory revisions sú zapisované ako immutable; plugin existujúci odlišný obsah potichu neprepíše.
 
-Plugin môže staré FTP kópie odstrániť iba vtedy, keď pre konkrétnu dvojicu
-zariadenie–FTP storage existuje efektívny FTP retenčný profil a správca manuálne
-spustí FTP cleanup alebo osobitne zapne FTP retention scheduler. Profil môže
+Retenčné čistenie odstráni staré kópie iba vtedy, keď pre konkrétnu dvojicu
+zariadenie–storage existuje efektívny vzdialený retenčný profil a správca manuálne
+spustí remote cleanup alebo osobitne zapne remote retention scheduler. Profil môže
 pochádzať zo storage alebo zo zariadenia podľa priority opísanej v kapitole 17.
 Ak ho nemá ani jedno z nich, kópie na danom storage sa uchovávajú navždy.
 Serverová retencia alebo snapshoty NAS môžu slúžiť ako ďalšia nezávislá ochrana.
 
-Na existujúcej inštalácii pred prvým zapnutím FTP cleanupu spusti read-only
-integrity audit na každom FTP storage. Najprv vyrieš všetky chýbajúce alebo
+Explicitné **Delete everywhere** na revision alebo odstránenie celého backup
+targetu je od retencie oddelená, potvrdzovaná operácia.
+
+Na existujúcej inštalácii pred prvým zapnutím remote cleanupu spusti read-only
+integrity audit na každom vzdialenom storage. Najprv vyrieš všetky chýbajúce alebo
 poškodené historické kópie, ktoré plugin eviduje ako úspešné.
+
+### Stored revisions – čo je na úložisku
+
+Na detaile FTP, NFS alebo SMB3 storage otvor **Stored revisions**. Tabuľka
+obsahuje evidované revisions, zariadenie, čas vytvorenia, stav prenosu,
+dostupnosť, veľkosť a vzdialenú cestu. Podporuje vyhľadávanie podľa zariadenia,
+UUID alebo cesty, filter **Copy state** a stránkovanie.
+
+Ide o evidenciu kópií pluginu, nie o všeobecný prehliadač všetkých súborov na
+serveri. **Available** opisuje posledný evidovaný stav; prítomnosť a obsah
+súborov aktuálne overíš cez **Check stored copies**. Samotný adresár alebo
+úspešný test storage nie je dôkaz, že konfigurácia bola prenesená celá.
 
 ## 15. Integrity audit vzdialeného storage
 
@@ -554,12 +700,12 @@ Worker:
 Táto operácia sa nepripája k zariadeniu a nič naň neposiela. Obnovu z artifactu
 vykonáva správca manuálne podľa postupu výrobcu.
 
-## 17. Lokálna a FTP retencia
+## 17. Lokálna a vzdialená retencia
 
 Plugin používa pre zariadenie jeden lokálny plán a samostatný vzdialený plán pre
-**každé FTP storage**. Lokálny plán obmedzuje rast PostgreSQL záznamov a
-primárneho artifact úložiska. Každý FTP plán rozhoduje iba o kópiách revisions
-na jednom konkrétnom FTP storage. Zmena alebo spustenie jedného plánu
+**každé FTP, NFS alebo SMB3 storage**. Lokálny plán obmedzuje rast PostgreSQL
+záznamov a primárneho artifact úložiska. Každý vzdialený plán rozhoduje iba o
+kópiách revisions na jednom konkrétnom storage. Zmena alebo spustenie jedného plánu
 automaticky nespustí druhý.
 
 ### Nastavenie a presná priorita
@@ -576,15 +722,15 @@ Efektívna lokálna politika sa vyberá v tomto presnom poradí:
 4. fallback politika Local storage,
 5. bez politiky – uchovanie bez časového limitu.
 
-Efektívna FTP politika sa vyberá **samostatne pre každé FTP storage**:
+Efektívna vzdialená politika sa vyberá **samostatne pre každé vzdialené storage**:
 
-1. povinná politika daného FTP storage,
-2. FTP retention override priamo na zariadení,
-3. fallback politika daného FTP storage,
+1. povinná politika daného storage,
+2. Remote retention profile priamo na zariadení,
+3. fallback politika daného storage,
 4. bez politiky – kópie na tomto storage sa uchovávajú bez časového limitu.
 
-Rýchle pridanie zariadenia ponúka voľby **Local history** a **Remote FTP
-history** ako device overrides. Prázdna voľba preto neobchádza storage fallback.
+Štandardný formulár zariadenia ponúka **Local retention profile** a **Remote
+retention profile** ako device overrides. Prázdna voľba neobchádza storage fallback.
 Na detaile a v retention preview je viditeľný efektívny profil aj jeho zdroj:
 **Storage enforced**, **Device override**, **Backup policy**, **Storage default**
 alebo **Keep indefinitely**.
@@ -611,58 +757,58 @@ Lokálny profil navyše riadi históriu runs:
 - **Max runs per target** – tvrdý strop dokončených runs na zariadenie; predvolene 500.
 
 Aktívne `Queued` a `Running` záznamy sa limitom nemažú. Lokálny cleanup nemaže
-FTP kópiu, ktorá má zostať zachovaná podľa vzdialeného plánu.
+vzdialenú kópiu, ktorá má zostať zachovaná podľa vzdialeného plánu.
 
-### FTP retenčný profil
+### Vzdialený retenčný profil
 
-FTP profil používa samostatné **Keep all**, denné, týždenné a mesačné okná,
+Remote profil používa samostatné **Keep all**, denné, týždenné a mesačné okná,
 minimálny počet zmenených revisions a **Maximum remote revisions per device**.
 Tento `max_copies_per_target` limit sa počíta **pre jedno zariadenie na jednom
-FTP storage**. Jednotlivé fyzické artifact súbory v revision sa nepočítajú
-samostatne. Tá istá revision na dvoch FTP storages však spotrebuje jednu pozíciu
+vzdialenom storage**. Jednotlivé fyzické artifact súbory v revision sa nepočítajú
+samostatne. Tá istá revision na dvoch storages však spotrebuje jednu pozíciu
 v každom z ich nezávislých plánov. Profil neodstraňuje BackupRun záznamy ani
 lokálne artifacty. Najnovšia revision a revisions označené ako **protected** sa
-zachovajú lokálne aj na FTP aj vtedy, keď by prekročili bežné časové okno alebo
+zachovajú v príslušnom lokálnom aj vzdialenom rozsahu aj vtedy, keď by prekročili bežné časové okno alebo
 limit počtu kópií.
 
-Odstránenie FTP kópie je nevratná operácia voči danému FTP serveru. Plugin sa
+Odstránenie vzdialenej kópie je nevratná operácia voči danému storage. Plugin sa
 pri nej nepripája k zariadeniu, nemení jeho konfiguráciu a nevykonáva automatický
 restore. Pred zapnutím mazania preto over aj nezávislé NAS snapshoty alebo inú
 recovery kópiu, ak ich prevádzka vyžaduje.
 
 Rozpracované `Pending`, `Queued`, `Running` a neúspešné kópie čakajúce na retry
-sa nemažú. Ak však retry už bolo vyčerpané a replica má uloženú presnú FTP
+sa nemažú. Ak však retry už bolo vyčerpané a replica má uloženú presnú vzdialenú
 cestu, cleanup ju bezpečne skontroluje a odstráni. Na tejto ceste totiž môže
-zostať staršia úplná kópia alebo časť neúspešnej opravy. Vypnuté FTP storage je
+zostať staršia úplná kópia alebo časť neúspešnej opravy. Vypnuté vzdialené storage je
 kill switch: jeho kópie cleanup ani mazanie zariadenia nemenia, kým správca cieľ
 znova nepovolí.
 
-Kým revision zostáva v histórii pluginu, metadata o odstránenej FTP kópii
+Kým revision zostáva v histórii pluginu, metadata o odstránenej vzdialenej kópii
 bránia jej nechcenému opätovnému vytvoreniu. Keď neskôr úplne vyprší lokálna
-revision aj všetky jej FTP kópie, cleanup môže odstrániť aj revision a príslušné
+revision aj všetky jej vzdialené kópie, cleanup môže odstrániť aj revision a príslušné
 replica/deletion audit metadata. Tieto metadata nie sú trvalý auditný archív.
 
 ### Preview a manuálne spustenie
 
 1. Na detaile zariadenia otvor **Retention preview**.
-2. Samostatne skontroluj **Local storage and run history** a plán každého FTP
-   storage v časti **Remote FTP copies**.
+2. Samostatne skontroluj **Local storage and run history** a plán každého
+   vzdialeného storage v časti **Remote copies**.
 3. Dôležité revisions najprv označ ako **protected**.
-4. Použi **Apply local retention** alebo **Apply FTP retention**. Každá operácia má vlastné potvrdenie a pred vykonaním plán znovu prepočíta.
+4. Použi **Apply local retention** alebo **Apply remote retention**. Každá operácia má vlastné potvrdenie a pred vykonaním plán znovu prepočíta.
 
-Preview je iba na čítanie. Ak pre konkrétnu dvojicu zariadenie–FTP storage nie
+Preview je iba na čítanie. Ak pre konkrétnu dvojicu zariadenie–storage nie
 je efektívny profil ani na zariadení, ani na storage, zobrazí **Keep
-indefinitely** a FTP cleanup túto dvojicu preskočí.
+indefinitely** a remote cleanup túto dvojicu preskočí.
 
 ### Automatické schedulery
 
-V **Settings → Automation** sú dva samostatné prepínače: **Enable local cleanup**
-a **Enable FTP cleanup**. Oba sú po inštalácii predvolene vypnuté, každý vyžaduje
+V **Settings → Automation** sú dva samostatné prepínače: **Enable Local cleanup**
+a **Enable remote cleanup**. Oba sú po inštalácii predvolene vypnuté, každý vyžaduje
 vlastné potvrdenie trvalého mazania a po zapnutí sa vyhodnocuje každých 24 hodín.
-Zapnutie lokálneho schedulera nezapne FTP scheduler a naopak. FTP scheduler
-preskočí každú dvojicu zariadenie–FTP storage bez efektívneho retenčného
-profilu. Jedno zariadenie preto môže mať cleanup na jednom FTP storage a
-uchovanie navždy na inom.
+Zmenu potvrď cez **Save cleanup settings**. Zapnutie lokálneho schedulera
+nezapne vzdialený scheduler a naopak. Vzdialený scheduler preskočí každú
+dvojicu zariadenie–storage bez efektívneho retenčného profilu. Jedno zariadenie
+preto môže mať cleanup na jednom storage a uchovanie navždy na inom.
 
 ## 18. NetBox alerts
 
@@ -686,7 +832,7 @@ Pripravené skupiny:
 | --- | --- |
 | Config Backup Readers | Čítanie stavov, revisions, redigovaného náhľadu a diffov. |
 | Config Backup Operators | Čítanie konfigurácie pluginu, testovanie, spúšťanie záloh, schedule a ochrana revisions. |
-| Config Backup Administrators | Úplná správa pluginu vrátane credentials, mappingov, retention a FTP. |
+| Config Backup Administrators | Úplná správa pluginu vrátane credentials, mappingov, driverov, ochrany downloadov, retencie a úložísk. |
 
 Skupiny vytvorí správca príkazom:
 
@@ -700,7 +846,8 @@ download revisions vidia iba vybrané osoby.
 
 ## 20. Podporované drivery
 
-Aktuálna inštalácia obsahuje najmä:
+Balík obsahuje najmä tieto drivery; ich dostupnosť pre nové priradenia riadi
+**Settings → Device drivers**:
 
 | Rodina | Driver / spôsob |
 | --- | --- |
@@ -715,7 +862,8 @@ Aktuálna inštalácia obsahuje najmä:
 | ZTE ZXROS | read-only CLI |
 | RACOM RipEX2 | HTTPS API |
 | RACOM RAy2/RAy3 | natívny SSH/SCP backup |
-| Ceragon IP-20/IP-50 | natívny export prijatý device upload receiverom |
+| Ceragon IP-20 | stiahnutie natívnej zálohy zo zariadenia cez SFTP; potrebuje overený `remote_path`, nie receiver |
+| Ceragon IP-50 / CeraOS | vytvorenie restore pointu a odoslanie natívnej zálohy na SFTP device upload receiver |
 | SIAE SM-OS | automatický driver; CLI snapshot alebo nakonfigurovaný natívny fallback |
 | Fake | iba vývoj a automatické testy, nie produkcia |
 
@@ -725,11 +873,17 @@ otestuj jeden reprezentatívny kus každej platformy a verzie firmvéru.
 ### Device upload receivers
 
 Niektoré zariadenia zálohu posielajú smerom k pluginu. Pre ne administrátor
-nastaví **Settings → Security and vendor-specific setup → Device upload receivers**. Ide o inú
+nastaví **Settings → Security and downloads → Device upload receivers**. Ide o inú
 funkciu než FTP storage:
 
 - device upload receiver prijíma súbor priamo zo zariadenia počas zberu,
 - FTP storage kopíruje už dokončenú revision z pluginu na interný server.
+
+Receiver potrebuje **Ceragon IP-50/CeraOS** a voliteľný natívny WebLCT/FTP
+fallback pre **ALFOplus prvej generácie**. Bežné CLI drivery, RACOM, Ceragon
+IP-20 a SIAE používajúce `show running-config` ho nepotrebujú. Zapnutie drivera
+v Settings receiver automaticky nenainštaluje ani nespustí; nasadenie opisuje
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 Prvá generácia SIAE ALFOplus môže vyžadovať výrobcovský WebLCT/SCT workflow a
 nemusí podporovať úplný `show running-config`. Ak automatický driver oznámi
@@ -746,20 +900,54 @@ nemusí podporovať úplný `show running-config`. Ak automatický driver oznám
 | `HOST_KEY_UNKNOWN` | V manuálnom alebo TOFU režime over nový fingerprint; zmenený kľúč schváľ iba po nezávislom potvrdení. |
 | `HOST_KEY_FAILED` / `HOST_KEY_MISMATCH` | Zariadenie mohlo vymeniť kľúč alebo ide o inú IP; neschvaľuj bez overenia. |
 | `COMMAND_UNSUPPORTED` | Model alebo firmware nepodporuje príkaz drivera; potrebuje iný bezpečný workflow. |
+| `DRIVER_DISABLED` | Potrebný driver musí byť povolený v Settings → Device drivers. |
+| `DRIVER_SETUP_REQUIRED` | Chýba modelovo špecifická voľba, napríklad overený remote path; riaď sa požiadavkou konkrétneho drivera. |
 | `INCOMPLETE_CONFIG` | Výstup neobsahuje úplnú konfiguráciu; skontroluj driver, oprávnenia a paging. |
 | `NO_CREDENTIAL_PROFILE` | Mapping/target nemá kompletný credential profile. |
 | `NO_RECEIVER_PROFILE` | Natívny driver nemá povolený receiver. |
 | `DEVICE_EXPORT_FAILED` | Export bol odmietnutý alebo sa zariadenie nepripojilo k receiveru. |
 | `DESTINATION_TEST_FAILED` | FTP login, práva na zápis/čítanie/mazanie, base path a passive firewall. |
+| `STORAGE_FAILED` | Práva na zápis do Local storage, voľné miesto a správny perzistentný volume v backup workeri. |
 | `INTERNAL_ERROR` | Otvor Background task a log web/worker procesu; môže ísť o chybu pluginu. |
 
 Ak test prejde, ale backup zlyhá, porovnaj konkrétny BackupRun s testom. Natívny
 backup môže trvať dlhšie, vytvárať súbor, používať reverse tunnel alebo vyžadovať
 ďalšiu komunikáciu smerom k receiveru.
 
-Ak run zostáva `Queued`, skontroluj dedikovaný worker a queue
-`netbox_config_backup.backup`. FTP replication, audit, retention a recovery
-používajú aj bežný NetBox worker.
+### Run zostáva Queued alebo test Pending
+
+Skontroluj živý dedikovaný worker počúvajúci na `netbox_config_backup.backup`,
+nie iba existenciu kontajnera. Táto queue spracúva zálohy, connection/storage
+testy, kopírovanie na vzdialené úložiská, integrity audity, cleanup aj FTP
+recovery balíky. Bežný NetBox worker musí zostať spustený pre systémové
+plánovacie úlohy a ostatnú prácu NetBoxu.
+
+Pri novej požiadavke na backup plugin kontroluje dostupnosť workera. Ak žiadny
+živý worker nepočúva, požiadavku odmietne bez vytvorenia ďalšieho runu. Už
+zaradený čakajúci run možno bezpečne zrušiť na jeho detaile; zostane ako
+**Skipped**. Dispatcher tiež zosúlaďuje staré osirelé úlohy so stavom Redis.
+Nemaž ručne náhodné joby alebo databázové riadky. Najprv vyrieš worker a
+konkrétny blokujúci run.
+
+### Backup existuje, ale náhľad sa nedá otvoriť
+
+Skontroluj, že web aj workery používajú ten istý Local storage volume na tej
+istej ceste. Úspešný zápis v backup workeri nepotvrdzuje, že súbor vidí aj web.
+Over práva účtu NetBox na čítanie a výsledok integrity kontroly; bez týchto
+kontrol plugin konfiguráciu nezobrazí.
+
+### V Settings chýba Device drivers alebo vidno staré rozloženie
+
+Nové rozloženie a driver selection musia byť v skutočne nainštalovanom balíku,
+nielen v lokálnom repozitári. Over aktualizáciu webu aj workerov a vykonanie
+migrácie `0030_operationalsettings_disabled_driver_ids`. Po aktualizácii kódu
+reštartuj alebo vytvor kontajnery z nového image podľa inštalačného návodu;
+reštart starého image novú verziu nenainštaluje.
+
+Web môže držať staré šablóny v pamäti aj po zmene súborov v bind mounte. Ich
+načítanie vyrieši reštart web procesu; obyčajný refresh prehliadača nie. Pre
+staré CSS následne použi **Ctrl+F5**. Ak nevidíš ani možnosť ukladania, over aj
+oprávnenie na zmenu Settings. Bežné ukladanie UI volieb ďalší reštart nepotrebuje.
 
 ## 22. Bezpečnostné zásady
 
@@ -784,19 +972,19 @@ Podrobnosti sú v [SECURITY.md](SECURITY.md).
 1. Over platformu a management IP v NetBoxe.
 2. Vytvor alebo vyber least-privilege účet.
 3. Priprav connection profile a credential profile.
-4. Vytvor platform mapping.
+4. Over povolenie drivera v **Settings → Device drivers** a vytvor platform mapping.
 5. Pridaj jeden testovací kus.
 6. Vyber režim SSH identity; pri manuálnom režime over a schváľ host key.
 7. Spusti connection test.
 8. Spusti manuálny backup.
 9. Otvor revision, náhľad a artifact download.
-10. Over FTP replica a integrity audit.
+10. Over skutočné súbory vo **Stored revisions** a integrity audit vzdialeného storage.
 11. Až potom pridaj ďalšie zariadenia rovnakej platformy.
 
 ### Pravidelná kontrola
 
 - denne sleduj Overview a nové failed/stale/stuck stavy,
-- kontroluj FTP health a neúspešné replicas,
+- kontroluj stav vzdialených úložísk a neúspešné replicas,
 - pravidelne vyhodnocuj automatic integrity audit,
 - pred zapnutím alebo zmenou retention použi preview,
 - po upgrade otestuj aspoň jeden connection test, reálny backup, FTP copy a recovery ZIP,
@@ -809,7 +997,7 @@ zobrazí súvisiace runs, revisions a artifacty, ktoré budú zasiahnuté. Hroma
 odstránenie používa rovnakú kontrolu.
 
 Pred odstránením over, či sú dôležité revisions chránené alebo bezpečne
-exportované. Plugin odstráni aj evidované FTP kópie. Ak je FTP storage vypnuté,
+exportované. Plugin odstráni aj evidované FTP, NFS a SMB3 kópie. Ak je storage vypnuté,
 prebieha prenos alebo vzdialenú kópiu nemožno bezpečne odstrániť, odstránenie
 celého backup targetu zablokuje.
 
@@ -821,7 +1009,18 @@ celého backup targetu zablokuje.
 - [Bezpečnosť](SECURITY.md)
 - [Rotácia master key](docs/MASTER_KEY_ROTATION.md)
 - [FTP storage a recovery](docs/FTP_DESTINATION.md)
+- [NFS a SMB3 storage](docs/NFS_AND_SMB3_STORAGE.md)
+- [README a prehľad funkcií](README.md)
+- [Zmeny podľa vydania](CHANGELOG.md)
 
-Po každej zmene verzie pluginu musí rovnakú verziu používať web proces, bežný
-NetBox worker aj dedikovaný backup worker. Migrácie a `collectstatic` sa musia
-vykonať pred reštartom služieb.
+Po každej aktualizácii kódu pluginu musí rovnaký balík/image používať web proces,
+bežný NetBox worker aj dedikovaný backup worker; pri nasadenom receiveri aj jeho
+proces. Použi postup aktualizácie v inštalačnom návode: priprav nový balík/image,
+vykonaj migrácie, `collectstatic` a kontrolu, potom reštartuj alebo vytvor
+príslušné služby z aktualizovaného image. Nestačí iba vymeniť súbory pod
+bežiacim webom alebo reštartovať kontajner so starým image.
+
+Výber driverov pridáva migrácia `0030_operationalsettings_disabled_driver_ids`.
+Vykoná sa štandardným `manage.py migrate`; nepreskakuj ju. Zachová všetky
+aktuálne dostupné drivery povolené a nemení uložené zálohy. Naproti tomu zmena
+už dostupných UI nastavení cez ich Save tlačidlo nevyžaduje migráciu ani reštart.

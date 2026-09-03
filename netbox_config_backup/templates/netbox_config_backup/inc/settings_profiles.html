@@ -1,0 +1,42 @@
+{% load i18n %}
+  <div class="settings-config-grid">
+    <section class="card settings-panel" aria-labelledby="device-defaults-title">
+      <header class="settings-panel-header">
+        <div>
+          <h2 id="device-defaults-title">{% translate "Device defaults" %}</h2>
+          <p>{% translate "Reuse connection and credential profiles across devices. Platform mappings can select them automatically." %}</p>
+        </div>
+      </header>
+      <div class="settings-links">
+        {% if perms.netbox_config_backup.view_platformmapping %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:platformmapping_list' icon='mdi-directions-fork' title='Platform mappings' description="Select the driver and reusable profiles from a device's NetBox platform." only %}
+        {% endif %}
+        {% if perms.netbox_config_backup.view_connectionprofile %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:connectionprofile_list' icon='mdi-lan-connect' title='Connection profiles' description='Reuse protocol, port, NetBox management IP priority, host-key verification, and timeouts.' only %}
+        {% endif %}
+        {% if perms.netbox_config_backup.view_credentialprofile %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:credentialprofile_list' icon='mdi-shield-key-outline' title='Credential profiles' description='Reuse encrypted or environment-based device logins.' only %}
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="card settings-panel" aria-labelledby="policies-title">
+      <header class="settings-panel-header">
+        <div>
+          <h2 id="policies-title">{% translate "Schedules and retention" %}</h2>
+          <p>{% translate "Define when backups run and how long Local and remote data is kept." %}</p>
+        </div>
+      </header>
+      <div class="settings-links">
+        {% if perms.netbox_config_backup.view_backuppolicy %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:backuppolicy_list' icon='mdi-calendar-clock-outline' title='Backup policies' description='Set schedules, retries, timeouts, and the default Local retention profile.' only %}
+        {% endif %}
+        {% if perms.netbox_config_backup.view_retentionpolicy %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:retentionpolicy_list' icon='mdi-history' title='Local retention profiles' description='Control Local revisions and completed backup-run history.' only %}
+        {% endif %}
+        {% if perms.netbox_config_backup.view_remoteretentionpolicy %}
+          {% include 'netbox_config_backup/inc/settings_link.html' with link_name='plugins:netbox_config_backup:remoteretentionpolicy_list' icon='mdi-server-minus-outline' title='Remote retention profiles' description='Control copies independently on each remote storage.' only %}
+        {% endif %}
+      </div>
+    </section>
+  </div>

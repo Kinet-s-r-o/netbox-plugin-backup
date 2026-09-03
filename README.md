@@ -11,7 +11,8 @@ Implemented:
 
 - NetBox `PluginConfig`, dashboard, navigation, and configuration UI
 - task-oriented Settings page and permission-aware, read-only Help center
-- initial Django models and migration
+- UI-managed driver selection, English/Slovak language, and password-protected ZIP downloads
+- Django models and versioned schema migrations
 - `BackupDriver`, `DriverRegistry`, and `FakeDriver`
 - `ConfigStorage` and `LocalConfigStorage`
 - `SecretProvider`, safe credential material, provider registry, and an environment provider
@@ -72,6 +73,11 @@ installation, pin the wheel in `/opt/netbox/local_requirements.txt`; for
 netbox-docker, build and use the supplied release image. The complete procedure
 is in [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
+For everyday operation, read the
+[Slovak user guide](NetBox_Config_Backup_pouzivatelska_prirucka_SK.md) or open
+**Config Backup → Help**. This README and the guide describe the source tree
+they accompany; for a pinned release, use the documentation from that same tag.
+
 Review [SECURITY.md](SECURITY.md) before a production deployment, especially
 the host-key, master-key, RBAC, FTP-network, and dependency requirements.
 Maintainers should use the repeatable checklist in
@@ -116,6 +122,12 @@ python manage.py rqworker netbox_config_backup.backup
 The development Docker Compose override defines this process as the
 `netbox-config-backup-worker` service.
 
+This queue also handles connection/storage tests, remote replication, integrity
+audits, retention cleanup, and FTP recovery packages. Keep the normal NetBox
+worker running as well: the periodic system dispatchers and other NetBox jobs
+still need it. The web and both workers must share the same artifact volume,
+mount paths, and credential master key.
+
 Before creating credentials in the UI, generate and securely inject one
 `NETBOX_CONFIG_BACKUP_MASTER_KEY` plus version `1` into the web and all worker
 processes. Never commit the key or store it in PostgreSQL. See the installation
@@ -148,6 +160,24 @@ For transactional credential master-key rotation and rollback, follow
 For least-privilege assignment, in-app Event Rules, and the optional Prometheus
 service, follow
 [docs/RBAC_NOTIFICATIONS_MONITORING.md](docs/RBAC_NOTIFICATIONS_MONITORING.md).
+
+### Updating the plugin versus changing Settings
+
+Saving driver selection, language, download protection, cleanup, or alert
+settings takes effect without restarting NetBox. Installing new plugin code is
+different: update the package/image for the web process and **both** the normal
+and dedicated backup workers, apply migrations, collect static files, and
+restart or recreate those processes using the
+[installation procedure](docs/INSTALLATION.md). Restarting an old Docker image
+does not install a newer plugin.
+
+The driver-selection setting requires migration
+`0030_operationalsettings_disabled_driver_ids`. Run the normal `manage.py migrate`
+step; do not skip it or mark it applied without running it. If **Device drivers**
+is missing after an update, verify the installed code and migrations first.
+Web processes can retain cached templates until restarted, even when files in
+a bind mount have changed. A browser hard refresh reloads styles, but does not
+update server-side code or templates.
 
 ## Health monitoring
 
@@ -239,6 +269,9 @@ optional `<REFERENCE>_ENABLE_SECRET` variable. Driver options accept
 `{"max_output_bytes": 10485760}` with a 50 MiB absolute safety ceiling.
 
 ### Built-in driver catalog
+
+Use [Settings → Device drivers](#device-drivers) to choose which installed
+drivers are available for new device and platform assignments.
 
 The registry currently includes these real network profiles:
 
@@ -365,12 +398,11 @@ collection, validation, and normalization, but does not create a `BackupRun`,
 write an artifact, or create a `ConfigRevision`. Only safe status codes and
 artifact counts/sizes are recorded in the job log.
 
-For the local Docker stack, copy
-`C:\dev\netbox-docker\env\config-backup.env.example` to
-`C:\dev\netbox-docker\env\config-backup.env`. Both the web and worker services
-load this ignored file. SSH identities are normally managed in PostgreSQL by
+For Docker, use [docker/config-backup.env.example](docker/config-backup.env.example)
+as a template for a protected environment file loaded by the web and worker
+services, following the installation guide. SSH identities are normally managed in PostgreSQL by
 the plugin and do not require a manually configured file in a Connection
-Profile. The onboarding workflow is available in **Config Backup > Settings > Security and vendor-specific setup >
+Profile. The onboarding workflow is available in **Config Backup > Settings > Security and downloads >
 SSH host keys**. Under manual approval the plugin scans the pre-authentication
 SSH handshake, presents the SHA256 fingerprint for administrator approval, and
 stores approved public host keys in PostgreSQL. TOFU stores and trusts only the
@@ -401,7 +433,9 @@ editing use the same target form: select the NetBox device, enable the target,
 and optionally override its reusable policy, Local/remote retention,
 credentials, connection, receiver, or driver. Devices which already have a
 backup target are not offered again. Blank override fields inherit from the
-device's enabled platform mapping, backup policy, or storage as applicable.
+device's enabled platform mapping or applicable retention fallback. **Policy
+override** is different: automatic scheduling requires an assigned, enabled
+backup policy. Without one, the target can still be tested and backed up manually.
 
 Local retention is selected in this order: device override, backup policy, then
 Local storage profile. Remote retention is selected independently for each
@@ -418,19 +452,63 @@ creates a target, per-device connection and credential profiles, and reusable
 deployments should normally create reusable profiles and platform mappings
 first, then use **Devices > Add** so creation and later editing stay identical.
 
-The **Settings** page groups reusable defaults by task: device defaults,
-scheduling and retention, exceptional vendor/security setup, and global
-automation. **Config Backup > Help** provides the recommended setup order,
+Deleting a backup device is an explicit cascade within this plugin: the
+confirmation page lists its runs, revisions, and artifacts, then removes their
+stored files and any now-unused per-device `[Quick]` connection and credential
+profiles. The underlying NetBox `Device` is never deleted. Active backup runs
+and storage failures abort the operation.
+
+## Settings
+
+Open **Config Backup → Settings**. Reusable profiles stay visible at the top;
+less frequently changed controls are grouped below them:
+
+| Section | What belongs here |
+| --- | --- |
+| **Device defaults** | Platform mappings, Connection profiles, Credential profiles. |
+| **Schedules and retention** | Backup policies, Local retention profiles, Remote retention profiles. |
+| **Device drivers** | Expand below the profile cards to select installed drivers; the enabled count is visible while collapsed. |
+| **Automation** | Expand to manage Local cleanup, remote cleanup, and NetBox alerts. |
+| **Security and downloads** | Expand for Protected ZIP downloads, SSH host keys, and Device upload receivers. |
+| **Plugin language** | English/Slovak selector at the bottom of the page. |
+
+Each form has its own Save button: saving language does not save unsaved driver,
+cleanup, alert, or ZIP-password changes. Settings are permission-aware; users
+without the relevant change permission see the state without editable controls.
+**Config Backup > Help** provides the recommended setup order,
 Local-versus-remote retention precedence, storage/receiver differences, and safe
 first checks for common error codes. Help is read-only and is available to the
 Reader role without granting access to Settings or secret values.
 
+### Device drivers
+
+Expand **Device drivers**, select the drivers you want to offer in device and
+platform-mapping forms, then click **Save drivers**. All selectable installed
+drivers start enabled. Users with `change_operationalsettings` can change the
+selection; the managed Administrator group includes this permission. Changes
+apply immediately without a restart and do not uninstall driver packages.
+
+A driver marked **In use** cannot be disabled while a device override or platform
+mapping references it, including disabled devices and mappings. Reassign those
+objects first. Hidden legacy SIAE drivers belong to the **SIAE SM-OS** selection.
+Disabling a driver does not delete backups or prevent viewing/downloading
+historical revisions. It also blocks new execution through that driver with
+`DRIVER_DISABLED`; hiding it in a form is not the only safeguard.
+Newly installed external drivers are enabled by default; temporarily uninstalled
+drivers retain their saved disabled state. Installing an external driver still
+requires the same trusted package on the web and worker processes and a restart.
+
+### Plugin language
+
 Administrators can select the default plugin language under **Config Backup >
-Settings > Plugin language**. English and Slovak are included. The setting is
+Settings > Plugin language**, at the bottom of Settings, then click **Save
+language**. English is the default; Slovak is also included. The setting is
 applied only to Config Backup URLs and does not change the language of the rest
 of NetBox. A user can temporarily override the default from **Config Backup >
 Help**; the personal choice is stored in that user's browser session and can be
 changed back at any time.
+
+### SSH identity verification
 
 Connection profiles expose three SSH server-identity modes. **Require manual
 approval** is the secure default. **Trust first key automatically** implements
@@ -443,12 +521,6 @@ Switching verification off does not delete existing rows: they are ignored while
 the profile is disabled and can be audited later. If verification is enabled
 again after the device identity changed, the old trusted identity causes the
 connection to fail until the replacement fingerprint is independently verified.
-
-Deleting a backup device is an explicit cascade within this plugin: the
-confirmation page lists its runs, revisions, and artifacts, then removes their
-stored files and any now-unused per-device `[Quick]` connection and credential
-profiles. The underlying NetBox `Device` is never deleted. Active backup runs
-and storage failures abort the operation.
 
 ## Revision content and diff
 
@@ -478,11 +550,12 @@ are attachments with readable device-and-time filenames, private no-store
 caching, and MIME sniffing disabled.
 
 Administrators can optionally enable **Protected ZIP downloads** in **Config
-Backup > Settings**. Set and confirm a password of at least 12 characters; 16
+Backup > Settings > Security and downloads**. Set and confirm a password of at least 12 characters; 16
 or more randomly generated characters are recommended. The password is
 write-only and encrypted in PostgreSQL with
 `NETBOX_CONFIG_BACKUP_MASTER_KEY`. Blank password fields keep the current
-password. Disable protection before removing it.
+password. Click **Save download protection** to apply the change. Disable
+protection before removing the stored password.
 
 When enabled, each authorized download is generated as a WinZip AES-256 archive,
 using bounded memory and a temporary file for larger downloads. A normal artifact
@@ -523,17 +596,17 @@ created by the migration, is always enabled, and cannot be deleted, disabled,
 or converted to a remote type. Remote storages are independent secondary copies and retain
 their own connection, audit, replication, and retention settings.
 
-Each storage can provide a retention profile as a fallback. Enabling **Always
-use this storage's retention profile** makes that policy mandatory for the
-storage and prevents a device-specific override. Effective retention is
-resolved in this exact order:
-
 Every FTP, NFS, and SMB3 storage detail page includes a **Stored revisions**
 inventory. It lists all tracked copies with their device, revision time,
 transfer state, availability flag, size, and remote path, and supports search,
 state filters, and pagination. This table is backed by plugin audit metadata;
 run **Check stored copies** to compare it with the files and SHA-256 manifests
 actually present on the storage.
+
+Each storage can provide a retention profile as a fallback. Enabling **Always
+use this storage's retention profile** makes that policy mandatory for the
+storage and prevents a device-specific override. Effective retention is
+resolved in this exact order:
 
 1. **Local storage:** enforced Local-storage policy; device Local override;
    the device's backup-policy retention; Local-storage fallback; otherwise
@@ -559,7 +632,7 @@ separate positions. If the same revision is copied to two FTP storages, it
 consumes one position on each storage's independent retention plan.
 
 Each backup device provides a permission-gated **Retention preview** action.
-The dry-run reports the Local decision and every FTP storage decision
+The dry-run reports the Local decision and every remote storage decision
 separately, including the effective policy source, what would be kept or
 deleted, and why. It also estimates the local artifact and remote-copy space
 affected by a future cleanup. A preview never mutates the database or any
@@ -569,9 +642,11 @@ Protected revisions and the latest usable revision are retained in every
 applicable storage scope. The configured minimum number of changed revisions is
 also retained.
 Active runs and runs with an unknown future status are always kept locally;
-pending, queued, running, or failed remote transfers are not candidates for remote
-deletion. Disabled remote storages are excluded from automatic and manual remote
-retention plans.
+pending, queued, running, or failed remote transfers awaiting retry are not
+candidates for remote deletion. A failed copy whose retries are exhausted and
+which has a recorded path may be cleaned up under its effective retention plan.
+Disabled remote storages are excluded from automatic and manual remote retention
+plans.
 
 Each local retention profile defines a hard per-target ceiling for completed
 backup runs (500 by default). Time-based retention remains the primary rule;
@@ -602,7 +677,7 @@ mean its configuration is still stored. Revisions hidden by object permissions
 are not labelled as deleted.
 
 Local cleanup and remote cleanup have separate opt-in schedulers under
-**Config Backup → Settings**. Both are disabled by default and require an
+**Config Backup → Settings → Automation**. Both are disabled by default and require an
 explicit acknowledgement before the first enable. Each dispatcher skips
 conflicting active work and already queued/running cleanup jobs. Enabling local
 cleanup never enables remote deletion, and a failed remote cleanup does not turn a

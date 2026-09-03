@@ -21,6 +21,7 @@ assert settings.retention_scheduler_enabled is True
 assert settings.retention_scheduler_batch_size == 37
 assert settings.events_enabled is False
 assert settings.ui_language == "en"
+assert settings.disabled_driver_ids == []
 assert settings.download_zip_encryption_enabled is False
 assert not DownloadEncryptionSecret.objects.exists()
 

@@ -23,6 +23,7 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from django.views.generic import FormView, TemplateView, View
 from netbox.object_actions import AddObject, BulkExport
 from netbox.views import generic
@@ -283,8 +284,11 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
     raise_exception = True
 
     @staticmethod
-    def _operational_settings():
-        operational_settings = OperationalSettings.objects.filter(singleton=True).first()
+    def _operational_settings(*, for_update=False):
+        queryset = OperationalSettings.objects.filter(singleton=True)
+        if for_update:
+            queryset = queryset.select_for_update()
+        operational_settings = queryset.first()
         return operational_settings or OperationalSettings(singleton=True)
 
     def get_context_data(self, **kwargs):
@@ -313,6 +317,9 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
                     "download_encryption_form",
                     forms.DownloadEncryptionSettingsForm(instance=operational_settings),
                 ),
+                "driver_settings_form": kwargs.get("driver_settings_form") or (
+                    forms.DriverSettingsForm(instance=operational_settings)
+                ),
                 "download_zip_password_configured": (
                     DownloadEncryptionSecret.objects.filter(singleton=True).exists()
                 ),
@@ -330,15 +337,18 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
         )
         return context
 
+    @transaction.atomic
     def post(self, request, *args, **kwargs):
         if not request.user.has_perm("netbox_config_backup.change_operationalsettings"):
             raise PermissionDenied
-        operational_settings = self._operational_settings()
+        operational_settings = self._operational_settings(for_update=True)
         settings_action = request.POST.get("settings_action", "retention")
         if settings_action == "language":
             return self._save_language(request, operational_settings)
         if settings_action == "download_encryption":
             return self._save_download_encryption(request, operational_settings)
+        if settings_action == "drivers":
+            return self._save_drivers(request, operational_settings)
         if settings_action in {"notifications", "runtime_integrations"}:
             return self._save_notifications(request, operational_settings)
         if settings_action != "retention":
@@ -370,6 +380,19 @@ class AdvancedSettingsView(PermissionRequiredMixin, LoginRequiredMixin, Template
             "No Docker restart is required.",
         )
         return redirect("plugins:netbox_config_backup:advanced_settings")
+
+    def _save_drivers(self, request, operational_settings):
+        form = forms.DriverSettingsForm(request.POST, instance=operational_settings)
+        if not form.is_valid():
+            return render(request, self.template_name, self.get_context_data(
+                operational_settings=operational_settings, driver_settings_form=form,
+            ), status=400)
+        if operational_settings.pk and hasattr(operational_settings, "snapshot"):
+            operational_settings.snapshot()
+        operational_settings._changelog_message = "Updated enabled backup drivers."
+        form.save()
+        messages.success(request, _("Device drivers were updated. No restart is required."))
+        return redirect(f"{reverse('plugins:netbox_config_backup:advanced_settings')}#device-drivers")
 
     def _save_language(self, request, operational_settings):
         form = forms.InterfaceLanguageSettingsForm(
