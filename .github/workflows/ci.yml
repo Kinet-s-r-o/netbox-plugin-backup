@@ -168,6 +168,7 @@ jobs:
           run_manage netbox_fresh shell < tests/integration/docker_health_dashboard_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_target_delete_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_target_bulk_delete_smoke.py
+          run_manage netbox_fresh shell < tests/integration/docker_target_bulk_edit_smoke.py
           run_manage netbox_fresh shell < tests/integration/docker_revision_delete_smoke.py
           run_manage netbox_fresh shell -c \
             "import importlib.metadata; from netbox_config_backup import __version__; from netbox_config_backup.models import BackupDestination, OperationalSettings; from users.models import Group; settings=OperationalSettings.objects.get(singleton=True); local=BackupDestination.objects.get(is_default=True); expected={'Config Backup Readers','Config Backup Operators','Config Backup Administrators'}; groups=Group.objects.filter(name__in=expected); assert importlib.metadata.version('netbox-config-backup') == __version__; assert settings.ui_language == 'en'; assert local.protocol == 'local' and local.enabled; assert BackupDestination.objects.filter(is_default=True).count() == 1; assert set(groups.values_list('name', flat=True)) == expected; assert all(group.object_permissions.exists() for group in groups)"

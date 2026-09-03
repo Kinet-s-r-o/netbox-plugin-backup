@@ -81,6 +81,7 @@ class ReleaseMetadataTests(unittest.TestCase):
             "docker_health_dashboard_smoke.py",
             "docker_target_delete_smoke.py",
             "docker_target_bulk_delete_smoke.py",
+            "docker_target_bulk_edit_smoke.py",
             "docker_revision_delete_smoke.py",
         ):
             self.assertIn(required, workflow)

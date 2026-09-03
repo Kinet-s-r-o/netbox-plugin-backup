@@ -7,8 +7,10 @@ from django.db import transaction
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
-from netbox.forms import NetBoxModelForm
+from netbox.forms import NetBoxModelBulkEditForm, NetBoxModelForm
 from utilities.forms.fields import DynamicModelChoiceField
+from utilities.forms.rendering import FieldSet
+from utilities.forms.widgets import BulkEditNullBooleanSelect
 
 from .choices import (
     ConnectionProtocolChoices,
@@ -54,6 +56,7 @@ __all__ = [
     "BackupDestinationForm",
     "BackupPolicyForm",
     "BackupRunFilterForm",
+    "BackupTargetBulkEditForm",
     "BackupTargetFilterForm",
     "BackupTargetForm",
     "ConfigRevisionFilterForm",
@@ -600,6 +603,78 @@ class BackupTargetForm(NetBoxModelForm):
             )
             apply_target_schedule(target, now=timezone.now())
         return target
+
+
+class BackupTargetBulkEditForm(NetBoxModelBulkEditForm):
+    """Apply shared backup settings to several already configured devices."""
+
+    model = BackupTarget
+
+    enabled = forms.NullBooleanField(required=False, widget=BulkEditNullBooleanSelect())
+    policy_override = forms.ModelChoiceField(
+        queryset=BackupPolicy.objects.all(),
+        required=False,
+        label="Backup policy",
+        help_text="Choose a policy for all selected devices, or leave this field unchanged.",
+    )
+    retention_override = forms.ModelChoiceField(
+        queryset=RetentionPolicy.objects.all(),
+        required=False,
+        label="Local retention profile",
+        help_text="An enforced Local storage profile always takes precedence.",
+    )
+    remote_retention_policy = forms.ModelChoiceField(
+        queryset=RemoteRetentionPolicy.objects.all(),
+        required=False,
+        label="Remote retention profile",
+        help_text="Each remote storage profile is used when this value is left unchanged or cleared.",
+    )
+    credential_override = forms.ModelChoiceField(
+        queryset=CredentialProfile.objects.exclude(provider_id="vault_kv2"),
+        required=False,
+        label="Credential profile",
+    )
+    connection_override = forms.ModelChoiceField(
+        queryset=ConnectionProfile.objects.all(),
+        required=False,
+        label="Connection profile",
+    )
+    receiver_override = forms.ModelChoiceField(
+        queryset=SftpReceiverProfile.objects.all(),
+        required=False,
+        label="Receiver profile",
+    )
+    driver_override = forms.ChoiceField(
+        choices=(),
+        required=False,
+        label="Driver override",
+        help_text="Clear this value to select the driver from the device platform mapping.",
+    )
+
+    fieldsets = (
+        FieldSet("enabled", "policy_override", name="Backup"),
+        FieldSet("retention_override", "remote_retention_policy", name="Retention"),
+        FieldSet(
+            "credential_override",
+            "connection_override",
+            "receiver_override",
+            "driver_override",
+            name="Connection and driver",
+        ),
+    )
+    nullable_fields = (
+        "policy_override",
+        "retention_override",
+        "remote_retention_policy",
+        "credential_override",
+        "connection_override",
+        "receiver_override",
+        "driver_override",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["driver_override"].choices = _driver_choices(blank=True)
 
 
 class RetentionCleanupConfirmationForm(forms.Form):

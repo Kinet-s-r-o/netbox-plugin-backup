@@ -452,6 +452,14 @@ creates a target, per-device connection and credential profiles, and reusable
 deployments should normally create reusable profiles and platform mappings
 first, then use **Devices > Add** so creation and later editing stay identical.
 
+To apply the same reusable settings to several existing targets, select them in
+**Devices** and choose **Edit**. The bulk form can change the enabled state,
+backup policy, Local/remote retention, credential, connection, receiver, and
+driver override. It deliberately does not bulk-copy driver-options JSON. Use
+the explicit clear control beside an optional profile to remove its override;
+leaving a selector blank keeps each target's current value. Schedules are
+recalculated after a policy or enabled-state change.
+
 Deleting a backup device is an explicit cascade within this plugin: the
 confirmation page lists its runs, revisions, and artifacts, then removes their
 stored files and any now-unused per-device `[Quick]` connection and credential

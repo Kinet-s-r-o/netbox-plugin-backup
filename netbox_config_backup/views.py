@@ -1806,6 +1806,87 @@ def _assert_target_retention_assignment_permissions(
         raise PermissionDenied
 
 
+@register_model_view(BackupTarget, "bulk_edit", path="edit", detail=False)
+class BackupTargetBulkEditView(generic.BulkEditView):
+    """Bulk-edit the reusable settings of selected backup devices.
+
+    Device-specific driver options intentionally remain available only on the
+    individual device form. Applying an opaque JSON object to several hardware
+    models at once is both surprising and unsafe.
+    """
+
+    queryset = BackupTarget.objects.select_related(
+        "device__site",
+        "policy_override__retention_policy",
+        "retention_override",
+        "remote_retention_policy",
+    )
+    table = tables.BackupTargetTable
+    filterset = filtersets.BackupTargetFilterSet
+    form = forms.BackupTargetBulkEditForm
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).restrict(request.user, "change")
+
+    @staticmethod
+    def _updated_value(form, nullified_fields, field_name, current_value):
+        if field_name in nullified_fields:
+            return None
+        if field_name in form.changed_data:
+            return form.cleaned_data[field_name]
+        return current_value
+
+    def _assert_retention_assignment_permissions(self, form, request):
+        """Check every target before writing any of the selected records."""
+
+        nullified_fields = set(request.POST.getlist("_nullify"))
+        targets = self.queryset.filter(pk__in=form.cleaned_data["pk"])
+        for target in targets:
+            selected_policy = self._updated_value(
+                form,
+                nullified_fields,
+                "policy_override",
+                target.policy_override,
+            )
+            selected_local_retention = self._updated_value(
+                form,
+                nullified_fields,
+                "retention_override",
+                target.retention_override,
+            )
+            selected_remote_retention = self._updated_value(
+                form,
+                nullified_fields,
+                "remote_retention_policy",
+                target.remote_retention_policy,
+            )
+            _assert_target_retention_assignment_permissions(
+                request.user,
+                local_retention_changed=(
+                    _effective_local_retention_policy_id(
+                        target.policy_override,
+                        target.retention_override,
+                    )
+                    != _effective_local_retention_policy_id(
+                        selected_policy,
+                        selected_local_retention,
+                    )
+                ),
+                remote_retention_changed=(
+                    target.remote_retention_policy_id
+                    != getattr(selected_remote_retention, "pk", None)
+                ),
+            )
+
+    def _update_objects(self, form, request):
+        self._assert_retention_assignment_permissions(form, request)
+        updated_objects = super()._update_objects(form, request)
+        now = timezone.now()
+        for target in updated_objects:
+            apply_target_schedule(target, now=now)
+        return updated_objects
+
+
 @register_model_view(BackupTarget, "quick_setup", path="quick-setup", detail=False)
 class BackupTargetQuickSetupView(LoginRequiredMixin, PermissionRequiredMixin, FormView):
     template_name = "netbox_config_backup/quick_setup.html"

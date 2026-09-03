@@ -20,6 +20,9 @@ be deleted from an installation which may already have applied them.
   readable line numbers and plain code text instead of inline-code badges.
 - Connection profile detail pages now render the computed SSH identity policy
   separately from database fields, fixing `FieldDoesNotExist` when opening a profile.
+- Selecting multiple backup devices and choosing **Edit** now opens a real
+  bulk-edit form instead of resolving the invalid `/targets/None` detail URL.
+  Shared schedule settings are recalculated after the update.
 
 ### Added
 

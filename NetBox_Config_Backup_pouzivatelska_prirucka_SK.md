@@ -95,6 +95,16 @@ Bez efektívnej politiky sa príslušná história uchováva bez časového limi
 Zariadenie, ktoré už má backup target, sa vo formulári **Devices → Add** znova
 nezobrazí.
 
+### Hromadná úprava zariadení
+
+V zozname **Devices** označ viac zariadení a vyber **Edit**. Spoločný formulár
+upraví stav zapnutia, backup policy, lokálny alebo vzdialený retenčný profil,
+credential/connection/receiver profile a driver override. Pre plán záloh sa po
+uložení automaticky prepočíta **Next run**. JSON **Driver options override** sa
+hromadne nemení, aby sa omylom nepreniesla voľba špecifická pre jeden model na
+iné zariadenia. Pri voliteľnom profile prázdna voľba znamená „nechať aktuálnu
+hodnotu“; jeho odstránenie treba potvrdiť prepínačom na vymazanie pri danom poli.
+
 ### Jazyk pluginu
 
 Správca nastaví predvolený jazyk v **Config Backup → Settings → Plugin language**
