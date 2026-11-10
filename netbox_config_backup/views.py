@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from core.choices import JobStatusChoices
 from core.exceptions import JobFailed
+from core.models import Job
 from dcim.models import Device
 from django.conf import settings
 from django.contrib import messages
@@ -2434,6 +2435,38 @@ class BackupTargetRejectHostKeyView(PermissionRequiredMixin, LoginRequiredMixin,
         )
 
 
+def _latest_host_key_scan_report(user):
+    """Summarize the newest finished identity scan, limited to devices the user may view."""
+    job = (
+        Job.objects.filter(name=SSHHostKeyScanJob.name, status=JobStatusChoices.STATUS_COMPLETED)
+        .order_by("-created")
+        .first()
+    )
+    scan = (job.data or {}).get("scan") if job else None
+    if not scan:
+        return None
+    failures = scan.get("failures") or []
+    targets = (
+        BackupTarget.objects.restrict(user, "view")
+        .filter(pk__in=[item.get("target_id") for item in failures])
+        .select_related("device")
+        .in_bulk()
+    )
+    return {
+        "finished": job.completed or job.created,
+        "failed": scan.get("failed", 0),
+        "rows": [
+            {
+                "target": targets[item["target_id"]],
+                "error_code": item.get("error_code", ""),
+                "safe_message": item.get("safe_message", ""),
+            }
+            for item in failures
+            if item.get("target_id") in targets
+        ],
+    }
+
+
 class SSHHostKeyListView(PermissionRequiredMixin, LoginRequiredMixin, TemplateView):
     template_name = "netbox_config_backup/ssh_host_keys.html"
     permission_required = "netbox_config_backup.view_sshhostkey"
@@ -2450,6 +2483,7 @@ class SSHHostKeyListView(PermissionRequiredMixin, LoginRequiredMixin, TemplateVi
         context.update(
             {
                 "host_keys": keys,
+                "scan_report": _latest_host_key_scan_report(self.request.user),
                 "pending_count": keys.filter(status="pending").count(),
                 "trusted_count": keys.filter(status="trusted").count(),
                 "rejected_count": keys.filter(status="rejected").count(),

@@ -38,9 +38,12 @@ contact is published.
 
 ## Current dependency notes
 
-As of 2026-08-25, Netmiko 4.7 requires Paramiko `<5`, while the public PyPI
-release containing the fix for CVE-2026-44405 is Paramiko 5.0.0. The plugin
-mitigates this low-severity RSA/SHA-1 issue by disabling `ssh-rsa` signatures
+The public PyPI release containing the fix for CVE-2026-44405 is Paramiko
+5.0.0, which also removes `ssh-rsa` (RSA/SHA-1) host keys entirely. Appliances
+such as SIAE SM-OS (OpenSSH 5.1 offering only `ssh-rsa`, `3des-cbc`, and
+`hmac-sha1`) cannot be negotiated by Paramiko 5, so the plugin declares
+`paramiko>=4.0,<5` even though Netmiko 4.8 would accept Paramiko 5. The plugin
+mitigates the low-severity RSA/SHA-1 issue by disabling `ssh-rsa` signatures
 by default.
 Explicit legacy device exceptions remain restricted to the server host key and
 still require a previously approved fingerprint when the secure manual policy

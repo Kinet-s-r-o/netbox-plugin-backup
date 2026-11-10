@@ -11,6 +11,7 @@ from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutExc
 from paramiko import ECDSAKey, Ed25519Key, RSAKey
 from paramiko.ssh_exception import (
     BadHostKeyException,
+    IncompatiblePeer,
     PasswordRequiredException,
     SSHException,
 )
@@ -186,6 +187,19 @@ def _translate_exception(exc: Exception, *, phase: str) -> DriverError:
             "HOST_KEY_UNKNOWN",
             "The device SSH host key is not present in the configured known_hosts file.",
         )
+    if _looks_like_incompatible_peer(exc):
+        # "no acceptable host key" is an algorithm mismatch, not a failed identity check:
+        # the device and the SSH library share no host key, cipher, MAC or key exchange.
+        # Netmiko wraps this SSHException in NetmikoTimeoutException, so it must be
+        # recognized before the timeout branch below reports a TCP timeout.
+        return DriverError(
+            "SSH_NEGOTIATION_FAILED",
+            (
+                "The device and the backup worker share no SSH algorithm. Legacy devices that "
+                "offer only an ssh-rsa host key or SHA-1 key exchange need Paramiko 4.x; "
+                "the host key itself was not rejected."
+            ),
+        )
     if _looks_like_host_key_error(exc):
         return DriverError("HOST_KEY_FAILED", "SSH host key verification failed.")
     if any(isinstance(item, socket.gaierror) for item in exception_chain):
@@ -232,6 +246,14 @@ def _looks_like_host_key_error(exc: Exception) -> bool:
     return any(
         isinstance(item, SSHException)
         and ("host key" in str(item).lower() or "not found in known_hosts" in str(item).lower())
+        for item in _walk_exception_chain(exc)
+    )
+
+
+def _looks_like_incompatible_peer(exc: Exception) -> bool:
+    return any(
+        isinstance(item, IncompatiblePeer)
+        or (isinstance(item, SSHException) and "incompatible ssh peer" in str(item).lower())
         for item in _walk_exception_chain(exc)
     )
 

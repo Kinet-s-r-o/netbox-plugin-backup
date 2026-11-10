@@ -246,8 +246,8 @@ Vendor drivers can use the shared transport to inherit connection-profile
 settings, in-memory password/private-key authentication, the selected SSH
 server-identity policy, command timeouts, and guaranteed disconnect handling. Transport
 failures are converted to stable codes such as `AUTH_FAILED`, `TIMEOUT`,
-`HOST_KEY_FAILED`, and `CONNECTION_FAILED`; raw exception messages are not
-persisted.
+`HOST_KEY_FAILED`, `SSH_NEGOTIATION_FAILED` (device and worker share no SSH
+algorithm), and `CONNECTION_FAILED`; raw exception messages are not persisted.
 
 The registered `mikrotik_routeros` driver runs only the read-only command
 `/export terse hide-sensitive`. It rejects empty exports, RouterOS partial

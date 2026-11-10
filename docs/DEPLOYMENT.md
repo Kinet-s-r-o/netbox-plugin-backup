@@ -391,7 +391,13 @@ The package requires `sqlparse>=0.6,<1` so an installation also replaces the
 vulnerable 0.5.x release currently present in some NetBox base images. Run a
 dependency audit again whenever the NetBox image or this plugin is upgraded.
 
-Netmiko 4.7 currently requires Paramiko `<5`. Paramiko 4.0 is reported for
+The plugin declares `paramiko>=4.0,<5`. Netmiko 4.8 would also accept Paramiko 5,
+but that release removed `ssh-rsa` host keys, so legacy SSH appliances (for example
+SIAE SM-OS) fail with `SSH_NEGOTIATION_FAILED`. After upgrading the plugin, verify
+inside the NetBox and worker containers with
+`python -c "import paramiko; print(paramiko.__version__)"` that Paramiko is 4.x;
+rebuild or reinstall the plugin when it is not.
+Paramiko 4.0 is reported for
 CVE-2026-44405 because its RSA implementation still contains SHA-1 support.
 The plugin mitigates this for all Paramiko/Netmiko client sessions by disabling
 the `ssh-rsa` key and public-key algorithms while retaining RSA keys through

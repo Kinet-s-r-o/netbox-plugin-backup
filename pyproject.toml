@@ -13,6 +13,12 @@ dependencies = [
   "asyncssh>=2.21,<3",
   "cryptography>=46,<51",
   "netmiko>=4.7,<5",
+  # Netmiko 4.8 accepts Paramiko 5, which removed ssh-rsa (RSA/SHA-1) host keys.
+  # It also dropped SHA-1 key exchange. Legacy appliances such as SIAE SM-OS
+  # (OpenSSH 5.1: ssh-rsa, 3des-cbc, hmac-sha1) and older Cisco IOS
+  # (diffie-hellman-group1-sha1) can then no longer be negotiated at all. Keep
+  # the 4.x line until those drivers no longer need it.
+  "paramiko>=4.0,<5",
   "pyzipper>=0.3.6,<1",
   "pyftpdlib>=2.1,<3",
   "scp>=0.16,<1",

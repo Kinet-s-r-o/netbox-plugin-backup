@@ -909,6 +909,7 @@ nemusí podporovať úplný `show running-config`. Ak automatický driver oznám
 | `AUTH_FAILED` | Credential profile, používateľské meno, heslo a povolený spôsob loginu. |
 | `HOST_KEY_UNKNOWN` | V manuálnom alebo TOFU režime over nový fingerprint; zmenený kľúč schváľ iba po nezávislom potvrdení. |
 | `HOST_KEY_FAILED` / `HOST_KEY_MISMATCH` | Zariadenie mohlo vymeniť kľúč alebo ide o inú IP; neschvaľuj bez overenia. |
+| `SSH_NEGOTIATION_FAILED` | Zariadenie a worker nemajú spoločný SSH algoritmus (napr. starý `ssh-rsa` host key). Fingerprint nie je odmietnutý. Over, že vo workeri je Paramiko 4.x. |
 | `COMMAND_UNSUPPORTED` | Model alebo firmware nepodporuje príkaz drivera; potrebuje iný bezpečný workflow. |
 | `DRIVER_DISABLED` | Potrebný driver musí byť povolený v Settings → Device drivers. |
 | `DRIVER_SETUP_REQUIRED` | Chýba modelovo špecifická voľba, napríklad overený remote path; riaď sa požiadavkou konkrétneho drivera. |

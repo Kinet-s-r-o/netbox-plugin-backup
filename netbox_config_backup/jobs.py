@@ -129,6 +129,7 @@ class SSHHostKeyScanJob(JobRunner):
     def run(self, *args, **kwargs):
         target_ids = tuple(dict.fromkeys(kwargs.get("target_ids") or ()))[:1000]
         summary = {"scanned": 0, "pending": 0, "trusted": 0, "skipped": 0, "failed": 0}
+        failures = []
         for target_id in target_ids:
             try:
                 candidate = scan_target_host_key(target_id)
@@ -142,11 +143,21 @@ class SSHHostKeyScanJob(JobRunner):
                     summary["skipped"] += 1
                     continue
                 summary["failed"] += 1
+                # The Host keys page reports these; a failed scan must not look like "no keys".
+                failures.append(
+                    {
+                        "target_id": target_id,
+                        "error_code": exc.error_code,
+                        "safe_message": exc.safe_message,
+                    }
+                )
                 self.logger.warning(
                     "SSH identity scan for target %s failed with code %s.",
                     target_id,
                     exc.error_code,
                 )
+        self.job.data = {"scan": {**summary, "failures": failures[:100]}}
+        self.job.save(update_fields=("data",))
         self.logger.info(
             "SSH identity scan completed: scanned=%s pending=%s trusted=%s skipped=%s failed=%s.",
             summary["scanned"],

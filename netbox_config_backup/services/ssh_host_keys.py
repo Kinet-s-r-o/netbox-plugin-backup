@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import socket
 from dataclasses import dataclass
 
-import asyncssh
 import paramiko
 from django.db import transaction
 from django.utils import timezone
@@ -17,6 +15,7 @@ from netbox_config_backup.choices import (
 )
 from netbox_config_backup.drivers.base import DriverError
 from netbox_config_backup.models import SSHHostKey
+from netbox_config_backup.transports.legacy_host_key import scan_legacy_host_key
 
 from .django_repository import DjangoBackupRepository
 
@@ -53,40 +52,6 @@ def _fingerprints(public_key: str) -> tuple[str, str]:
     sha256 = base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
     md5 = ":".join(f"{byte:02x}" for byte in hashlib.md5(raw, usedforsecurity=False).digest())
     return f"SHA256:{sha256}", f"MD5:{md5}"
-
-
-def _scan_legacy_host_key(address: str, port: int, timeout: int) -> tuple[str, str]:
-    """Fallback for old appliances which only offer an ssh-dss host key."""
-
-    async def retrieve():
-        return await asyncio.wait_for(
-            asyncssh.get_server_host_key(
-                address,
-                port,
-                server_host_key_algs="+ssh-dss",
-                config=None,
-            ),
-            timeout=timeout,
-        )
-
-    try:
-        key = asyncio.run(retrieve())
-        if key is None:
-            raise DriverError("HOST_KEY_SCAN_FAILED", "The device did not present an SSH host key.")
-        parts = key.export_public_key("openssh").decode().strip().split()
-        if len(parts) < 2:
-            raise DriverError("HOST_KEY_SCAN_FAILED", "The device presented an invalid SSH key.")
-        return parts[0], parts[1]
-    except DriverError:
-        raise
-    except TimeoutError as exc:
-        raise DriverError(
-            "TIMEOUT", "The SSH identity scan timed out before the device responded."
-        ) from exc
-    except (asyncssh.Error, OSError, ValueError) as exc:
-        raise DriverError(
-            "HOST_KEY_SCAN_FAILED", "The device SSH identity could not be scanned safely."
-        ) from exc
 
 
 def scan_target_host_key(target_id: int) -> ScannedHostKey:
@@ -138,7 +103,7 @@ def scan_target_host_key(target_id: int) -> ScannedHostKey:
             transport.close()
             transport = None
             sock = None
-        key_type, public_key = _scan_legacy_host_key(
+        key_type, public_key = scan_legacy_host_key(
             context.address,
             context.connection.port,
             context.connection.connect_timeout,

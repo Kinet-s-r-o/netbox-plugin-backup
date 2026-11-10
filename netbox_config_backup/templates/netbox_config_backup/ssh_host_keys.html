@@ -30,6 +30,20 @@
     <span class="badge text-bg-secondary">{{ rejected_count }} rejected</span>
   </div>
 
+  {% if scan_report and scan_report.failed %}
+  <div class="alert alert-warning" role="alert">
+    <h3 class="h5 mb-1">The last scan could not read {{ scan_report.failed }} device identit{{ scan_report.failed|pluralize:"y,ies" }}</h3>
+    <p class="mb-2 small">Finished {{ scan_report.finished }}. Devices listed below keep their previous fingerprints.</p>
+    {% if scan_report.rows %}
+    <ul class="mb-0">
+      {% for row in scan_report.rows %}
+      <li>{{ row.target|linkify }} &mdash; <code>{{ row.error_code }}</code> {{ row.safe_message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="card">
     {% if host_keys %}
     <div class="table-responsive">

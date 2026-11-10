@@ -8,6 +8,19 @@ be deleted from an installation which may already have applied them.
 
 ### Fixed
 
+- SIAE SM-OS and older Cisco IOS devices failed with `HOST_KEY_FAILED` ("SSH
+  host key verification failed") or a misleading `TIMEOUT` on installations that
+  resolved Paramiko 5, which removed `ssh-rsa` host keys and SHA-1 key exchange.
+  The plugin now declares `paramiko>=4.0,<5`.
+- The SSH identity scan could not read appliances that offer only `3des-cbc` and
+  `hmac-sha1`, so it silently found nothing. Its AsyncSSH fallback now enables
+  those legacy algorithms for the pre-authentication host-key read only.
+- Algorithm mismatches are reported as `SSH_NEGOTIATION_FAILED` instead of being
+  mislabeled as a rejected host key or, when Netmiko wraps the error, as a TCP
+  timeout.
+- SSH host keys now shows why the last scan could not read a device, instead of
+  looking as if no new keys exist.
+
 - The Settings language selector keeps the save button wide enough for its label,
   including Slovak text, instead of letting the label overflow a shrinking button.
 - Password-protected FTP recovery downloads now contain the verified backup files

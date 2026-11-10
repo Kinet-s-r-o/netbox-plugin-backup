@@ -5,11 +5,24 @@ from io import StringIO
 
 from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutException
 from paramiko import RSAKey
-from paramiko.ssh_exception import SSHException
+from paramiko.ssh_exception import IncompatiblePeer, SSHException
 
 from netbox_config_backup.credentials.base import CredentialMaterial
 from netbox_config_backup.drivers.base import ConnectionParameters, DriverContext, DriverError
 from netbox_config_backup.transports.netmiko import NetmikoTransport
+
+
+def netmiko_wrapped_negotiation_failure(detail):
+    """Netmiko re-raises Paramiko's SSHException as NetmikoTimeoutException."""
+    try:
+        try:
+            raise IncompatiblePeer(detail)
+        except IncompatiblePeer:
+            raise NetmikoTimeoutException(
+                "A paramiko SSHException occurred during connection creation"
+            )  # mirrors Netmiko, which relies on the implicit exception context
+    except NetmikoTimeoutException as wrapped:
+        return wrapped
 
 
 class RecordingConnection:
@@ -226,6 +239,19 @@ class NetmikoTransportTests(unittest.TestCase):
                 "not present",
             ),
             (SSHException("host key verification detail"), "HOST_KEY_FAILED", "verification"),
+            (
+                IncompatiblePeer("Incompatible ssh peer (no acceptable host key)"),
+                "SSH_NEGOTIATION_FAILED",
+                "no SSH algorithm",
+            ),
+            (
+                # Cisco-1.25 offers only diffie-hellman-group1-sha1, which Paramiko 5 dropped.
+                netmiko_wrapped_negotiation_failure(
+                    "Incompatible ssh peer (no acceptable kex algorithm)"
+                ),
+                "SSH_NEGOTIATION_FAILED",
+                "no SSH algorithm",
+            ),
             (SSHException("protocol detail"), "CONNECTION_FAILED", "connection failed"),
         )
         for error, error_code, safe_detail in cases:
