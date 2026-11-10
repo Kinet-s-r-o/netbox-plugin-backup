@@ -483,10 +483,25 @@ less frequently changed controls are grouped below them:
 Each form has its own Save button: saving language does not save unsaved driver,
 cleanup, alert, or ZIP-password changes. Settings are permission-aware; users
 without the relevant change permission see the state without editable controls.
+The **Config Backup** entry in NetBox's side menu shows a red exclamation mark while
+something needs attention: a device whose backup failed, a remote storage with an
+error or failed integrity audit, or a stuck run. Devices, Storages, and Runs then show
+a red alert button with the count (Devices opens the failed devices). It uses the
+Overview page's definitions, only counts what the user may view, and refreshes
+within about 30 seconds.
+
 **Config Backup > Help** provides the recommended setup order,
 Local-versus-remote retention precedence, storage/receiver differences, and safe
 first checks for common error codes. Help is read-only and is available to the
 Reader role without granting access to Settings or secret values.
+
+Permissions built by hand in **Admin > Object permissions** must grant `view` on both
+**Config revision** and **Config artifact** for a user to open or download stored
+configuration; the preview, diff and download share the same rights. Without
+**Config artifact** the user sees the revision but gets no **View**/**Download**
+actions and a 403 on the content. Superusers bypass these checks. After upgrading, run
+`python manage.py migrate` so NetBox lists **Config artifact** among the object types.
+The groups from `config_backup_create_rbac_groups` already include both.
 
 ### Device drivers
 
@@ -539,6 +554,9 @@ which has not been added to Config Backup shows a setup prompt instead. The tab
 requires target view permission; revision rows, run rows, previews, and download
 actions are independently restricted by their corresponding NetBox object
 permissions.
+
+The Revisions list offers **View** and **Download** row actions for revisions
+whose local copy is still available and which the user may open.
 
 Revision detail pages provide a redacted configuration viewer and a unified
 diff against another revision of the same target. Before content is displayed,

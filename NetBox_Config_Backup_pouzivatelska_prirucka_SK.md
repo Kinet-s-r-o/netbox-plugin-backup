@@ -854,6 +854,21 @@ Príkaz nepriradí žiadneho používateľa automaticky. Používateľov treba d
 zaradiť vedome. Po nastavení vždy otestuj nesuperuser účet a potvrď, že obsah a
 download revisions vidia iba vybrané osoby.
 
+V ľavom menu NetBoxu sa pri položke **Config Backup** zobrazí červený výkričník,
+kým niečo vyžaduje pozornosť: zariadenie s neúspešnou zálohou, vzdialené úložisko s
+chybou alebo zaseknutý beh. Pri položkách **Devices**, **Storages** a **Runs** sa
+zobrazí červené tlačidlo s počtom (Devices otvorí zlyhané zariadenia). Používa
+rovnaké pravidlá ako stránka Overview, počíta len to, čo používateľ smie vidieť, a
+obnovuje sa do približne 30 sekúnd.
+
+Ak si oprávnenia vytváraš ručne v **Admin → Object permissions**, na zobrazenie
+konfigurácie aj jej stiahnutie potrebuje používateľ akciu **View** na oboch typoch
+objektov **Config revision** a **Config artifact** (náhľad, diff aj download majú
+rovnaké práva). Bez **Config artifact** používateľ revision vidí, ale tlačidlá
+**View** a **Download** sa nezobrazia a obsah vráti 403. Superuser tieto kontroly
+obchádza, preto mu to funguje vždy. Po aktualizácii pluginu spusti
+`python manage.py migrate`, aby sa **Config artifact** objavil v zozname typov objektov.
+
 ## 20. Podporované drivery
 
 Balík obsahuje najmä tieto drivery; ich dostupnosť pre nové priradenia riadi

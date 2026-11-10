@@ -70,6 +70,30 @@ DELETE_REVISION_EVERYWHERE_BUTTON = """
 {% endif %}
 """
 
+VIEW_REVISION_BUTTON = """
+{% if record.listed_preview_artifact and perms.netbox_config_backup.view_configrevision and perms.netbox_config_backup.view_configartifact %}
+<a class="btn btn-sm btn-outline-primary" title="View redacted configuration"
+   aria-label="View redacted configuration of revision {{ record.pk }}"
+   href="{% url 'plugins:netbox_config_backup:configrevision_content' pk=record.pk %}">
+  <i class="mdi mdi-eye-outline" aria-hidden="true"></i>
+</a>
+{% endif %}
+"""
+
+DOWNLOAD_REVISION_BUTTON = """
+{% if record.listed_download_artifact and perms.netbox_config_backup.view_configrevision and perms.netbox_config_backup.view_configartifact %}
+<a class="btn btn-sm btn-primary" title="Download stored backup"
+   aria-label="Download stored backup of revision {{ record.pk }}"
+   href="{% url 'plugins:netbox_config_backup:configrevision_artifact_download' pk=record.pk artifact_pk=record.listed_download_artifact.pk %}">
+  <i class="mdi mdi-download" aria-hidden="true"></i>
+</a>
+{% endif %}
+"""
+
+REVISION_ACTION_BUTTONS = (
+    VIEW_REVISION_BUTTON + DOWNLOAD_REVISION_BUTTON + DELETE_REVISION_EVERYWHERE_BUTTON
+)
+
 STORAGE_ACTION_BUTTONS = (
     TEST_DESTINATION_BUTTON
     + """
@@ -480,7 +504,7 @@ class ConfigRevisionTable(NetBoxTable):
     protected = columns.BooleanColumn()
     actions = columns.ActionsColumn(
         actions=(),
-        extra_buttons=DELETE_REVISION_EVERYWHERE_BUTTON,
+        extra_buttons=REVISION_ACTION_BUTTONS,
     )
 
     class Meta(NetBoxTable.Meta):

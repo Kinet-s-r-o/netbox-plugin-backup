@@ -1206,9 +1206,31 @@ class ConfigRevision(NetBoxModel):
     def __str__(self) -> str:
         return f"{self.target} @ {self.revision_uuid}"
 
+    # The revisions list prefetches the artifacts its user may open, with a local copy,
+    # into ``listed_artifacts``. Row buttons read them through these properties so a
+    # link is never shown for an expired local copy or a hidden artifact.
+    @property
+    def listed_preview_artifact(self):
+        return next((a for a in getattr(self, "listed_artifacts", ()) if a.is_primary), None)
+
+    @property
+    def listed_download_artifact(self):
+        native = next(
+            (
+                a
+                for a in getattr(self, "listed_artifacts", ())
+                if a.artifact_type == "native_backup"
+            ),
+            None,
+        )
+        return native or self.listed_preview_artifact
+
 
 class ConfigArtifact(NetBoxModel):
-    _netbox_private = True
+    # Deliberately not _netbox_private: viewing and downloading stored configuration
+    # require view_configartifact, and NetBox lists only public models in the Object
+    # permissions form. A private model could never be granted from the UI, so any
+    # permission built there would silently exclude content access.
 
     revision = models.ForeignKey(
         ConfigRevision,

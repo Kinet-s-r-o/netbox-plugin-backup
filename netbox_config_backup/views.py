@@ -2977,6 +2977,15 @@ class ConfigRevisionListView(generic.ObjectListView):
     filterset_form = forms.ConfigRevisionFilterForm
     actions = ()
 
+    def get_queryset(self, request):
+        # Row buttons may only link to local copies this user is allowed to open.
+        openable_artifacts = ConfigArtifact.objects.restrict(request.user, "view").filter(
+            local_available=True
+        )
+        return super().get_queryset(request).prefetch_related(
+            Prefetch("artifacts", queryset=openable_artifacts, to_attr="listed_artifacts")
+        )
+
 
 @register_model_view(ConfigRevision)
 class ConfigRevisionView(generic.ObjectView):

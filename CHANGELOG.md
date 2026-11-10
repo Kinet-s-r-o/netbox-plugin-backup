@@ -8,6 +8,16 @@ be deleted from an installation which may already have applied them.
 
 ### Fixed
 
+- Users with a hand-made NetBox permission could open a revision but never view or
+  download its configuration, because **Config artifact** was a private model and
+  NetBox hides those from the Object permissions form. It is now selectable.
+  Run `python manage.py migrate` after upgrading so NetBox refreshes the object type.
+  Secret-holding models stay private. Superusers and the command-created groups
+  were unaffected.
+- The Revisions list now has **View** and **Download** row actions, as the device
+  Backup tab does. They appear only for revisions whose local copy is still
+  available and which the user may open; the download links the native backup
+  when one exists. Previously only **Delete** was offered there, even to superusers.
 - SIAE SM-OS and older Cisco IOS devices failed with `HOST_KEY_FAILED` ("SSH
   host key verification failed") or a misleading `TIMEOUT` on installations that
   resolved Paramiko 5, which removed `ssh-rsa` host keys and SHA-1 key exchange.
@@ -39,6 +49,12 @@ be deleted from an installation which may already have applied them.
 
 ### Added
 
+- The **Config Backup** heading in NetBox's side menu shows a red exclamation mark
+  while a visible device has a failed backup, a remote storage needs attention, or a
+  run is stuck. The matching menu items (Devices, Storages, Runs) show a red alert
+  button with the count; Devices links to the failed devices. The state uses the
+  same definitions as the Overview page, respects each user's object permissions,
+  is cached for 30 seconds per user, and never breaks page rendering.
 - Settings now includes driver-selection checkboxes with immediate effect on
   device/platform forms and backup execution. In-use drivers cannot be disabled;
   historical backups remain readable. Migration 0030 preserves existing behavior.

@@ -765,3 +765,12 @@ msgstr "Tento ovládač je vypnutý v Nastavenia > Ovládače zariadení."
 
 msgid "In Settings > Device drivers, enable only the drivers you need. In-use drivers stay enabled until their device and platform assignments are changed. Historical backups remain available."
 msgstr "V Nastavenia > Ovládače zariadení povoľte len potrebné ovládače. Používané ovládače zostanú povolené, kým nezmeníte ich priradenie k zariadeniam a platformám. Historické zálohy zostanú dostupné."
+
+msgid "Failed devices: %(count)d"
+msgstr "Neúspešné zariadenia: %(count)d"
+
+msgid "Storages needing attention: %(count)d"
+msgstr "Úložiská vyžadujúce pozornosť: %(count)d"
+
+msgid "Stuck runs: %(count)d"
+msgstr "Zaseknuté behy: %(count)d"
